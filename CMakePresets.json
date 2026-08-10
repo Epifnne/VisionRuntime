@@ -1,0 +1,66 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "mingw-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "D:/Qt/Tools/mingw1310_64/bin/g++.exe",
+        "CMAKE_MAKE_PROGRAM": "D:/Qt/Tools/Ninja/ninja.exe",
+        "CMAKE_PREFIX_PATH": "D:/Qt/6.10.1/mingw_64"
+      }
+    },
+    {
+      "name": "mingw-debug",
+      "displayName": "MinGW Debug (-O0, debug symbols)",
+      "description": "Unoptimized build for debugging",
+      "inherits": "mingw-base",
+      "binaryDir": "${sourceDir}/Build/Debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "mingw-release",
+      "displayName": "MinGW Release (-O3)",
+      "description": "Optimized build for performance",
+      "inherits": "mingw-base",
+      "binaryDir": "${sourceDir}/Build/Release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "mingw-debug",
+      "configurePreset": "mingw-debug"
+    },
+    {
+      "name": "mingw-release",
+      "configurePreset": "mingw-release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "mingw-debug",
+      "configurePreset": "mingw-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "mingw-release",
+      "configurePreset": "mingw-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}
