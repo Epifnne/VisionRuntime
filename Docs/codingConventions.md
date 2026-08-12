@@ -10,8 +10,8 @@
 | 函数、成员函数 | lowerCamelCase | `prepareModel()`、`submitFrame()` |
 | 局部变量、参数、非静态成员 | lowerCamelCase | `taskId`、`modelPath` |
 | 文件名 | lowerCamelCase | `pipelineExecutor.hpp`、`modelManifest.hpp` |
-| 目录名 | lowerCamelCase | `preProcess`、`postProcess` |
-| namespace | lowerCamelCase | `visonRuntime`、`preProcess` |
+| 目录名 | lowerCamelCase | `preprocess`、`postprocess` |
+| namespace | lowerCamelCase | `visonRuntime`、`preprocess` |
 | 枚举值 | UpperCamelCase | `QueueFull`、`BuildIfMissing` |
 | 编译期常量 | `k` + UpperCamelCase | `kDefaultQueueSize` |
 | 宏 | UPPER_SNAKE_CASE | `VISON_RUNTIME_EXPORT` |
@@ -24,6 +24,7 @@
 - 接口类使用 `I` 前缀，例如 `IInferenceBackend`、`IPreprocessor`。
 - 不使用 `_t` 后缀表达普通项目类型。
 - 缩写按普通单词处理，避免整段大写：`OnnxRuntimeBackend`、`OpenVinoBackend`、`TensorRtBackend`、`OcrResult`。
+- `preprocess` 和 `postprocess` 各自视为一个单词：类型中使用 `Preprocess`、`Postprocess`，其他标识符中使用 `preprocess`、`postprocess`。
 - RAII 所有权类型的名称应表达资源，例如 `TensorBuffer`、`ModelHandle`。
 
 ## 3. 文件和目录

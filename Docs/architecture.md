@@ -17,19 +17,21 @@ VisonRuntime 是一个面向工业视觉模型部署的 C++20 SDK。模型训练
 ## 2. 总体数据流
 
 ```text
-FrameSource / cv::Mat
+FileSource / Camera Adapter
+	|
+	v  Frame（图像语义）
 	|
 	v
 PipelineExecutor  -- 多生产者有界提交队列、任务 ID、future、回调
 	|
 	v
-PreProcess Thread  -- resize、颜色转换、归一化、layout 转换
+Preprocess Thread  -- resize、颜色转换、归一化、layout 转换
 	|
 	v  有界 SPSC 队列
 Inference Thread  -- ORT / OpenVINO / TensorRT
 	|
 	v  有界 SPSC 队列
-PostProcess Thread -- 阈值、坐标还原、热力图、区域提取
+Postprocess Thread -- 阈值、坐标还原、热力图、区域提取
 	|
 	v  有界 SPSC 队列
 CompletionDispatcher -- future 就绪、业务回调
@@ -47,13 +49,13 @@ Runtime/
 ├─ include/
 │  ├─ core/          # 无视觉业务语义的基础类型
 │  ├─ vision/        # 图像、几何、变换上下文和标准结果
-│  ├─ preProcess/    # 前处理节点接口与内置节点
+│  ├─ preprocess/    # 前处理节点接口与内置节点
 │  ├─ backends/      # 统一后端接口及各后端声明
-│  ├─ postProcess/   # 后处理节点接口与标准任务实现
+│  ├─ postprocess/   # 后处理节点接口与标准任务实现
 │  ├─ pipeline/      # 线性流水线、构建器和运行时门面
 │  ├─ executor/      # 队列、任务、线程和结果交付
 │  ├─ config/        # 模型清单、部署配置、校验和对象构造
-│  ├─ camera/        # 图像源抽象及海康 MVS 适配器
+│  ├─ camera/        # 文件夹图像源、图像源抽象及海康 MVS 适配器
 │  ├─ logs/          # 日志接口和运行指标
 │  └─ gui/           # 预留，不属于首版核心 SDK
 ├─ src/              # 对应模块的非公开实现
@@ -87,15 +89,37 @@ Runtime/
 
 `TransformContext` 随前处理结果传递，后处理依靠它把检测框、关键点和热力图映射回原图。
 
-### 3.3 preProcess
+### 3.3 preprocess
 
-前处理模块把 `Frame` 转换为后端可消费的 `TensorMap`。节点采用线性组合，首版内置 resize、letterbox、颜色转换、归一化和 HWC/NCHW 转换。每次执行产生 `PreparedInput`，其中同时包含张量和 `TransformContext`。
+前处理模块把 `Frame` 转换为后端可消费的 `TensorMap`。`PreprocessChainBuilder` 使用类型状态组合节点，构建完成后仍以 `IPreprocessor` 接入 Pipeline；节点在同一前处理线程中顺序运行，不为每个节点创建线程。每次执行产生 `PreparedInput`，其中同时包含张量和 `TransformContext`。
+
+当前已实现的节点链为：
+
+```text
+Camera Frame
+	-> FusedImageToTensorNode
+	   resize + Gray/BGR/BGRA to RGB + Float32 NCHW
+	   直接写入 TensorBufferPool 槽位
+	   完成后释放 Camera Frame
+	-> TensorNormalizeNode
+	   在同一 Tensor 上原地执行 scale / mean / standard deviation
+```
+
+`FusedImageToTensorNode` 是物化节点：它申请最终张量 Buffer，并直接写入目标 NCHW 平面，不生成临时 Tensor，也不在处理完成后执行整块 `memcpy`。`TensorNormalizeNode` 只修改已有 Tensor，不改变其 Buffer lease。
+
+节点通过 `CameraFrame`、`Tensor` 类型状态声明输入输出，并通过 `materializes` 标记物化边界。Builder 在编译期保证：
+
+- 归一化节点不能出现在图像物化之前。
+- 一条链必须经过物化后才能 `build()`。
+- 一条链最多包含一个物化节点，第二个物化节点无法通过 `then()` 约束。
+
+当前图像物化支持双线性 resize、Gray8/Bgr8/Bgra8 到 RGB、Float32 NCHW 和逐通道归一化。letterbox、裁剪、灰度化与二值化节点尚未实现。
 
 自定义前处理通过实现 `IPreprocessor` 随业务程序一起编译，不在首版提供运行时 DLL ABI。
 
 ### 3.4 backends
 
-`IInferenceBackend` 统一以下生命周期：
+`IInferenceBackend` 只抽象模型执行引擎，统一以下生命周期：
 
 ```text
 prepare(ONNX, options) -> PreparedModel
@@ -108,6 +132,8 @@ infer(PreparedModel, TensorMap) -> TensorMap
 
 后端专用对象只能出现在各自实现中，不进入 `core`、`vision` 或公共 Pipeline API。部署配置显式选择后端，不进行静默回退。
 
+纯 OpenCV 算法不实现 `IInferenceBackend`，避免把图像和强类型结果伪装成模型张量。它通过 `IOpenCvAlgorithm<ResultType>` 接入独立的 `OpenCvPipeline<ResultType>`。
+
 模型准备支持两种模式：
 
 - `BuildIfMissing`：开发环境允许首次编译并写入缓存。
@@ -115,7 +141,7 @@ infer(PreparedModel, TensorMap) -> TensorMap
 
 缓存键至少包含 ONNX SHA-256、后端及版本、设备信息、精度和构建参数。离线预编译工具与运行时复用同一套模型准备逻辑。
 
-### 3.5 postProcess
+### 3.5 postprocess
 
 后处理模块把原始 `TensorMap` 转换为标准强类型结果。首版实现异常分数、热力图缩放、阈值判断和缺陷区域提取，随后增加分类和检测。
 
@@ -123,13 +149,20 @@ infer(PreparedModel, TensorMap) -> TensorMap
 
 ### 3.6 pipeline
 
-Pipeline 只描述线性的执行顺序：
+`IVisionPipeline<ResultType>` 是同步视觉任务的统一入口：
 
 ```text
-IPreprocessor -> IInferenceBackend -> IPostprocessor
+IVisionPipeline<ResultType>
+	|-- ModelPipeline<ResultType>
+	|     IPreprocessor -> IInferenceBackend -> IPostprocessor<ResultType>
+	|
+	`-- OpenCvPipeline<ResultType>
+				IOpenCvAlgorithm<ResultType>
 ```
 
-`PipelineBuilder` 负责类型正确的组装，`Runtime` 是面向 SDK 使用者的门面。首版不实现 DAG、多模型串并联和运行时插件系统，避免过早引入图调度及稳定 ABI 问题。
+`ModelPipelineBuilder` 和 `OpenCvPipelineBuilder` 负责类型正确的组装。Executor 和 Runtime 只依赖 `IVisionPipeline<ResultType>`，无需判断任务由推理引擎还是 OpenCV 实现。模型路径使用 `TensorMap` 作为前处理、推理和后处理之间的数据契约；OpenCV 路径直接读取 `PipelinePacket` 并返回强类型结果。
+
+首版不实现 DAG、多模型串并联和运行时插件系统，避免过早引入图调度及稳定 ABI 问题。
 
 Pipeline 使用 move-only `PipelinePacket` 在线性阶段间移交图像，不允许隐式复制 `Frame`。图像缓冲采用两段生命周期：
 
@@ -148,6 +181,8 @@ Business Frame
 - 相机 Frame 在 `AfterImagePreparation` 释放。
 - 裁剪图、复制图或业务显示图在 `AfterPostprocess` 释放。
 
+在当前节点链中，`FusedImageToTensorNode` 写完最终池化 Tensor 后调用 `completeImagePreparation()`，因此后续 `TensorNormalizeNode` 不再持有相机 Buffer。Tensor 自身持有张量池 lease，直到推理阶段不再引用该 Tensor 时自动归还槽位。
+
 `BusinessFramePool` 按固定宽高、像素格式和 row stride 预分配业务图像。前处理直接写入取得的业务 Frame，随后同一地址通过 move 传递到推理和后处理，避免阶段间再次复制。
 
 如果业务图只是相机 Buffer 上的零拷贝裁剪视图，它仍持有相机 lease，相机槽位会延长到业务图释放；需要在图像准备后立即归还相机槽位时，必须将裁剪结果写入独立业务池。
@@ -155,6 +190,16 @@ Business Frame
 ### 3.7 executor
 
 Executor 在 Pipeline 之上提供在线调度：
+
+当前已实现的基础调度层：
+
+- `PipelineExecutor<ResultType>` 只依赖 `IVisionPipeline<ResultType>`，使用单执行线程按 FIFO 调用整体 `run()`。
+- `submit()` 支持多业务线程并发调用；固定容量入口队列满时返回 `QueueFull`。
+- `TaskHandle` 提供 task ID、任务状态、shared future 和取消请求。
+- 独立完成线程设置 future 并触发回调；Pipeline 与回调异常均不会逃出线程入口。
+- 平滑停止排空已接受任务；立即停止标记正在运行和排队任务为取消，并保持提交顺序完成。执行中的 Pipeline 调用不被抢占。
+
+下一阶段的分阶段 PipelineRunner 设计：
 
 - `PipelineRunner` 是单通道的三阶段流水线，前处理、推理和后处理各由一个专属线程串行执行本阶段任务。
 - `submit()` 可以由多个业务线程并发调用，因此入口使用线程安全的固定容量有界提交队列，不假定单生产者。
@@ -167,6 +212,8 @@ Executor 在 Pipeline 之上提供在线调度：
 - 平滑停止拒绝新任务并排空已接受任务；立即停止取消所有未开始任务，正在执行的阶段允许完成后停止向下游交付。
 - 未开始任务可以取消；执行中的任务只记录取消请求，不抢占后端调用，并在安全边界停止后续阶段或结果交付。
 - 阶段函数和业务回调产生的异常必须转换为失败状态，不能逃出线程入口。
+
+当前 `IVisionPipeline` 只暴露整体 `run()`，无法在不识别具体 Pipeline 类型的前提下拆分三个阶段。实现 `PipelineRunner` 前必须先定义模型 Pipeline 与 OpenCV Pipeline 均可遵守的阶段化 contract；在该 contract 落地前，Executor 不宣称具备阶段重叠或内部 SPSC 背压。
 
 提交异步任务时通过 move-only `Frame` 明确移交图像。底层 `TensorBuffer` 使用 lease 保证异步阶段访问期间内存有效；最后一个 Frame/Tensor 视图释放时自动归还所属池。`PipelineOwnershipOptions` 可分别配置相机帧和业务帧的释放阶段。
 
@@ -185,7 +232,20 @@ Executor 在 Pipeline 之上提供在线调度：
 
 ### 3.9 camera
 
-`IFrameSource` 抽象开始、停止和 move-only 帧回调。`FrameBufferPool` 为采集提供固定容量槽位，并复用 `core::TensorBufferPool` 的 lease 归还机制。首版提供目录/视频源以及海康机器人 MVS 适配器。相机 SDK 只存在于适配器实现，不传入核心 API；断线重连、触发模式和厂商缓冲区释放由适配器管理。
+`IFrameSource` 抽象开始、停止和 move-only 帧回调。图像源内部操作 `TensorBuffer`，但公共边界始终交付包含宽高、像素格式、row stride 和采集元数据的 `Frame`；前处理再把 `Frame` 转换为模型所需的 `Tensor`。
+
+`FileSource` 是基于文件夹的异步图像序列源：
+
+- `create()` 校验目录并一次性枚举文件；扩展名匹配不区分大小写，支持普通或递归扫描。
+- 默认识别 BMP、JPEG、PNG 和 TIFF，也允许通过 `FileSourceOptions::extensions` 指定其他 OpenCV 可解码格式。
+- 文件按字典序或最后修改时间排序，可配置循环播放与帧间隔。
+- `start()` 创建工作线程，依次解码文件并通过 `FrameCallback` 移交 `Result<Frame>`；单个文件解码失败时回调错误，后续文件继续处理。
+- 解码结果支持 Gray8、Gray16、Float32Gray、BGR8 和 BGRA8。`TensorBuffer` 共享持有 `cv::Mat` 的生命周期，创建 `Frame` 时不再复制像素数据。
+- 文件帧的 `sequenceNumber` 从零递增，`capturedAt` 记录实际解码交付时间。`stop()` 请求停止并等待工作线程退出，也允许从回调线程中请求停止而不自等待。
+
+OpenCV 仅存在于 `FileSource` 的 `.cpp` 实现和私有链接依赖中，不泄漏到 `IFrameSource`、`Frame`、`TensorBuffer` 等公共 API。当前从源码最小构建 `core`、`imgproc` 和 `imgcodecs` 模块，并关闭 FileSource 不需要的 ADE、FFmpeg、GStreamer 和 IPP。
+
+`FrameBufferPool` 为实时相机采集提供固定容量槽位，并复用 `core::TensorBufferPool` 的 lease 归还机制。海康机器人 MVS 适配器后续负责断线重连、触发模式和厂商缓冲区释放；相机 SDK 只存在于适配器实现，不传入核心 API。视频文件源尚未实现，应与目录 `FileSource` 分开建模，避免混合有限图像序列和连续媒体流语义。
 
 ### 3.10 logs
 
@@ -200,11 +260,11 @@ core
   ├── logs
   └── backends
 	^
-vision ─┼── preProcess
-	├── postProcess
+vision ─┼── preprocess
+	├── postprocess
 	└── camera
 
-core + vision + preProcess + backends + postProcess
+core + vision + preprocess + backends + postprocess
 		      ^
 		   pipeline
 		      ^

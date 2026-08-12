@@ -33,6 +33,7 @@
 /.idea/
 /.vs/
 /.vscode/
+/.VSCodeCounter/
 *.code-workspace
 *.suo
 *.user

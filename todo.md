@@ -9,7 +9,7 @@
 - [ ] 将 OpenCV、JSON、日志和测试框架下载到 `Thirdparty`，记录版本、来源和校验值。
 - [ ] 为 OpenVINO、TensorRT、ONNX Runtime、海康 MVS 定义独立 CMake 开关和 imported targets。
 - [ ] 建立 MinGW 警告级别、格式化、静态分析和基础 CI。
-- [ ] 将 `preProcess`、`postProcess` 等目录名统一为最终命名风格，避免公开 include 路径后再改名。
+- [x] 将 `preprocess`、`postprocess` 作为单词统一目录、命名空间和公开 include 路径。
 
 验收：无任何推理 SDK 时 core target 和单元测试可以独立配置、编译并运行。
 
@@ -29,8 +29,10 @@
 
 ## M2：首个纵向功能——OpenVINO 异常检测
 
-- [ ] 定义 `IPreprocessor`、`IInferenceBackend`、`IPostprocessor` 和线性 Pipeline 接口。
-- [ ] 实现 resize、颜色转换、归一化和 NCHW 前处理节点。
+- [x] 定义 `IPreprocessor`、`IInferenceBackend`、`IPostprocessor` 和线性 Pipeline 接口。
+- [x] 实现 resize、颜色转换、归一化和直接写入池化 NCHW 张量的前处理。
+- [x] 实现类型状态化 `PreprocessChainBuilder`，编译期校验节点顺序且每条链最多包含一个物化节点。
+- [ ] 实现 letterbox、裁剪、灰度化和二值化等可选前处理节点。
 - [ ] 实现 OpenVINO ONNX 加载、CPU 编译和同步推理。
 - [ ] 实现异常分数、热力图还原、阈值判断和缺陷区域提取。
 - [ ] 实现 `AnomalyResult` 示例程序：读取本地图像并输出结果。
@@ -53,14 +55,14 @@
 
 ## M4：异步 Executor
 
-- [ ] 实现支持并发 `submit()` 的固定容量有界提交队列。
+- [x] 实现支持并发 `submit()` 的固定容量有界提交队列。
 - [ ] 实现有界 SPSC 队列，连接前处理、推理、后处理和结果交付阶段。
-- [ ] 实现 `TaskHandle`、future、回调和任务状态机。
+- [x] 实现 `TaskHandle`、future、回调和任务状态机。
 - [ ] 实现单通道 `PipelineRunner`：前处理、推理和后处理各使用一个专属线程，并配置独立 `CompletionDispatcher`。
 - [ ] 入口队列满时返回 `QueueFull`；内部队列满时阻塞上游阶段并传播背压，保证任务不静默丢失。
 - [ ] 保证各阶段 FIFO 和按提交顺序交付；多通道及完成即交付留作后续扩展。
-- [ ] 定义平滑停止、立即停止和取消语义；未开始任务可取消，执行中任务只记录取消请求并停止交付结果。
-- [ ] 保证业务回调异常不终止工作线程。
+- [x] 定义基础执行器的平滑停止、立即停止和取消语义；执行中的 Pipeline 调用不抢占，在安全边界转换结果。
+- [x] 保证 Pipeline 与业务回调异常不终止工作线程。
 - [ ] 增加阶段并行、队列满载、背压、停止、取消、结果顺序、回调异常和图像生命周期测试。
 
 验收：单通道流水线持续异步提交时没有悬空图像、任务泄漏和未捕获异常，任务严格有序，结果可通过 task ID 与工件稳定关联。
