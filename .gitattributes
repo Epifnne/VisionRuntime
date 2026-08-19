@@ -1,0 +1,61 @@
+* text=auto
+
+# Source and project files use LF on every platform
+*.c       text eol=lf
+*.cc      text eol=lf
+*.cmake   text eol=lf
+*.cpp     text eol=lf
+*.cxx     text eol=lf
+*.h       text eol=lf
+*.hpp     text eol=lf
+*.hxx     text eol=lf
+*.inl     text eol=lf
+CMakeLists.txt text eol=lf
+
+*.json    text eol=lf
+*.md      text eol=lf
+*.toml    text eol=lf
+*.xml     text eol=lf
+*.yaml    text eol=lf
+*.yml     text eol=lf
+
+# Windows command scripts require CRLF
+*.bat     text eol=crlf
+*.cmd     text eol=crlf
+*.ps1     text eol=crlf
+
+# Libraries, models, media, and archives are binary
+*.a       binary
+*.bin     binary
+*.blob    binary
+*.dll     binary
+*.dylib   binary
+*.engine  binary
+*.lib     binary
+*.onnx    binary
+*.plan    binary
+*.so      binary
+*.tflite  binary
+*.xml.bin binary
+
+*.bmp     binary
+*.gif     binary
+*.ico     binary
+*.jpeg    binary
+*.jpg     binary
+*.png     binary
+*.tif     binary
+*.tiff    binary
+*.webp    binary
+
+*.avi     binary
+*.mkv     binary
+*.mov     binary
+*.mp4     binary
+*.webm    binary
+
+*.7z      binary
+*.gz      binary
+*.tar     binary
+*.xz      binary
+*.zip     binary

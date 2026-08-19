@@ -1,0 +1,78 @@
+# CMake and build outputs
+/Build/
+/CMakeFiles/
+/CMakeCache.txt
+/CTestTestfile.cmake
+/Testing/
+/cmake_install.cmake
+/compile_commands.json
+/install_manifest.txt
+/build.ninja
+/.ninja_deps
+/.ninja_log
+
+# Local CMake presets may contain machine-specific paths
+/CMakeUserPresets.json
+
+# Compiler and linker outputs
+*.a
+*.dll
+*.dylib
+*.exe
+*.exp
+*.ilk
+*.lib
+*.o
+*.obj
+*.pdb
+*.so
+*.so.*
+*.dSYM/
+
+# IDE and editor state
+/.idea/
+/.vs/
+/.vscode/
+/.VSCodeCounter/
+*.code-workspace
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Static-analysis and coverage outputs
+/.cache/
+/.clangd/
+/.coverage/
+*.gcda
+*.gcno
+*.gcov
+coverage.info
+
+# Runtime-generated data
+/artifacts/
+/cache/
+/logs/
+/outputs/
+*.log
+*.tmp
+
+# Backend-compiled model caches (source models such as ONNX remain trackable)
+*.blob
+*.engine
+*.plan
+
+# sample pictures and models
+*.onnx
+*.bmp
+*.jepg
+*.png
+
+# OS metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Third-party dependencies are installed locally
+/Thirdparty/*
+!/Thirdparty/README.md

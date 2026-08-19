@@ -1,0 +1,13 @@
+#pragma once
+
+#include <backends>
+#include <camera>
+#include <config>
+#include <core>
+#include <executor>
+#include <gui>
+#include <logs>
+#include <pipeline>
+#include <postprocess>
+#include <preprocess>
+#include <vision>
