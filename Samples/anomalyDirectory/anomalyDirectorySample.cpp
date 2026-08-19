@@ -1,7 +1,5 @@
 #include <visionruntime>
 
-#include <benchmark/anomalyCsvTimedPipeline.hpp>
-
 #include <cstddef>
 
 namespace {
@@ -36,7 +34,7 @@ int main() {
 	auto scorePostprocessor = postprocess::AnomalyPostprocessor::create({
 		.outputName = "score",
 	}).value();
-	
+
 	auto thresholdPostprocessor = postprocess::AnomalyThresholdPostprocessor::create(
 		std::move(scorePostprocessor), {
 			.threshold = 2.0F,
