@@ -202,12 +202,12 @@ Business Frame -> infer -> postprocess/heatmap -> release business buffer
 
 ## 构建环境
 
-- Windows
-- Qt MinGW-w64 13.1 (`D:/Qt/Tools/mingw1310_64`)
+- Windows：Qt MinGW-w64 13.1 (`D:/Qt/Tools/mingw1310_64`)
+- WSL Ubuntu：GCC，适用于 Linux 原生构建和 `perf`
 - CMake 3.25 或更高版本
 - Ninja
 
-项目当前仅支持 MinGW，不使用 vcpkg。第三方依赖直接放入 `Thirdparty/<package>/<version>`，具体规则见 [Thirdparty/README.md](Thirdparty/README.md)。
+项目支持 MinGW 和 x86_64 Linux，不使用 vcpkg。第三方依赖直接放入 `Thirdparty/<package>/<version>`，OpenVINO 按平台隔离，具体规则见 [Thirdparty/README.md](Thirdparty/README.md)。WSL 性能构建使用 `Samples/anomalyDirectory/CMakePresets.json` 中的 `linux-perf` preset。
 
 首次配置前可构建 `bootstrapDependencies` target，按固定提交下载或核验 OpenCV、GoogleTest、nlohmann/json 和 spdlog。项目源码启用 `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion`。
 

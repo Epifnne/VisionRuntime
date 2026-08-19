@@ -2,8 +2,8 @@ cmake_minimum_required(VERSION 3.25)
 
 project(VisionRuntime LANGUAGES CXX)
 
-if(NOT MINGW)
-	message(FATAL_ERROR "VisionRuntime currently supports MinGW only")
+if(NOT MINGW AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+	message(FATAL_ERROR "VisionRuntime currently supports MinGW and Linux only")
 endif()
 
 set(CMAKE_CXX_STANDARD 20)

@@ -83,7 +83,9 @@ function(vision_target_runtime targetName)
 			VISION_RUNTIME_DEVICE_NAME="${VISION_DEVICE}"
 			VISION_RUNTIME_ARTIFACT_TYPE="${VISION_ARTIFACT}"
 		)
-		_vision_deploy_openvino_runtime(${targetName} ${VISION_DEVICE} ${VISION_ARTIFACT})
+		if(WIN32)
+			_vision_deploy_openvino_runtime(${targetName} ${VISION_DEVICE} ${VISION_ARTIFACT})
+		endif()
 	endif()
 endfunction()
 

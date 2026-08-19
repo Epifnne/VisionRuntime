@@ -1,0 +1,31 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "linux-perf",
+      "displayName": "WSL Linux perf (RelWithDebInfo)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/../../Build/WSL-Perf",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_CXX_FLAGS_RELWITHDEBINFO": "-O2 -g -fno-omit-frame-pointer",
+        "VISION_RUNTIME_ROOT": "${sourceDir}/../..",
+        "OpenVINO_DIR": "${sourceDir}/../../Thirdparty/openvino/2026.2.1/linux-x86_64/openvino/cmake"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "linux-perf",
+      "configurePreset": "linux-perf",
+      "targets": [
+        "anomalyDirectorySample"
+      ]
+    }
+  ]
+}
