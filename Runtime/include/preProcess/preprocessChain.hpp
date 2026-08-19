@@ -1,21 +1,18 @@
 #pragma once
 
 #include "preprocess/iPreprocessor.hpp"
+#include "preprocess/preprocessNode.hpp"
 #include "preprocess/preprocessContext.hpp"
+#include "vision/frame.hpp"
 
 #include <concepts>
 #include <memory>
+#include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
-namespace visonRuntime::preprocess {
-
-template<typename Node>
-concept PreprocessNode = std::derived_from<Node, IPreprocessNode> && requires {
-	{ Node::inputState } -> std::convertible_to<PreprocessDataState>;
-	{ Node::outputState } -> std::convertible_to<PreprocessDataState>;
-	{ Node::materializes } -> std::convertible_to<bool>;
-};
+namespace visionRuntime::preprocess {
 
 class PreprocessChain final : public IPreprocessor {
 public:
@@ -32,37 +29,60 @@ private:
 template<PreprocessDataState State, bool HasMaterialized = false>
 class PreprocessChainBuilder {
 public:
-	[[nodiscard]] static auto start()
-		requires (State == PreprocessDataState::CameraFrame) {
-		return PreprocessChainBuilder<PreprocessDataState::CameraFrame, false>();
-	}
-
 	template<PreprocessNode Node>
 		requires (Node::inputState == State && !(HasMaterialized && Node::materializes))
 	[[nodiscard]] auto then(Node node) && {
-		nodes_.push_back(std::make_unique<Node>(std::move(node)));
+		if (status_.isOk()) {
+			auto builtNode = std::move(node).build(buildContext_);
+			if (builtNode) {
+				nodes_.push_back(std::move(builtNode).value());
+			} else {
+				status_ = builtNode.status();
+			}
+		}
 		return PreprocessChainBuilder<
-			Node::outputState, HasMaterialized || Node::materializes>(std::move(nodes_));
+			Node::outputState, HasMaterialized || Node::materializes>(
+			std::move(nodes_), std::move(status_), std::move(buildContext_));
 	}
 
-	[[nodiscard]] std::unique_ptr<IPreprocessor> build() &&
+	[[nodiscard]] core::Result<std::unique_ptr<IPreprocessor>> build() &&
 		requires (State == PreprocessDataState::Tensor && HasMaterialized) {
-		return std::make_unique<PreprocessChain>(std::move(nodes_));
+		if (!status_.isOk()) {
+			return core::Result<std::unique_ptr<IPreprocessor>>::failure(
+				std::move(status_));
+		}
+		std::unique_ptr<IPreprocessor> preprocessor =
+			std::make_unique<PreprocessChain>(std::move(nodes_));
+		return core::Result<std::unique_ptr<IPreprocessor>>::success(
+			std::move(preprocessor));
 	}
 
 private:
+	friend class PreprocessBuilder;
 	template<PreprocessDataState, bool>
 	friend class PreprocessChainBuilder;
 
 	PreprocessChainBuilder() = default;
-	explicit PreprocessChainBuilder(
-		std::vector<std::unique_ptr<IPreprocessNode>> nodes)
-		: nodes_(std::move(nodes)) {}
+	PreprocessChainBuilder(
+		std::vector<std::unique_ptr<IPreprocessNode>> nodes,
+		core::Status status,
+		PreprocessBuildContext buildContext)
+		: nodes_(std::move(nodes)),
+		  status_(std::move(status)),
+		  buildContext_(std::move(buildContext)) {}
 
 	std::vector<std::unique_ptr<IPreprocessNode>> nodes_;
+	core::Status status_;
+	PreprocessBuildContext buildContext_;
 };
 
-using CameraFramePreprocessBuilder =
-	PreprocessChainBuilder<PreprocessDataState::CameraFrame, false>;
+class PreprocessBuilder {
+public:
+	template<typename Input>
+		requires std::same_as<std::remove_cvref_t<Input>, vision::Frame>
+	[[nodiscard]] static auto start() {
+		return PreprocessChainBuilder<PreprocessDataState::CameraFrame, false>();
+	}
+};
 
-} // namespace visonRuntime::preprocess
+} // namespace visionRuntime::preprocess

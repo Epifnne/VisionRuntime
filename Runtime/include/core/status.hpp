@@ -5,7 +5,7 @@
 #include <string_view>
 #include <utility>
 
-namespace visonRuntime::core {
+namespace visionRuntime::core {
 
 enum class StatusCode {
 	Ok,
@@ -144,4 +144,4 @@ private:
 	std::string context_;
 };
 
-} // namespace visonRuntime::core
+} // namespace visionRuntime::core

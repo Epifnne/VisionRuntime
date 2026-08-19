@@ -1,0 +1,52 @@
+#pragma once
+
+#include <string_view>
+
+namespace visionRuntime::config {
+
+enum class CameraSdk {
+	None,
+	HikMvs
+};
+
+enum class InferencePlatform {
+	None,
+	OpenVinoIntel
+};
+
+struct CameraCapabilities {
+	bool supportsHardwareTrigger;
+	bool supportsExternalBuffers;
+};
+
+struct InferenceCapabilities {
+	bool supportsCpu;
+	bool supportsGpu;
+	bool supportsNpu;
+};
+
+struct NoCamera {};
+struct HikMvsCamera {};
+struct NoInferencePlatform {};
+struct OpenVinoIntelPlatform {};
+
+using SelectedCamera = @VISION_CAMERA_TYPE@;
+using SelectedPlatform = @VISION_PLATFORM_TYPE@;
+
+struct BuildProfile {
+	static constexpr CameraSdk cameraSdk = @VISION_CAMERA_ENUM@;
+	static constexpr InferencePlatform inferencePlatform = @VISION_PLATFORM_ENUM@;
+	static constexpr std::string_view cameraName = "@VISION_CAMERA_NAME@";
+	static constexpr std::string_view inferencePlatformName = "@VISION_PLATFORM_NAME@";
+	static constexpr CameraCapabilities cameraCapabilities{
+		@VISION_CAMERA_SUPPORTS_HARDWARE_TRIGGER@,
+		@VISION_CAMERA_SUPPORTS_EXTERNAL_BUFFERS@
+	};
+	static constexpr InferenceCapabilities inferenceCapabilities{
+		@VISION_PLATFORM_SUPPORTS_CPU@,
+		@VISION_PLATFORM_SUPPORTS_GPU@,
+		@VISION_PLATFORM_SUPPORTS_NPU@
+	};
+};
+
+} // namespace visionRuntime::config

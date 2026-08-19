@@ -9,7 +9,7 @@
 #include <memory>
 #include <string>
 
-namespace visonRuntime::preprocess {
+namespace visionRuntime::preprocess {
 
 struct OpenCvNchwPreprocessorOptions {
 	std::string inputName = "input";
@@ -40,4 +40,4 @@ private:
 	core::TensorBufferPool pool_;
 };
 
-} // namespace visonRuntime::preprocess
+} // namespace visionRuntime::preprocess

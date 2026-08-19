@@ -3,7 +3,7 @@
 #include "core/result.hpp"
 #include "pipeline/pipelinePacket.hpp"
 
-namespace visonRuntime::pipeline {
+namespace visionRuntime::pipeline {
 
 template<typename ResultType>
 class IOpenCvAlgorithm {
@@ -14,4 +14,4 @@ public:
 		const PipelinePacket& packet) = 0;
 };
 
-} // namespace visonRuntime::pipeline
+} // namespace visionRuntime::pipeline

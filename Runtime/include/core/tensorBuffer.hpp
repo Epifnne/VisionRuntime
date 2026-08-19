@@ -17,7 +17,7 @@
 #include <string>
 #include <utility>
 
-namespace visonRuntime::core {
+namespace visionRuntime::core {
 
 enum class MemoryKind {
 	Host,
@@ -138,4 +138,4 @@ private:
 	bool writable_ = false;
 };
 
-} // namespace visonRuntime::core
+} // namespace visionRuntime::core

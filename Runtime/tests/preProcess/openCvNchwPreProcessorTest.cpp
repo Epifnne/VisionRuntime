@@ -12,24 +12,24 @@
 
 namespace {
 
-visonRuntime::vision::Frame makeBgrFrame(
+visionRuntime::vision::Frame makeBgrFrame(
 	std::array<std::uint8_t, 12> pixels) {
 	auto storage = std::make_shared<std::array<std::uint8_t, 12>>(pixels);
-	auto buffer = visonRuntime::core::TensorBuffer::share(
+	auto buffer = visionRuntime::core::TensorBuffer::share(
 		storage, storage->data(), storage->size());
 	if (!buffer) {
 		return {};
 	}
-	auto frame = visonRuntime::vision::Frame::create(
+	auto frame = visionRuntime::vision::Frame::create(
 		std::move(buffer).value(), 2, 2,
-		visonRuntime::vision::PixelFormat::Bgr8);
-	return frame ? std::move(frame).value() : visonRuntime::vision::Frame{};
+		visionRuntime::vision::PixelFormat::Bgr8);
+	return frame ? std::move(frame).value() : visionRuntime::vision::Frame{};
 }
 
 } // namespace
 
 TEST(OpenCvNchwPreprocessorTest, WritesRgbNchwDirectlyIntoPooledTensor) {
-	using namespace visonRuntime;
+	using namespace visionRuntime;
 
 	preprocess::OpenCvNchwPreprocessorOptions options;
 	options.inputName = "image";
@@ -79,15 +79,15 @@ TEST(OpenCvNchwPreprocessorTest, WritesRgbNchwDirectlyIntoPooledTensor) {
 }
 
 TEST(OpenCvNchwPreprocessorTest, RejectsInvalidConfiguration) {
-	visonRuntime::preprocess::OpenCvNchwPreprocessorOptions options;
+	visionRuntime::preprocess::OpenCvNchwPreprocessorOptions options;
 	options.width = 2;
 	options.height = 2;
 	options.standardDeviation[1] = 0.0F;
 
 	auto preprocessor =
-		visonRuntime::preprocess::OpenCvNchwPreprocessor::create(options);
+		visionRuntime::preprocess::OpenCvNchwPreprocessor::create(options);
 
 	EXPECT_FALSE(preprocessor);
 	EXPECT_EQ(preprocessor.status().code(),
-		visonRuntime::core::StatusCode::InvalidArgument);
+		visionRuntime::core::StatusCode::InvalidArgument);
 }

@@ -10,25 +10,51 @@
 #include "core/tensorBufferPool.hpp"
 
 #include <cstddef>
+#include <stop_token>
 #include <utility>
 
-namespace visonRuntime::camera {
+namespace visionRuntime::camera {
+
+enum class BufferFullPolicy {
+	Drop,
+	Block
+};
+
+struct FrameBufferPoolOptions {
+	std::size_t bufferCount = 3;
+	std::size_t bufferCapacity = 0;
+	BufferFullPolicy fullPolicy = BufferFullPolicy::Drop;
+};
 
 class FrameBufferPool {
 public:
 	FrameBufferPool() = default;
 
 	[[nodiscard]] static core::Result<FrameBufferPool> create(
-		std::size_t bufferCount, std::size_t bufferCapacity) {
-		auto pool = core::TensorBufferPool::create(bufferCount, bufferCapacity);
+		FrameBufferPoolOptions options) {
+		auto pool = core::TensorBufferPool::create(
+			options.bufferCount, options.bufferCapacity);
 		if (!pool) {
 			return core::Result<FrameBufferPool>::failure(pool.status());
 		}
-		return core::Result<FrameBufferPool>::success(
-			FrameBufferPool(std::move(pool).value()));
+		return core::Result<FrameBufferPool>::success(FrameBufferPool(
+			std::move(pool).value(), options.fullPolicy));
+	}
+
+	[[nodiscard]] static core::Result<FrameBufferPool> create(
+		std::size_t bufferCount, std::size_t bufferCapacity) {
+		return create({bufferCount, bufferCapacity, BufferFullPolicy::Drop});
 	}
 
 	[[nodiscard]] core::Result<core::TensorBuffer> acquire() const {
+		return acquire({});
+	}
+
+	[[nodiscard]] core::Result<core::TensorBuffer> acquire(
+		std::stop_token stopToken) const {
+		if (fullPolicy_ == BufferFullPolicy::Block) {
+			return pool_.acquireBlocking(stopToken);
+		}
 		return pool_.acquire();
 	}
 
@@ -45,10 +71,12 @@ public:
 	}
 
 private:
-	explicit FrameBufferPool(core::TensorBufferPool pool)
-		: pool_(std::move(pool)) {}
+	explicit FrameBufferPool(
+		core::TensorBufferPool pool, BufferFullPolicy fullPolicy)
+		: pool_(std::move(pool)), fullPolicy_(fullPolicy) {}
 
 	core::TensorBufferPool pool_;
+	BufferFullPolicy fullPolicy_ = BufferFullPolicy::Drop;
 };
 
-} // namespace visonRuntime::camera
+} // namespace visionRuntime::camera

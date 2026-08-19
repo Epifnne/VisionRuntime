@@ -5,7 +5,7 @@
 
 #include <functional>
 
-namespace visonRuntime::camera {
+namespace visionRuntime::camera {
 
 using FrameCallback = std::function<void(core::Result<vision::Frame>)>;
 
@@ -18,4 +18,4 @@ public:
 	[[nodiscard]] virtual bool isRunning() const noexcept = 0;
 };
 
-} // namespace visonRuntime::camera
+} // namespace visionRuntime::camera

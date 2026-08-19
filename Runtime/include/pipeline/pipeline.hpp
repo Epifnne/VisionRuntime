@@ -12,7 +12,7 @@
 #include <string>
 #include <utility>
 
-namespace visonRuntime::pipeline {
+namespace visionRuntime::pipeline {
 
 template<typename ResultType>
 class PipelineBuilder;
@@ -118,4 +118,4 @@ private:
 template<typename ResultType>
 using ModelPipeline = Pipeline<ResultType>;
 
-} // namespace visonRuntime::pipeline
+} // namespace visionRuntime::pipeline

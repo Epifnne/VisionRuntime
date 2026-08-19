@@ -7,7 +7,7 @@
 #include <vector>
 
 TEST(TensorTest, AllocatesContiguousCpuTensor) {
-	using namespace visonRuntime::core;
+	using namespace visionRuntime::core;
 
 	auto result = Tensor::allocate(
 		DataType::Float32, TensorShape{1, 3, 4, 5}, TensorLayout::Nchw);
@@ -23,7 +23,7 @@ TEST(TensorTest, AllocatesContiguousCpuTensor) {
 }
 
 TEST(TensorTest, WrapsPaddedSharedBuffer) {
-	using namespace visonRuntime::core;
+	using namespace visionRuntime::core;
 
 	auto storage = std::shared_ptr<void>(::operator new(32), [](void* pointer) {
 		::operator delete(pointer);
@@ -40,7 +40,7 @@ TEST(TensorTest, WrapsPaddedSharedBuffer) {
 }
 
 TEST(TensorTest, RejectsDynamicShapeAndInsufficientBuffer) {
-	using namespace visonRuntime::core;
+	using namespace visionRuntime::core;
 
 	auto storage = std::make_shared<std::vector<std::byte>>(8);
 	auto buffer = TensorBuffer::share(storage, storage->data(), storage->size());
@@ -57,7 +57,7 @@ TEST(TensorTest, RejectsDynamicShapeAndInsufficientBuffer) {
 }
 
 TEST(TensorTest, HidesHostByteSpanForDeviceMemory) {
-	using namespace visonRuntime::core;
+	using namespace visionRuntime::core;
 
 	auto placeholder = std::make_shared<std::vector<std::byte>>(4);
 	auto buffer = TensorBuffer::share(
@@ -73,7 +73,7 @@ TEST(TensorTest, HidesHostByteSpanForDeviceMemory) {
 }
 
 TEST(TensorTest, CreatesSubviewWithoutCopyingBuffer) {
-	using namespace visonRuntime::core;
+	using namespace visionRuntime::core;
 
 	auto parent = Tensor::allocate(DataType::UInt8, TensorShape{16});
 	ASSERT_TRUE(parent);
@@ -87,7 +87,7 @@ TEST(TensorTest, CreatesSubviewWithoutCopyingBuffer) {
 }
 
 TEST(TensorTest, KeepsExternalOwnerAliveForViews) {
-	using namespace visonRuntime::core;
+	using namespace visionRuntime::core;
 
 	auto owner = std::make_shared<std::vector<std::byte>>(32);
 	auto buffer = TensorBuffer::share(owner, owner->data(), owner->size());
@@ -101,7 +101,7 @@ TEST(TensorTest, KeepsExternalOwnerAliveForViews) {
 }
 
 TEST(TensorTest, DoesNotExposeMutableAccessToReadOnlyBuffer) {
-	using namespace visonRuntime::core;
+	using namespace visionRuntime::core;
 
 	auto owner = std::make_shared<std::vector<std::byte>>(4);
 	auto buffer = TensorBuffer::share(

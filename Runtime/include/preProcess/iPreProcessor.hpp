@@ -4,7 +4,7 @@
 #include "pipeline/pipelinePacket.hpp"
 #include "preprocess/preparedInput.hpp"
 
-namespace visonRuntime::preprocess {
+namespace visionRuntime::preprocess {
 
 class IPreprocessor {
 public:
@@ -14,4 +14,4 @@ public:
 		pipeline::PipelinePacket packet) = 0;
 };
 
-} // namespace visonRuntime::preprocess
+} // namespace visionRuntime::preprocess

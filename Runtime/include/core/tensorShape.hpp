@@ -6,7 +6,7 @@
 #include <utility>
 #include <vector>
 
-namespace visonRuntime::core {
+namespace visionRuntime::core {
 
 class TensorShape {
 public:
@@ -65,4 +65,4 @@ private:
 	std::vector<std::int64_t> dimensions_;
 };
 
-} // namespace visonRuntime::core
+} // namespace visionRuntime::core

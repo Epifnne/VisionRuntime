@@ -3,7 +3,7 @@
 #include <concepts>
 #include <utility>
 
-namespace visonRuntime::pipeline {
+namespace visionRuntime::pipeline {
 
 struct NoConstraint {
 	[[nodiscard]] constexpr bool accepts(const NoConstraint&) const noexcept {
@@ -48,4 +48,4 @@ private:
 	Constraint constraint_;
 };
 
-} // namespace visonRuntime::pipeline
+} // namespace visionRuntime::pipeline

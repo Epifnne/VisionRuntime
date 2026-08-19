@@ -1,5 +1,11 @@
 include(GoogleTest)
 
+add_executable(buildProfileTest
+	config/buildProfileTest.cpp
+)
+target_link_libraries(buildProfileTest PRIVATE visionRuntime GTest::gtest_main)
+gtest_discover_tests(buildProfileTest)
+
 foreach(testTarget IN ITEMS typeConstraintTest statusTest resultTest tensorTest)
 	add_executable(${testTarget}
 		core/${testTarget}.cpp
@@ -20,7 +26,7 @@ add_executable(fileSourceTest
 	camera/fileSourceTest.cpp
 )
 target_include_directories(fileSourceTest PRIVATE ${PROJECT_SOURCE_DIR}/Runtime/include)
-target_link_libraries(fileSourceTest PRIVATE visonRuntime GTest::gtest_main)
+target_link_libraries(fileSourceTest PRIVATE visionRuntime GTest::gtest_main)
 gtest_discover_tests(fileSourceTest)
 
 add_executable(pipelinePacketTest
@@ -33,7 +39,10 @@ gtest_discover_tests(pipelinePacketTest)
 add_executable(pipelineTest
 	pipeline/pipelineTest.cpp
 )
-target_include_directories(pipelineTest PRIVATE ${PROJECT_SOURCE_DIR}/Runtime/include)
+target_include_directories(pipelineTest PRIVATE
+	${PROJECT_SOURCE_DIR}/Runtime
+	${PROJECT_SOURCE_DIR}/Runtime/include
+)
 target_link_libraries(pipelineTest PRIVATE GTest::gtest_main)
 gtest_discover_tests(pipelineTest)
 
@@ -48,15 +57,22 @@ add_executable(openCvNchwPreprocessorTest
 	preprocess/openCvNchwPreprocessorTest.cpp
 )
 target_include_directories(openCvNchwPreprocessorTest PRIVATE ${PROJECT_SOURCE_DIR}/Runtime/include)
-target_link_libraries(openCvNchwPreprocessorTest PRIVATE visonRuntime GTest::gtest_main)
+target_link_libraries(openCvNchwPreprocessorTest PRIVATE visionRuntime GTest::gtest_main)
 gtest_discover_tests(openCvNchwPreprocessorTest)
 
 add_executable(preprocessChainTest
 	preprocess/preprocessChainTest.cpp
 )
 target_include_directories(preprocessChainTest PRIVATE ${PROJECT_SOURCE_DIR}/Runtime/include)
-target_link_libraries(preprocessChainTest PRIVATE visonRuntime GTest::gtest_main)
+target_link_libraries(preprocessChainTest PRIVATE visionRuntime GTest::gtest_main)
 gtest_discover_tests(preprocessChainTest)
+
+add_executable(anomalyPostprocessorTest
+	postprocess/anomalyPostprocessorTest.cpp
+)
+target_include_directories(anomalyPostprocessorTest PRIVATE ${PROJECT_SOURCE_DIR}/Runtime/include)
+target_link_libraries(anomalyPostprocessorTest PRIVATE visionRuntime GTest::gtest_main)
+gtest_discover_tests(anomalyPostprocessorTest)
 
 add_executable(pipelineExecutorTest
 	executor/pipelineExecutorTest.cpp

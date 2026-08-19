@@ -15,7 +15,7 @@
 #include <string>
 #include <utility>
 
-namespace visonRuntime::pipeline {
+namespace visionRuntime::pipeline {
 
 class BusinessFramePool {
 public:
@@ -98,4 +98,4 @@ private:
 	vision::PixelFormat pixelFormat_ = vision::PixelFormat::Gray8;
 };
 
-} // namespace visonRuntime::pipeline
+} // namespace visionRuntime::pipeline

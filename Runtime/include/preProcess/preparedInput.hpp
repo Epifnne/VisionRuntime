@@ -8,7 +8,7 @@
 #include <unordered_map>
 #include <utility>
 
-namespace visonRuntime::preprocess {
+namespace visionRuntime::preprocess {
 
 using TensorMap = std::unordered_map<std::string, core::Tensor>;
 
@@ -41,4 +41,4 @@ private:
 	vision::TransformContext transformContext_;
 };
 
-} // namespace visonRuntime::preprocess
+} // namespace visionRuntime::preprocess

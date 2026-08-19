@@ -9,7 +9,7 @@
 #include <memory>
 #include <utility>
 
-namespace visonRuntime::executor {
+namespace visionRuntime::executor {
 
 using TaskId = std::uint64_t;
 
@@ -83,4 +83,4 @@ template<typename ResultType>
 using CompletionCallback = std::function<void(
 	TaskId, const core::Result<ResultType>&)>;
 
-} // namespace visonRuntime::executor
+} // namespace visionRuntime::executor

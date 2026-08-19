@@ -18,7 +18,7 @@
 #include <string>
 #include <utility>
 
-namespace visonRuntime::vision {
+namespace visionRuntime::vision {
 
 class Frame {
 public:
@@ -166,4 +166,4 @@ private:
 	FrameMetadata metadata_;
 };
 
-} // namespace visonRuntime::vision
+} // namespace visionRuntime::vision

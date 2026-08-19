@@ -4,17 +4,17 @@
 
 #include <gtest/gtest.h>
 
-namespace visonRuntime::core {
+namespace visionRuntime::core {
 
 class Tensor;
 
-} // namespace visonRuntime::core
+} // namespace visionRuntime::core
 
-namespace visonRuntime::vision {
+namespace visionRuntime::vision {
 
 class Frame;
 
-} // namespace visonRuntime::vision
+} // namespace visionRuntime::vision
 
 namespace {
 
@@ -23,12 +23,12 @@ concept Connectable = requires(const Output& output, const Input& input) {
 	output.canConnect(input);
 };
 
-using TensorInput = visonRuntime::pipeline::InputPort<
-	visonRuntime::core::Tensor, visonRuntime::core::TensorSpec>;
-using TensorOutput = visonRuntime::pipeline::OutputPort<
-	visonRuntime::core::Tensor, visonRuntime::core::TensorSpec>;
-using FrameInput = visonRuntime::pipeline::InputPort<
-	visonRuntime::vision::Frame, visonRuntime::vision::FrameSpec>;
+using TensorInput = visionRuntime::pipeline::InputPort<
+	visionRuntime::core::Tensor, visionRuntime::core::TensorSpec>;
+using TensorOutput = visionRuntime::pipeline::OutputPort<
+	visionRuntime::core::Tensor, visionRuntime::core::TensorSpec>;
+using FrameInput = visionRuntime::pipeline::InputPort<
+	visionRuntime::vision::Frame, visionRuntime::vision::FrameSpec>;
 
 static_assert(Connectable<TensorOutput, TensorInput>);
 static_assert(!Connectable<TensorOutput, FrameInput>);
@@ -36,7 +36,7 @@ static_assert(!Connectable<TensorOutput, FrameInput>);
 } // namespace
 
 TEST(TypeConstraintTest, AcceptsCompatibleTensorPorts) {
-	using namespace visonRuntime;
+	using namespace visionRuntime;
 
 	const core::TensorSpec modelInput{
 		core::DataType::Float32,
@@ -56,7 +56,7 @@ TEST(TypeConstraintTest, AcceptsCompatibleTensorPorts) {
 }
 
 TEST(TypeConstraintTest, RejectsMismatchedTensorShape) {
-	using namespace visonRuntime;
+	using namespace visionRuntime;
 
 	const pipeline::InputPort<core::Tensor, core::TensorSpec> input({
 		core::DataType::Float32,

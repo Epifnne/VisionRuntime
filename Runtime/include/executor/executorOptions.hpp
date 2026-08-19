@@ -2,10 +2,16 @@
 
 #include <cstddef>
 
-namespace visonRuntime::executor {
+namespace visionRuntime::executor {
+
+enum class QueueFullPolicy {
+	Drop,
+	Block
+};
 
 struct ExecutorOptions {
 	std::size_t queueCapacity = 16;
+	QueueFullPolicy queueFullPolicy = QueueFullPolicy::Drop;
 };
 
-} // namespace visonRuntime::executor
+} // namespace visionRuntime::executor

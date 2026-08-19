@@ -1,14 +1,18 @@
-# VisonRuntime 项目规划
+# VisionRuntime 项目规划
 
 详细模块边界见 [Docs/architecture.md](Docs/architecture.md)。每个阶段应形成可编译、可测试的纵向增量，不在同一阶段同时扩展多个未知维度。
 
 ## M0：工程骨架
 
-- [ ] 确定项目命名、C++ namespace 和公共头文件 include 路径。
-- [ ] 编写根 CMake 和 Runtime 子项目 CMake，建立静态库、测试、示例和工具 target。
-- [ ] 将 OpenCV、JSON、日志和测试框架下载到 `Thirdparty`，记录版本、来源和校验值。
-- [ ] 为 OpenVINO、TensorRT、ONNX Runtime、海康 MVS 定义独立 CMake 开关和 imported targets。
-- [ ] 建立 MinGW 警告级别、格式化、静态分析和基础 CI。
+- [x] 确定项目命名、C++ namespace 和公共头文件 include 路径。
+- [x] 编写根 CMake 和 Runtime 子项目 CMake，建立静态库、测试、示例和工具 target。
+- [x] 将 OpenCV、JSON、日志和测试框架下载到 `Thirdparty`，记录版本、来源和校验值。
+- [x] 实现 `vision_add_runtime(... CAMERA HIK_MVS PLATFORM OPENVINO_INTEL)`，在 CMake 配置期选择唯一相机 SDK 与推理平台族，并保留 `NONE/NONE` 核心测试 Profile。
+- [x] 为 OpenVINO、TensorRT、ONNX Runtime、海康 MVS 定义隔离的 imported targets，未选择的厂商实现不参与编译和链接。
+- [x] 由 CMake 生成 `config/buildProfile.hpp`，提供 `SelectedCamera`、`SelectedPlatform` 及编译期能力描述。
+- [ ] 在具体相机与后端适配器可构造后生成 `SelectedRuntime`，并按 Profile 选择厂商源文件和链接目标。
+- [x] 对未知选项、缺失 SDK 和不支持的相机/平台组合在 CMake 配置期给出明确错误。
+- [ ] 建立 MinGW 警告级别、格式化、静态分析和基础 CI（警告级别与基础 CI 已完成）。
 - [x] 将 `preprocess`、`postprocess` 作为单词统一目录、命名空间和公开 include 路径。
 
 验收：无任何推理 SDK 时 core target 和单元测试可以独立配置、编译并运行。
@@ -31,27 +35,32 @@
 
 - [x] 定义 `IPreprocessor`、`IInferenceBackend`、`IPostprocessor` 和线性 Pipeline 接口。
 - [x] 实现 resize、颜色转换、归一化和直接写入池化 NCHW 张量的前处理。
-- [x] 实现类型状态化 `PreprocessChainBuilder`，编译期校验节点顺序且每条链最多包含一个物化节点。
+- [x] 实现类型状态化 `PreprocessBuilder`，编译期校验节点顺序且每条链最多包含一个物化节点。
 - [ ] 实现 letterbox、裁剪、灰度化和二值化等可选前处理节点。
-- [ ] 实现 OpenVINO ONNX 加载、CPU 编译和同步推理。
-- [ ] 实现异常分数、热力图还原、阈值判断和缺陷区域提取。
-- [ ] 实现 `AnomalyResult` 示例程序：读取本地图像并输出结果。
-- [ ] 使用同一输入与 Python 参考实现对比数值误差。
+- [ ] 完成 OpenVINO 后端（已增加单输入/单输出 Float32 CPU 同步推理初版，待端到端验证及模型准备契约）。
+- [ ] 将 OpenVINO 后端建模为 Intel 平台族，在同一契约下支持 CPU、GPU 和 NPU 设备选择且禁止静默回退。
+- [ ] 在 CPU 纵向功能通过后，使用 OpenVINO C++ Runtime 打通 Intel NPU 的 IR 加载、首次编译、缓存和同步推理。
+- [ ] 完成异常后处理（标量异常分数、阈值判断和 `AnomalyResult` 已实现；热力图还原与缺陷区域待实现）。
+- [x] 实现 `AnomalyResult` 示例程序：文件夹读取、OpenVINO CPU 推理及逐图 score/OK/NG 输出，并与参考 NG 图完成数值对比。
+- [x] 使用同一输入与 Python 参考实现对比数值误差（已知 NG 图相对误差约 0.52%，判定一致）。
 - [ ] 记录前处理、推理、后处理和总耗时。
 
-验收：固定 NCHW、batch 1 的异常模型可从 ONNX 完成端到端推理，结果在约定容差内与 Python 一致。
+验收：固定 NCHW、batch 1 的异常模型可从 ONNX 经 `vision-modelc` 转译为 IR，并完成端到端推理，结果在约定容差内与 Python 一致。
 
 ## M3：模型包与配置
 
 - [ ] 定义 `manifest.json` 与 `deployment.json` 的版本化 JSON Schema。
 - [ ] 实现 `ModelManifest`、`DeploymentConfig` 和严格配置校验。
 - [ ] 实现模型包相对路径解析、资源文件加载和错误上下文。
-- [ ] 实现 `RuntimeFactory`，按配置组装前处理、后端、后处理和 Runtime。
-- [ ] 实现 ONNX SHA-256、设备、精度、后端版本和构建参数组成的缓存键。
+- [ ] 实现 `RuntimeFactory`，按生成的构建 Profile 与部署配置组装前处理、后端、后处理和 Runtime，并拒绝跨平台族切换。
+- [ ] 实现模型制品 SHA-256、设备、驱动、精度、后端版本和构建参数组成的缓存键。
 - [ ] 支持 `BuildIfMissing` 与 `CacheOnly` 两种模型准备策略。
-- [ ] 编写模型包检查工具和错误配置测试。
+- [ ] 完善独立 Python CLI `vision-modelc`（ONNX 到 IR、端口名校验和构建记录已实现；待增加 manifest 校验）。
+- [ ] 生成包含源模型哈希、工具版本、目标平台和制品哈希的 `build-lock.json`。
+- [ ] 明确 Runtime 发行包不包含 Python、`vision-modelc`、ONNX 转换器和 INT8 校准依赖。
+- [ ] 编写模型包检查、构建 Profile 不匹配和错误配置测试。
 
-验收：训练人员只需提供模型包和节点组合代码，部署配置可以在不修改模型包的情况下切换设备策略。
+验收：训练人员只需提供模型包和节点组合代码；部署配置可在 `OPENVINO_INTEL` 平台族内切换 CPU、GPU、NPU 和缓存策略，但不能切换到未编入程序的后端。
 
 ## M4：异步 Executor
 
@@ -103,8 +112,10 @@
 
 - [x] 定义 `IFrameSource` 生命周期和 move-only 帧回调接口。
 - [x] 实现固定容量相机缓冲池及异步 Frame/Tensor lease 生命周期。
-- [ ] 实现目录及视频图像源，供测试和离线回放使用。
+- [x] 实现目录图像源，供测试和离线回放使用。
+- [ ] 实现视频图像源。
 - [ ] 封装海康 MVS 枚举、打开、触发、采集和关闭流程。
+- [ ] 定义海康 MVS 编译期能力 Profile，并在启动时校验具体型号、序列号、触发和像素格式要求。
 - [ ] 管理厂商缓冲区释放及 `cv::Mat` 所有权转换。
 - [ ] 实现断线检测、重连策略和采集错误报告。
 - [ ] 建立无相机硬件可运行的模拟源测试。

@@ -7,7 +7,7 @@
 
 #pragma once
 
-namespace visonRuntime::pipeline {
+namespace visionRuntime::pipeline {
 
 enum class FrameReleaseStage {
 	AfterImagePreparation,
@@ -19,4 +19,4 @@ struct PipelineOwnershipOptions {
 	FrameReleaseStage businessFrameRelease = FrameReleaseStage::AfterPostprocess;
 };
 
-} // namespace visonRuntime::pipeline
+} // namespace visionRuntime::pipeline

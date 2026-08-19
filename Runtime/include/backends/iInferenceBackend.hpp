@@ -3,7 +3,7 @@
 #include "core/result.hpp"
 #include "preprocess/preparedInput.hpp"
 
-namespace visonRuntime::backends {
+namespace visionRuntime::backends {
 
 class IInferenceBackend {
 public:
@@ -13,4 +13,4 @@ public:
 		const preprocess::TensorMap& inputs) = 0;
 };
 
-} // namespace visonRuntime::backends
+} // namespace visionRuntime::backends

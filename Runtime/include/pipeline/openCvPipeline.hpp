@@ -8,7 +8,7 @@
 #include <string>
 #include <utility>
 
-namespace visonRuntime::pipeline {
+namespace visionRuntime::pipeline {
 
 template<typename ResultType>
 class OpenCvPipelineBuilder;
@@ -61,4 +61,4 @@ private:
 	std::unique_ptr<IOpenCvAlgorithm<ResultType>> algorithm_;
 };
 
-} // namespace visonRuntime::pipeline
+} // namespace visionRuntime::pipeline

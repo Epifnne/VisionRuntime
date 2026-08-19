@@ -62,6 +62,12 @@ coverage.info
 *.engine
 *.plan
 
+# sample pictures and models
+*.onnx
+*.bmp
+*.jepg
+*.png
+
 # OS metadata
 .DS_Store
 Thumbs.db

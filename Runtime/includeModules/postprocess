@@ -1,0 +1,7 @@
+#pragma once
+
+#include "postprocess/anomalyPostprocessor.hpp"
+#include "postprocess/anomalyThresholdPostprocessor.hpp"
+#include "postprocess/classificationPostprocessor.hpp"
+#include "postprocess/detectionPostprocessor.hpp"
+#include "postprocess/iPostProcessor.hpp"

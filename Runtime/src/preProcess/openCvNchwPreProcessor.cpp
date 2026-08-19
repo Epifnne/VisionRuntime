@@ -10,7 +10,7 @@
 #include <string>
 #include <utility>
 
-namespace visonRuntime::preprocess {
+namespace visionRuntime::preprocess {
 namespace {
 
 [[nodiscard]] core::Status invalidArgument(std::string message) {
@@ -195,4 +195,4 @@ std::size_t OpenCvNchwPreprocessor::availableBuffers() const {
 	return pool_.available();
 }
 
-} // namespace visonRuntime::preprocess
+} // namespace visionRuntime::preprocess

@@ -1,4 +1,4 @@
-# VisonRuntime 编码约定
+# VisionRuntime 编码约定
 
 ## 1. 命名风格
 
@@ -11,10 +11,10 @@
 | 局部变量、参数、非静态成员 | lowerCamelCase | `taskId`、`modelPath` |
 | 文件名 | lowerCamelCase | `pipelineExecutor.hpp`、`modelManifest.hpp` |
 | 目录名 | lowerCamelCase | `preprocess`、`postprocess` |
-| namespace | lowerCamelCase | `visonRuntime`、`preprocess` |
+| namespace | lowerCamelCase | `visionRuntime`、`preprocess` |
 | 枚举值 | UpperCamelCase | `QueueFull`、`BuildIfMissing` |
 | 编译期常量 | `k` + UpperCamelCase | `kDefaultQueueSize` |
-| 宏 | UPPER_SNAKE_CASE | `VISON_RUNTIME_EXPORT` |
+| 宏 | UPPER_SNAKE_CASE | `VISION_RUNTIME_EXPORT` |
 
 宏是唯一允许使用下划线分隔的 C++ 名称；第三方 API、编译器预定义宏和外部协议字段保持其原始命名。
 
@@ -38,7 +38,7 @@
 ## 4. 示例
 
 ```cpp
-namespace visonRuntime::executor {
+namespace visionRuntime::executor {
 
 class PipelineExecutor {
 public:
@@ -49,7 +49,7 @@ private:
     std::size_t queueCapacity_;
 };
 
-} // namespace visonRuntime::executor
+} // namespace visionRuntime::executor
 ```
 
 成员变量允许使用结尾下划线区分成员与参数；该下划线是后缀，不是单词分隔符。除宏、成员变量后缀和外部名称外，不新增 snake_case 名称。

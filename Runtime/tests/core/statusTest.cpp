@@ -3,8 +3,8 @@
 #include <gtest/gtest.h>
 
 TEST(StatusTest, RepresentsSuccess) {
-	using visonRuntime::core::Status;
-	using visonRuntime::core::StatusCode;
+	using visionRuntime::core::Status;
+	using visionRuntime::core::StatusCode;
 
 	const Status ok = Status::ok();
 	EXPECT_TRUE(ok.isOk());
@@ -15,8 +15,8 @@ TEST(StatusTest, RepresentsSuccess) {
 }
 
 TEST(StatusTest, RepresentsError) {
-	using visonRuntime::core::Status;
-	using visonRuntime::core::StatusCode;
+	using visionRuntime::core::Status;
+	using visionRuntime::core::StatusCode;
 
 	const Status backendError = Status::error(
 		StatusCode::BackendError,
@@ -28,8 +28,8 @@ TEST(StatusTest, RepresentsError) {
 }
 
 TEST(StatusTest, PrependsContextWithoutChangingMessage) {
-	using visonRuntime::core::Status;
-	using visonRuntime::core::StatusCode;
+	using visionRuntime::core::Status;
+	using visionRuntime::core::StatusCode;
 
 	const Status backendError = Status::error(
 		StatusCode::BackendError,

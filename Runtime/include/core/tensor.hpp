@@ -24,7 +24,7 @@
 #include <utility>
 #include <vector>
 
-namespace visonRuntime::core {
+namespace visionRuntime::core {
 
 enum class TensorOwnership {
 	Owned,
@@ -341,4 +341,4 @@ private:
 	TensorOwnership ownership_ = TensorOwnership::Borrowed;
 };
 
-} // namespace visonRuntime::core
+} // namespace visionRuntime::core

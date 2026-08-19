@@ -16,7 +16,7 @@
 #include <thread>
 #include <utility>
 
-namespace visonRuntime::executor {
+namespace visionRuntime::executor {
 
 enum class StopMode {
 	Graceful,
@@ -29,7 +29,9 @@ public:
 	explicit PipelineExecutor(
 		std::unique_ptr<pipeline::IVisionPipeline<ResultType>> pipeline,
 		ExecutorOptions options = {})
-		: pipeline_(std::move(pipeline)), queueCapacity_(options.queueCapacity) {
+		: pipeline_(std::move(pipeline)),
+		  queueCapacity_(options.queueCapacity),
+		  queueFullPolicy_(options.queueFullPolicy) {
 		runnerThread_ = std::thread([this] { runTasks(); });
 		completionThread_ = std::thread([this] { dispatchCompletions(); });
 	}
@@ -52,7 +54,7 @@ public:
 	[[nodiscard]] core::Result<TaskHandle<ResultType>> submit(
 		pipeline::PipelinePacket packet,
 		CompletionCallback<ResultType> callback = {}) {
-		std::lock_guard lock(queueMutex_);
+		std::unique_lock lock(queueMutex_);
 		if (!pipeline_) {
 			return submitFailure(core::StatusCode::InvalidState,
 				"executor requires a pipeline");
@@ -64,6 +66,15 @@ public:
 		if (!accepting_) {
 			return submitFailure(core::StatusCode::InvalidState,
 				"executor has stopped accepting tasks");
+		}
+		if (queueFullPolicy_ == QueueFullPolicy::Block) {
+			queueSpaceAvailable_.wait(lock, [this] {
+				return !accepting_ || taskQueue_.size() < queueCapacity_;
+			});
+			if (!accepting_) {
+				return submitFailure(core::StatusCode::InvalidState,
+					"executor has stopped accepting tasks");
+			}
 		}
 		if (taskQueue_.size() >= queueCapacity_) {
 			return submitFailure(core::StatusCode::QueueFull,
@@ -95,6 +106,7 @@ public:
 		}
 
 		queueReady_.notify_all();
+		queueSpaceAvailable_.notify_all();
 		joinThreads();
 	}
 
@@ -139,6 +151,7 @@ private:
 				taskQueue_.pop_front();
 				runningTask_ = task->state;
 			}
+			queueSpaceAvailable_.notify_one();
 
 			if (task->state->cancelRequested.load()) {
 				queueCompletion(std::move(*task), cancelledResult("task was cancelled"));
@@ -236,10 +249,12 @@ private:
 
 	std::unique_ptr<pipeline::IVisionPipeline<ResultType>> pipeline_;
 	const std::size_t queueCapacity_;
+	const QueueFullPolicy queueFullPolicy_;
 	std::atomic<TaskId> nextTaskId_{1};
 
 	std::mutex queueMutex_;
 	std::condition_variable queueReady_;
+	std::condition_variable queueSpaceAvailable_;
 	std::deque<Task> taskQueue_;
 	std::shared_ptr<detail::TaskSharedState<ResultType>> runningTask_;
 	bool accepting_ = true;
@@ -254,4 +269,4 @@ private:
 	std::thread completionThread_;
 };
 
-} // namespace visonRuntime::executor
+} // namespace visionRuntime::executor

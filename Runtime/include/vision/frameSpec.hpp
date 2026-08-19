@@ -7,7 +7,7 @@
 #include <optional>
 #include <vector>
 
-namespace visonRuntime::vision {
+namespace visionRuntime::vision {
 
 enum class PixelFormat {
 	Gray8,
@@ -74,4 +74,4 @@ struct FrameSpec {
 	}
 };
 
-} // namespace visonRuntime::vision
+} // namespace visionRuntime::vision

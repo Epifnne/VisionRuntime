@@ -2,7 +2,7 @@
 
 #include <utility>
 
-namespace visonRuntime::preprocess {
+namespace visionRuntime::preprocess {
 
 core::Result<PreparedInput> PreprocessChain::process(
 	pipeline::PipelinePacket packet) {
@@ -18,4 +18,4 @@ core::Result<PreparedInput> PreprocessChain::process(
 		std::move(context.transformContext)));
 }
 
-} // namespace visonRuntime::preprocess
+} // namespace visionRuntime::preprocess

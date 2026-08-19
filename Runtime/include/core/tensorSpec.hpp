@@ -6,7 +6,7 @@
 
 #include <optional>
 
-namespace visonRuntime::core {
+namespace visionRuntime::core {
 
 enum class TensorLayout {
 	Any,
@@ -44,4 +44,4 @@ struct TensorSpec {
 	}
 };
 
-} // namespace visonRuntime::core
+} // namespace visionRuntime::core

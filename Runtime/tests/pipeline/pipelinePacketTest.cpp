@@ -9,27 +9,27 @@
 
 namespace {
 
-static_assert(!std::is_copy_constructible_v<visonRuntime::pipeline::PipelinePacket>);
-static_assert(!std::is_copy_assignable_v<visonRuntime::pipeline::PipelinePacket>);
-static_assert(std::is_nothrow_move_constructible_v<visonRuntime::pipeline::PipelinePacket>);
-static_assert(!std::is_copy_constructible_v<visonRuntime::vision::Frame>);
-static_assert(std::is_nothrow_move_constructible_v<visonRuntime::vision::Frame>);
+static_assert(!std::is_copy_constructible_v<visionRuntime::pipeline::PipelinePacket>);
+static_assert(!std::is_copy_assignable_v<visionRuntime::pipeline::PipelinePacket>);
+static_assert(std::is_nothrow_move_constructible_v<visionRuntime::pipeline::PipelinePacket>);
+static_assert(!std::is_copy_constructible_v<visionRuntime::vision::Frame>);
+static_assert(std::is_nothrow_move_constructible_v<visionRuntime::vision::Frame>);
 
-visonRuntime::vision::Frame acquireFrame(
-	const visonRuntime::camera::FrameBufferPool& pool) {
+visionRuntime::vision::Frame acquireFrame(
+	const visionRuntime::camera::FrameBufferPool& pool) {
 	auto buffer = pool.acquire();
 	if (!buffer) {
 		return {};
 	}
-	auto frame = visonRuntime::vision::Frame::create(
-		std::move(buffer).value(), 4, 4, visonRuntime::vision::PixelFormat::Bgr8);
-	return frame ? std::move(frame).value() : visonRuntime::vision::Frame{};
+	auto frame = visionRuntime::vision::Frame::create(
+		std::move(buffer).value(), 4, 4, visionRuntime::vision::PixelFormat::Bgr8);
+	return frame ? std::move(frame).value() : visionRuntime::vision::Frame{};
 }
 
 } // namespace
 
 TEST(PipelinePacketTest, ReleasesCameraFrameAndKeepsBusinessFrameByDefault) {
-	using namespace visonRuntime;
+	using namespace visionRuntime;
 
 	auto cameraPoolResult = camera::FrameBufferPool::create(1, 48);
 	auto businessPoolResult = camera::FrameBufferPool::create(1, 48);
@@ -52,7 +52,7 @@ TEST(PipelinePacketTest, ReleasesCameraFrameAndKeepsBusinessFrameByDefault) {
 }
 
 TEST(PipelinePacketTest, SupportsAlternativeReleaseStages) {
-	using namespace visonRuntime;
+	using namespace visionRuntime;
 
 	auto cameraPoolResult = camera::FrameBufferPool::create(1, 48);
 	auto businessPoolResult = camera::FrameBufferPool::create(1, 48);
@@ -76,7 +76,7 @@ TEST(PipelinePacketTest, SupportsAlternativeReleaseStages) {
 }
 
 TEST(PipelinePacketTest, ZeroCopyBusinessViewKeepsCameraSlotUntilPostprocess) {
-	using namespace visonRuntime;
+	using namespace visionRuntime;
 
 	auto poolResult = camera::FrameBufferPool::create(1, 48);
 	ASSERT_TRUE(poolResult);
@@ -97,7 +97,7 @@ TEST(PipelinePacketTest, ZeroCopyBusinessViewKeepsCameraSlotUntilPostprocess) {
 }
 
 TEST(PipelinePacketTest, TransfersPacketBetweenStagesByMove) {
-	using namespace visonRuntime;
+	using namespace visionRuntime;
 
 	auto cameraPoolResult = camera::FrameBufferPool::create(1, 48);
 	auto businessPoolResult = camera::FrameBufferPool::create(1, 48);
@@ -127,7 +127,7 @@ TEST(PipelinePacketTest, TransfersPacketBetweenStagesByMove) {
 }
 
 TEST(BusinessFramePoolTest, AcquiresFramesWithFixedPaddedLayout) {
-	using namespace visonRuntime;
+	using namespace visionRuntime;
 
 	auto poolResult = pipeline::BusinessFramePool::create(
 		2, 4, 3, vision::PixelFormat::Bgr8, 16);
@@ -145,7 +145,7 @@ TEST(BusinessFramePoolTest, AcquiresFramesWithFixedPaddedLayout) {
 }
 
 TEST(BusinessFramePoolTest, MovesSameBufferThroughPipelineUntilPostprocess) {
-	using namespace visonRuntime;
+	using namespace visionRuntime;
 
 	auto cameraPoolResult = camera::FrameBufferPool::create(1, 48);
 	auto businessPoolResult = pipeline::BusinessFramePool::create(
@@ -172,7 +172,7 @@ TEST(BusinessFramePoolTest, MovesSameBufferThroughPipelineUntilPostprocess) {
 }
 
 TEST(BusinessFramePoolTest, ReportsExhaustionUntilFrameIsReleased) {
-	using namespace visonRuntime;
+	using namespace visionRuntime;
 
 	auto poolResult = pipeline::BusinessFramePool::create(
 		1, 4, 4, vision::PixelFormat::Gray8);
@@ -189,7 +189,7 @@ TEST(BusinessFramePoolTest, ReportsExhaustionUntilFrameIsReleased) {
 }
 
 TEST(BusinessFramePoolTest, RejectsInvalidPixelFormat) {
-	using namespace visonRuntime;
+	using namespace visionRuntime;
 
 	auto pool = pipeline::BusinessFramePool::create(
 		1, 4, 4, static_cast<vision::PixelFormat>(255));

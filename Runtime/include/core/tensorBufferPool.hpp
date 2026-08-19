@@ -11,15 +11,18 @@
 #include "core/tensorBuffer.hpp"
 
 #include <cstddef>
+#include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <new>
+#include <optional>
+#include <stop_token>
 #include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
 
-namespace visonRuntime::core {
+namespace visionRuntime::core {
 
 class TensorBufferPool {
 public:
@@ -50,30 +53,12 @@ public:
 	}
 
 	[[nodiscard]] Result<TensorBuffer> acquire() const {
-		if (!state_) {
-			return Result<TensorBuffer>::failure(Status::error(
-				StatusCode::InvalidState, "buffer pool is not initialized"));
-		}
+		return acquireImpl({});
+	}
 
-		std::size_t index;
-		void* data;
-		{
-			std::scoped_lock lock(state_->mutex);
-			if (state_->available.empty()) {
-				return Result<TensorBuffer>::failure(Status::error(
-					StatusCode::ResourceExhausted, "buffer pool is exhausted"));
-			}
-			index = state_->available.back();
-			state_->available.pop_back();
-			data = state_->slots[index].get();
-		}
-
-		auto state = state_;
-		auto lease = std::shared_ptr<void>(data, [state, index](void*) noexcept {
-			std::scoped_lock lock(state->mutex);
-			state->available.push_back(index);
-		});
-		return TensorBuffer::share(std::move(lease), data, state_->bufferCapacity);
+	[[nodiscard]] Result<TensorBuffer> acquireBlocking(
+		std::stop_token stopToken = {}) const {
+		return acquireImpl(stopToken);
 	}
 
 	[[nodiscard]] std::size_t size() const noexcept {
@@ -93,8 +78,44 @@ public:
 	}
 
 private:
+	[[nodiscard]] Result<TensorBuffer> acquireImpl(
+		std::optional<std::stop_token> stopToken) const {
+		if (!state_) {
+			return Result<TensorBuffer>::failure(Status::error(
+				StatusCode::InvalidState, "buffer pool is not initialized"));
+		}
+
+		std::size_t index;
+		void* data;
+		{
+			std::unique_lock lock(state_->mutex);
+			if (stopToken && !state_->availableReady.wait(
+				lock, *stopToken, [this] { return !state_->available.empty(); })) {
+				return Result<TensorBuffer>::failure(Status::error(
+					StatusCode::Cancelled, "buffer acquisition was cancelled"));
+			}
+			if (state_->available.empty()) {
+				return Result<TensorBuffer>::failure(Status::error(
+					StatusCode::ResourceExhausted, "buffer pool is exhausted"));
+			}
+			index = state_->available.back();
+			state_->available.pop_back();
+			data = state_->slots[index].get();
+		}
+
+		auto state = state_;
+		auto lease = std::shared_ptr<void>(data, [state, index](void*) noexcept {
+			{
+				std::scoped_lock lock(state->mutex);
+				state->available.push_back(index);
+			}
+			state->availableReady.notify_one();
+		});
+		return TensorBuffer::share(std::move(lease), data, state_->bufferCapacity);
+	}
 	struct State {
 		std::mutex mutex;
+		std::condition_variable_any availableReady;
 		std::vector<std::unique_ptr<std::byte[]>> slots;
 		std::vector<std::size_t> available;
 		std::size_t bufferCapacity = 0;
@@ -111,4 +132,4 @@ private:
 	std::shared_ptr<State> state_;
 };
 
-} // namespace visonRuntime::core
+} // namespace visionRuntime::core

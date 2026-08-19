@@ -17,7 +17,7 @@ class TemporaryImageDirectory {
 public:
 	TemporaryImageDirectory()
 		: path_(std::filesystem::temp_directory_path() /
-			("vison-runtime-file-source-" +
+			("vision-runtime-file-source-" +
 			 std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()))) {
 		std::filesystem::create_directories(path_);
 	}
@@ -45,7 +45,7 @@ void writePpm(const std::filesystem::path& path) {
 } // namespace
 
 TEST(FileSourceTest, ReadsDirectoryImagesAsFrames) {
-	using namespace visonRuntime;
+	using namespace visionRuntime;
 	TemporaryImageDirectory directory;
 	writePpm(directory.path() / "frame01.ppm");
 
@@ -89,7 +89,7 @@ TEST(FileSourceTest, ReadsDirectoryImagesAsFrames) {
 }
 
 TEST(FileSourceTest, RejectsDirectoryWithoutMatchingImages) {
-	using namespace visonRuntime;
+	using namespace visionRuntime;
 	TemporaryImageDirectory directory;
 
 	camera::FileSourceOptions options;

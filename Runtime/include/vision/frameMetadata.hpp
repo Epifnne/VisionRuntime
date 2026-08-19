@@ -11,7 +11,7 @@
 #include <cstdint>
 #include <optional>
 
-namespace visonRuntime::vision {
+namespace visionRuntime::vision {
 
 struct FrameMetadata {
 	std::uint64_t sequenceNumber = 0;
@@ -19,4 +19,4 @@ struct FrameMetadata {
 	std::optional<std::chrono::nanoseconds> hardwareTimestamp;
 };
 
-} // namespace visonRuntime::vision
+} // namespace visionRuntime::vision

@@ -1,0 +1,7 @@
+#pragma once
+
+#include "camera/fileSource.hpp"
+#include "camera/frameBufferPool.hpp"
+#include "camera/frameSourceFactory.hpp"
+#include "camera/hikrobotMvsSource.hpp"
+#include "camera/iFrameSource.hpp"

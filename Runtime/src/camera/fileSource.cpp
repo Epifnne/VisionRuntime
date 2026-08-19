@@ -27,7 +27,7 @@
 #include <utility>
 #include <vector>
 
-namespace visonRuntime::camera {
+namespace visionRuntime::camera {
 namespace {
 
 [[nodiscard]] core::Status error(core::StatusCode code, std::string message) {
@@ -293,4 +293,4 @@ std::size_t FileSource::imageCount() const noexcept {
 	return impl_->imageCount();
 }
 
-} // namespace visonRuntime::camera
+} // namespace visionRuntime::camera

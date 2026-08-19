@@ -4,7 +4,7 @@
 
 #include <utility>
 
-namespace visonRuntime::pipeline {
+namespace visionRuntime::pipeline {
 
 class InferenceOutput {
 public:
@@ -34,4 +34,4 @@ private:
 	vision::TransformContext transformContext_;
 };
 
-} // namespace visonRuntime::pipeline
+} // namespace visionRuntime::pipeline

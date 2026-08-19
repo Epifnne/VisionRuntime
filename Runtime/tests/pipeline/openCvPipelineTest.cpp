@@ -9,14 +9,14 @@
 namespace {
 
 class RecordingAlgorithm final
-	: public visonRuntime::pipeline::IOpenCvAlgorithm<int> {
+	: public visionRuntime::pipeline::IOpenCvAlgorithm<int> {
 public:
 	explicit RecordingAlgorithm(bool& called) : called_(called) {}
 
-	visonRuntime::core::Result<int> process(
-		const visonRuntime::pipeline::PipelinePacket&) override {
+	visionRuntime::core::Result<int> process(
+		const visionRuntime::pipeline::PipelinePacket&) override {
 		called_ = true;
-		return visonRuntime::core::Result<int>::success(23);
+		return visionRuntime::core::Result<int>::success(23);
 	}
 
 private:
@@ -24,22 +24,22 @@ private:
 };
 
 class FailingAlgorithm final
-	: public visonRuntime::pipeline::IOpenCvAlgorithm<int> {
+	: public visionRuntime::pipeline::IOpenCvAlgorithm<int> {
 public:
-	visonRuntime::core::Result<int> process(
-		const visonRuntime::pipeline::PipelinePacket&) override {
-		return visonRuntime::core::Result<int>::failure(
-			visonRuntime::core::Status::error(
-				visonRuntime::core::StatusCode::InvalidArgument,
+	visionRuntime::core::Result<int> process(
+		const visionRuntime::pipeline::PipelinePacket&) override {
+		return visionRuntime::core::Result<int>::failure(
+			visionRuntime::core::Status::error(
+				visionRuntime::core::StatusCode::InvalidArgument,
 				"unsupported image format"));
 	}
 };
 
 class ThrowingAlgorithm final
-	: public visonRuntime::pipeline::IOpenCvAlgorithm<int> {
+	: public visionRuntime::pipeline::IOpenCvAlgorithm<int> {
 public:
-	visonRuntime::core::Result<int> process(
-		const visonRuntime::pipeline::PipelinePacket&) override {
+	visionRuntime::core::Result<int> process(
+		const visionRuntime::pipeline::PipelinePacket&) override {
 		throw std::runtime_error("OpenCV operation failed");
 	}
 };
@@ -47,25 +47,25 @@ public:
 } // namespace
 
 TEST(OpenCvPipelineBuilderTest, RejectsMissingAlgorithm) {
-	visonRuntime::pipeline::OpenCvPipelineBuilder<int> builder;
+	visionRuntime::pipeline::OpenCvPipelineBuilder<int> builder;
 	auto result = builder.build();
 
 	EXPECT_FALSE(result);
-	EXPECT_EQ(result.status().code(), visonRuntime::core::StatusCode::InvalidState);
+	EXPECT_EQ(result.status().code(), visionRuntime::core::StatusCode::InvalidState);
 }
 
 TEST(OpenCvPipelineTest, RunsThroughCommonPipelineInterface) {
 	bool called = false;
-	visonRuntime::pipeline::OpenCvPipelineBuilder<int> builder;
+	visionRuntime::pipeline::OpenCvPipelineBuilder<int> builder;
 	auto pipelineResult = builder
 		.setAlgorithm(std::make_unique<RecordingAlgorithm>(called))
 		.build();
 	ASSERT_TRUE(pipelineResult);
 
-	std::unique_ptr<visonRuntime::pipeline::IVisionPipeline<int>> pipeline =
-		std::make_unique<visonRuntime::pipeline::OpenCvPipeline<int>>(
+	std::unique_ptr<visionRuntime::pipeline::IVisionPipeline<int>> pipeline =
+		std::make_unique<visionRuntime::pipeline::OpenCvPipeline<int>>(
 			std::move(pipelineResult).value());
-	auto result = pipeline->run(visonRuntime::pipeline::PipelinePacket({}));
+	auto result = pipeline->run(visionRuntime::pipeline::PipelinePacket({}));
 
 	ASSERT_TRUE(result);
 	EXPECT_EQ(result.value(), 23);
@@ -73,29 +73,29 @@ TEST(OpenCvPipelineTest, RunsThroughCommonPipelineInterface) {
 }
 
 TEST(OpenCvPipelineTest, AddsStageContextToAlgorithmFailure) {
-	visonRuntime::pipeline::OpenCvPipelineBuilder<int> builder;
+	visionRuntime::pipeline::OpenCvPipelineBuilder<int> builder;
 	auto pipelineResult = builder
 		.setAlgorithm(std::make_unique<FailingAlgorithm>())
 		.build();
 	ASSERT_TRUE(pipelineResult);
 
-	auto result = pipelineResult->run(visonRuntime::pipeline::PipelinePacket({}));
+	auto result = pipelineResult->run(visionRuntime::pipeline::PipelinePacket({}));
 
 	EXPECT_FALSE(result);
-	EXPECT_EQ(result.status().code(), visonRuntime::core::StatusCode::InvalidArgument);
+	EXPECT_EQ(result.status().code(), visionRuntime::core::StatusCode::InvalidArgument);
 	EXPECT_NE(result.status().toString().find("opencv"), std::string::npos);
 }
 
 TEST(OpenCvPipelineTest, ConvertsAlgorithmExceptionsToInternalStatus) {
-	visonRuntime::pipeline::OpenCvPipelineBuilder<int> builder;
+	visionRuntime::pipeline::OpenCvPipelineBuilder<int> builder;
 	auto pipelineResult = builder
 		.setAlgorithm(std::make_unique<ThrowingAlgorithm>())
 		.build();
 	ASSERT_TRUE(pipelineResult);
 
-	auto result = pipelineResult->run(visonRuntime::pipeline::PipelinePacket({}));
+	auto result = pipelineResult->run(visionRuntime::pipeline::PipelinePacket({}));
 
 	EXPECT_FALSE(result);
-	EXPECT_EQ(result.status().code(), visonRuntime::core::StatusCode::Internal);
+	EXPECT_EQ(result.status().code(), visionRuntime::core::StatusCode::Internal);
 	EXPECT_NE(result.status().message().find("OpenCV operation failed"), std::string::npos);
 }

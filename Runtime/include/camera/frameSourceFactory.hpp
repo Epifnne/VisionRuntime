@@ -2,14 +2,14 @@
 
 #include <memory>
 
-namespace visonRuntime::core {
+namespace visionRuntime::core {
 
 template<typename T>
 class Result;
 
-} // namespace visonRuntime::core
+} // namespace visionRuntime::core
 
-namespace visonRuntime::camera {
+namespace visionRuntime::camera {
 
 class IFrameSource;
 struct FrameSourceConfig;
@@ -21,4 +21,4 @@ public:
     [[nodiscard]] static core::Result<std::unique_ptr<IFrameSource>> create(const FrameSourceConfig& config);
 };
 
-} // namespace visonRuntime::camera
+} // namespace visionRuntime::camera

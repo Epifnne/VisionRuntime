@@ -4,8 +4,12 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <future>
+#include <stop_token>
+
 TEST(FrameBufferPoolTest, ReturnsSlotAfterLastFrameViewIsReleased) {
-	using namespace visonRuntime;
+	using namespace visionRuntime;
 
 	auto poolResult = camera::FrameBufferPool::create(1, 64);
 	ASSERT_TRUE(poolResult);
@@ -30,7 +34,7 @@ TEST(FrameBufferPoolTest, ReturnsSlotAfterLastFrameViewIsReleased) {
 }
 
 TEST(FrameBufferPoolTest, TensorViewKeepsPoolLeaseAlive) {
-	using namespace visonRuntime;
+	using namespace visionRuntime;
 
 	auto poolResult = camera::FrameBufferPool::create(1, 32);
 	ASSERT_TRUE(poolResult);
@@ -47,7 +51,7 @@ TEST(FrameBufferPoolTest, TensorViewKeepsPoolLeaseAlive) {
 }
 
 TEST(FrameBufferPoolTest, RejectsFrameLargerThanSlot) {
-	using namespace visonRuntime;
+	using namespace visionRuntime;
 
 	auto poolResult = camera::FrameBufferPool::create(1, 16);
 	ASSERT_TRUE(poolResult);
@@ -58,4 +62,66 @@ TEST(FrameBufferPoolTest, RejectsFrameLargerThanSlot) {
 
 	EXPECT_FALSE(frame);
 	EXPECT_EQ(frame.status().code(), core::StatusCode::InvalidArgument);
+}
+
+TEST(FrameBufferPoolTest, DropPolicyDoesNotOverwriteLeasedSlot) {
+	using namespace visionRuntime;
+
+	auto poolResult = camera::FrameBufferPool::create(
+		{1, 32, camera::BufferFullPolicy::Drop});
+	ASSERT_TRUE(poolResult);
+	auto pool = std::move(poolResult).value();
+	auto leased = pool.acquire();
+	ASSERT_TRUE(leased);
+
+	auto dropped = pool.acquire();
+
+	ASSERT_FALSE(dropped);
+	EXPECT_EQ(dropped.status().code(), core::StatusCode::ResourceExhausted);
+}
+
+TEST(FrameBufferPoolTest, BlockPolicyWaitsUntilLeaseIsReleased) {
+	using namespace std::chrono_literals;
+	using namespace visionRuntime;
+
+	auto poolResult = camera::FrameBufferPool::create(
+		{1, 32, camera::BufferFullPolicy::Block});
+	ASSERT_TRUE(poolResult);
+	auto pool = std::move(poolResult).value();
+	auto acquired = pool.acquire();
+	ASSERT_TRUE(acquired);
+	auto leased = std::move(acquired).value();
+	auto waiting = std::async(std::launch::async, [&pool] {
+		return pool.acquire();
+	});
+	EXPECT_EQ(waiting.wait_for(20ms), std::future_status::timeout);
+
+	leased = {};
+
+	EXPECT_EQ(waiting.wait_for(1s), std::future_status::ready);
+	EXPECT_TRUE(waiting.get());
+}
+
+TEST(FrameBufferPoolTest, BlockPolicyCanBeCancelledWhileWaiting) {
+	using namespace std::chrono_literals;
+	using namespace visionRuntime;
+
+	auto poolResult = camera::FrameBufferPool::create(
+		{1, 32, camera::BufferFullPolicy::Block});
+	ASSERT_TRUE(poolResult);
+	auto pool = std::move(poolResult).value();
+	auto leased = pool.acquire();
+	ASSERT_TRUE(leased);
+	std::stop_source stopSource;
+	auto waiting = std::async(std::launch::async, [&pool, &stopSource] {
+		return pool.acquire(stopSource.get_token());
+	});
+	EXPECT_EQ(waiting.wait_for(20ms), std::future_status::timeout);
+
+	stopSource.request_stop();
+
+	ASSERT_EQ(waiting.wait_for(1s), std::future_status::ready);
+	auto cancelled = waiting.get();
+	ASSERT_FALSE(cancelled);
+	EXPECT_EQ(cancelled.status().code(), core::StatusCode::Cancelled);
 }

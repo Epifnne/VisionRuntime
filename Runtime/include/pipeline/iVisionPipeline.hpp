@@ -3,7 +3,7 @@
 #include "core/result.hpp"
 #include "pipeline/pipelinePacket.hpp"
 
-namespace visonRuntime::pipeline {
+namespace visionRuntime::pipeline {
 
 template<typename ResultType>
 class IVisionPipeline {
@@ -14,4 +14,4 @@ public:
 		PipelinePacket packet) = 0;
 };
 
-} // namespace visonRuntime::pipeline
+} // namespace visionRuntime::pipeline

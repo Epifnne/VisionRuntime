@@ -7,7 +7,7 @@
 #include <utility>
 
 TEST(ResultTest, HoldsValue) {
-	using visonRuntime::core::Result;
+	using visionRuntime::core::Result;
 
 	auto text = Result<std::string>::success("inference complete");
 	EXPECT_TRUE(text.hasValue());
@@ -19,7 +19,7 @@ TEST(ResultTest, HoldsValue) {
 }
 
 TEST(ResultTest, MovesOwnedValueOut) {
-	using visonRuntime::core::Result;
+	using visionRuntime::core::Result;
 
 	auto pointer = Result<std::unique_ptr<int>>::success(std::make_unique<int>(42));
 	std::unique_ptr<int> movedPointer = std::move(pointer).value();
@@ -28,8 +28,8 @@ TEST(ResultTest, MovesOwnedValueOut) {
 }
 
 TEST(ResultTest, DistinguishesStatusValueFromErrorStatus) {
-	using visonRuntime::core::Result;
-	using visonRuntime::core::Status;
+	using visionRuntime::core::Result;
+	using visionRuntime::core::Status;
 
 	auto statusValue = Result<Status>::success(Status::ok());
 	EXPECT_TRUE(statusValue.hasValue());
@@ -37,9 +37,9 @@ TEST(ResultTest, DistinguishesStatusValueFromErrorStatus) {
 }
 
 TEST(ResultTest, HoldsError) {
-	using visonRuntime::core::Result;
-	using visonRuntime::core::Status;
-	using visonRuntime::core::StatusCode;
+	using visionRuntime::core::Result;
+	using visionRuntime::core::Status;
+	using visionRuntime::core::StatusCode;
 
 	auto error = Result<int>::failure(Status::error(
 		StatusCode::QueueFull,
@@ -51,7 +51,7 @@ TEST(ResultTest, HoldsError) {
 }
 
 TEST(ResultVoidTest, RepresentsSuccessfulOperation) {
-	using visonRuntime::core::Result;
+	using visionRuntime::core::Result;
 
 	auto operation = Result<void>::success();
 	EXPECT_TRUE(operation.hasValue());
@@ -59,9 +59,9 @@ TEST(ResultVoidTest, RepresentsSuccessfulOperation) {
 }
 
 TEST(ResultVoidTest, RepresentsFailedOperation) {
-	using visonRuntime::core::Result;
-	using visonRuntime::core::Status;
-	using visonRuntime::core::StatusCode;
+	using visionRuntime::core::Result;
+	using visionRuntime::core::Status;
+	using visionRuntime::core::StatusCode;
 
 	auto failedOperation = Result<void>::failure(
 		Status::error(StatusCode::InvalidState, "frame source is already stopped"));

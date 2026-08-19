@@ -8,7 +8,7 @@
 #include <utility>
 #include <variant>
 
-namespace visonRuntime::core {
+namespace visionRuntime::core {
 
 template<typename T>
 class [[nodiscard]] Result {
@@ -128,4 +128,4 @@ private:
 	Status status_;
 };
 
-} // namespace visonRuntime::core
+} // namespace visionRuntime::core

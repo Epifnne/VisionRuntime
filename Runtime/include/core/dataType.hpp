@@ -2,7 +2,7 @@
 
 #include <cstddef>
 
-namespace visonRuntime::core {
+namespace visionRuntime::core {
 
 enum class DataType {
 	UInt8,
@@ -38,4 +38,4 @@ enum class DataType {
 	return 0;
 }
 
-} // namespace visonRuntime::core
+} // namespace visionRuntime::core

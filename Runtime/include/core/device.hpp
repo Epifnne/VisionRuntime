@@ -1,6 +1,6 @@
 #pragma once
 
-namespace visonRuntime::core {
+namespace visionRuntime::core {
 
 enum class DeviceType {
 	Cpu,
@@ -28,4 +28,4 @@ struct Device {
 	}
 };
 
-} // namespace visonRuntime::core
+} // namespace visionRuntime::core

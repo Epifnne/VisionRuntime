@@ -1,0 +1,36 @@
+name: MinGW CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: egor-tensin/setup-mingw@v2
+        with:
+          platform: x64
+          version: 13.2.0
+      - uses: seanmiddleditch/gha-setup-ninja@v5
+      - name: Bootstrap dependencies
+        run: >-
+          cmake
+          -DGIT_EXECUTABLE=git
+          -DTHIRDPARTY_DIRECTORY="${{ github.workspace }}/Thirdparty"
+          -P cmake/bootstrapDependencies.cmake
+      - name: Configure
+        run: >-
+          cmake -S . -B Build/CI -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_CXX_COMPILER=g++
+          -DVISION_CAMERA_SDK=NONE
+          -DVISION_INFERENCE_PLATFORM=NONE
+      - name: Build
+        run: cmake --build Build/CI
+      - name: Test
+        run: ctest --test-dir Build/CI --output-on-failure

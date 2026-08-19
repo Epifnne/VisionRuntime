@@ -4,7 +4,7 @@
 #include "preprocess/preparedInput.hpp"
 #include "vision/transformContext.hpp"
 
-namespace visonRuntime::postprocess {
+namespace visionRuntime::postprocess {
 
 template<typename ResultType>
 class IPostprocessor {
@@ -17,4 +17,4 @@ public:
 		const pipeline::PipelinePacket& packet) = 0;
 };
 
-} // namespace visonRuntime::postprocess
+} // namespace visionRuntime::postprocess

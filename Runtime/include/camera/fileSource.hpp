@@ -17,7 +17,7 @@
 #include <string>
 #include <vector>
 
-namespace visonRuntime::camera {
+namespace visionRuntime::camera {
 
 enum class FileOrder {
 	Lexicographical,
@@ -61,4 +61,4 @@ private:
 	std::unique_ptr<Impl> impl_;
 };
 
-} // namespace visonRuntime::camera
+} // namespace visionRuntime::camera

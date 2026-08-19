@@ -1,0 +1,14 @@
+#pragma once
+
+#include "pipeline/businessFramePool.hpp"
+#include "pipeline/frameRetentionPolicy.hpp"
+#include "pipeline/inferenceOutput.hpp"
+#include "pipeline/iOpenCvAlgorithm.hpp"
+#include "pipeline/iVisionPipeline.hpp"
+#include "pipeline/openCvPipeline.hpp"
+#include "pipeline/openCvPipelineBuilder.hpp"
+#include "pipeline/pipeline.hpp"
+#include "pipeline/pipelineBuilder.hpp"
+#include "pipeline/pipelinePacket.hpp"
+#include "pipeline/port.hpp"
+#include "pipeline/runtime.hpp"

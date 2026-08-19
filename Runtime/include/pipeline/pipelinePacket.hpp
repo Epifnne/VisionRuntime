@@ -13,7 +13,7 @@
 #include <optional>
 #include <utility>
 
-namespace visonRuntime::pipeline {
+namespace visionRuntime::pipeline {
 
 class PipelinePacket {
 public:
@@ -91,4 +91,4 @@ private:
 	PipelineOwnershipOptions ownershipOptions_;
 };
 
-} // namespace visonRuntime::pipeline
+} // namespace visionRuntime::pipeline

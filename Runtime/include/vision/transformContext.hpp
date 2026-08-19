@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-namespace visonRuntime::vision {
+namespace visionRuntime::vision {
 
 struct ImageSize {
 	std::uint32_t width = 0;
@@ -32,4 +32,4 @@ struct TransformContext {
 	ImagePadding padding;
 };
 
-} // namespace visonRuntime::vision
+} // namespace visionRuntime::vision
