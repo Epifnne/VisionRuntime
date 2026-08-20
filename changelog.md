@@ -74,6 +74,29 @@
 
 ### Added
 
+- 增加 `RuntimeSession<ResultType>`，统一整次帧源运行的启动、等待、停止和汇总生命周期。
+- 增加 `RuntimeFactory::createRuntime()`，按 `DeploymentConfig` 选择串行或阶段并行执行器，并与帧源组装为运行会话。
+- 增加工厂创建可运行会话的 Executor 集成测试。
+- 增加 `IPipelineExecutor`、`SerialPipelineExecutor` 和三阶段 `ParallelPipelineExecutor`，支持配置选择串行或阶段重叠执行。
+- 增加 `IStagedVisionPipeline`，统一 preprocess、inference、postprocess 阶段 contract。
+- 增加 `common::BoundedBlockingQueue<T>`：固定容量 SPSC 无锁环形数据路径，使用 `atomic::wait/notify` 阻塞，head/tail 独占 64 字节缓存行。
+- 增加 `core::CompletionDispatcher<ResultType>`，通过有界 SPSC 队列异步 FIFO 交付 future 与 callback。
+- 增加 `executor::ExecutorTask<ResultType>`，统一任务 ID、状态、取消、future 和 callback 生命周期。
+- 增加 `ExecutorConfig`、部署 JSON 解析和 `RuntimeFactory` 执行策略组装，支持入口满载策略、入口容量及阶段容量。
+- 增加 SPSC 顺序、阻塞唤醒、关闭唤醒、零容量、阶段重叠、立即取消和工厂策略测试。
+
 ### Changed
 
+- `FrameExecutor` 仅依赖注入的 `IPipelineExecutor`，不再接收 Pipeline、构造串行执行器或持有执行器队列配置。
+- `anomalyDirectorySample` 改为只持有 `RuntimeFactory` 返回的 `RuntimeSession`，不再手工组装 `FrameExecutor` 与 Pipeline Executor。
+- 串行与并行执行器复用 `ExecutorTask` 和 `CompletionDispatcher`，移除重复任务状态机、完成队列、完成线程及阶段 mutex/CV。
+- 并行执行器的 preprocess→inference、inference→postprocess、postprocess→completion 均改为固定容量 SPSC 队列，慢阶段和慢 callback 会向入口传播背压。
+- `TimedPipeline` 输出改为带名的 pre、infer、post、stage、wait、latency，并增加批次总耗时、完成/失败数和 FPS；文件输出使用对应 CSV 列。
+- 删除旧 `PipelineExecutor` 名称和兼容头，串行实现直接使用 `SerialPipelineExecutor`。
+
 ### Validation
+
+- MinGW Debug `pipelineExecutorTest` 构建及 RuntimeFactory、FrameExecutor、串行/并行 Executor 相关测试通过。
+- 独立消费者 Release `anomalyDirectorySample` 使用新 RuntimeSession API 构建并运行通过。
+- Executor 相关 18 项定向测试全部通过；Release sample 使用 6 张图完整排空并输出批次吞吐量。
+- MinGW Debug 全量构建通过；全套 CTest 仅保留既有 `PreprocessChainTest.MaterializesAndNormalizesSingleChannelFrame` 失败。

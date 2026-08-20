@@ -1,6 +1,9 @@
 #pragma once
 
 #include "executor/executorOptions.hpp"
+#include "executor/executorTask.hpp"
 #include "executor/frameExecutor.hpp"
-#include "executor/pipelineExecutor.hpp"
+#include "executor/iPipelineExecutor.hpp"
+#include "executor/parallelPipelineExecutor.hpp"
+#include "executor/serialPipelineExecutor.hpp"
 #include "executor/taskHandle.hpp"

@@ -3,6 +3,7 @@
 #include "backends/iInferenceBackend.hpp"
 #include "core/result.hpp"
 #include "pipeline/inferenceOutput.hpp"
+#include "pipeline/iStagedVisionPipeline.hpp"
 #include "pipeline/iVisionPipeline.hpp"
 #include "postprocess/iPostprocessor.hpp"
 #include "preprocess/iPreprocessor.hpp"
@@ -18,7 +19,7 @@ template<typename ResultType>
 class PipelineBuilder;
 
 template<typename ResultType>
-class Pipeline final : public IVisionPipeline<ResultType> {
+class Pipeline final : public IStagedVisionPipeline<ResultType> {
 public:
 	Pipeline(const Pipeline&) = delete;
 	Pipeline& operator=(const Pipeline&) = delete;
@@ -26,7 +27,7 @@ public:
 	Pipeline& operator=(Pipeline&&) noexcept = default;
 
 	[[nodiscard]] core::Result<preprocess::PreparedInput> preprocess(
-		PipelinePacket packet) {
+		PipelinePacket packet) override {
 		try {
 			auto prepared = preprocessor_->process(std::move(packet));
 			if (!prepared) {
@@ -42,7 +43,7 @@ public:
 	}
 
 	[[nodiscard]] core::Result<InferenceOutput> infer(
-		preprocess::PreparedInput input) {
+		preprocess::PreparedInput input) override {
 		try {
 			auto outputs = backend_->infer(input.tensors());
 			if (!outputs) {
@@ -59,7 +60,7 @@ public:
 		}
 	}
 
-	[[nodiscard]] core::Result<ResultType> postprocess(InferenceOutput output) {
+	[[nodiscard]] core::Result<ResultType> postprocess(InferenceOutput output) override {
 		try {
 			auto result = postprocessor_->process(
 				output.tensors(), output.transformContext(), output.packet());

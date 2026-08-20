@@ -1,8 +1,10 @@
 #pragma once
 
+#include "core/completionDispatcher.hpp"
 #include "core/result.hpp"
 #include "executor/executorOptions.hpp"
-#include "executor/taskHandle.hpp"
+#include "executor/executorTask.hpp"
+#include "executor/iPipelineExecutor.hpp"
 #include "pipeline/iVisionPipeline.hpp"
 
 #include <condition_variable>
@@ -18,42 +20,37 @@
 
 namespace visionRuntime::executor {
 
-enum class StopMode {
-	Graceful,
-	Immediate
-};
-
 template<typename ResultType>
-class PipelineExecutor {
+class SerialPipelineExecutor final : public IPipelineExecutor<ResultType> {
 public:
-	explicit PipelineExecutor(
+	explicit SerialPipelineExecutor(
 		std::unique_ptr<pipeline::IVisionPipeline<ResultType>> pipeline,
 		ExecutorOptions options = {})
 		: pipeline_(std::move(pipeline)),
 		  queueCapacity_(options.queueCapacity),
-		  queueFullPolicy_(options.queueFullPolicy) {
+		  queueFullPolicy_(options.queueFullPolicy),
+		  completionDispatcher_(options.queueCapacity) {
 		runnerThread_ = std::thread([this] { runTasks(); });
-		completionThread_ = std::thread([this] { dispatchCompletions(); });
 	}
 
-	PipelineExecutor(
+	SerialPipelineExecutor(
 		std::unique_ptr<pipeline::IVisionPipeline<ResultType>> pipeline,
 		std::size_t queueCapacity)
-		: PipelineExecutor(
+		: SerialPipelineExecutor(
 			std::move(pipeline), ExecutorOptions{queueCapacity}) {}
 
-	~PipelineExecutor() {
+	~SerialPipelineExecutor() override {
 		stop(StopMode::Graceful);
 	}
 
-	PipelineExecutor(const PipelineExecutor&) = delete;
-	PipelineExecutor& operator=(const PipelineExecutor&) = delete;
-	PipelineExecutor(PipelineExecutor&&) = delete;
-	PipelineExecutor& operator=(PipelineExecutor&&) = delete;
+	SerialPipelineExecutor(const SerialPipelineExecutor&) = delete;
+	SerialPipelineExecutor& operator=(const SerialPipelineExecutor&) = delete;
+	SerialPipelineExecutor(SerialPipelineExecutor&&) = delete;
+	SerialPipelineExecutor& operator=(SerialPipelineExecutor&&) = delete;
 
 	[[nodiscard]] core::Result<TaskHandle<ResultType>> submit(
 		pipeline::PipelinePacket packet,
-		CompletionCallback<ResultType> callback = {}) {
+		CompletionCallback<ResultType> callback = {}) override {
 		std::unique_lock lock(queueMutex_);
 		if (!pipeline_) {
 			return submitFailure(core::StatusCode::InvalidState,
@@ -82,46 +79,40 @@ public:
 		}
 
 		const auto taskId = nextTaskId_.fetch_add(1);
-		auto state = std::make_shared<detail::TaskSharedState<ResultType>>();
-		taskQueue_.push_back(Task{
-			taskId, std::move(packet), std::move(callback), state});
+		Task task(taskId, std::move(packet), std::move(callback));
+		auto handle = task.handle();
+		taskQueue_.push_back(std::move(task));
 		queueReady_.notify_one();
 		return core::Result<TaskHandle<ResultType>>::success(
-			TaskHandle<ResultType>(taskId, std::move(state)));
+			std::move(handle));
 	}
 
-	void stop(StopMode mode = StopMode::Graceful) noexcept {
+	void stop(StopMode mode = StopMode::Graceful) noexcept override {
 		{
 			std::lock_guard lock(queueMutex_);
 			accepting_ = false;
 			stopRequested_ = true;
 			if (mode == StopMode::Immediate) {
-				if (runningTask_) {
-					runningTask_->cancelRequested.store(true);
+				if (runningTask_ != nullptr) {
+					runningTask_->requestCancellation();
 				}
 				for (auto& task : taskQueue_) {
-					task.state->cancelRequested.store(true);
+					task.requestCancellation();
 				}
 			}
 		}
 
 		queueReady_.notify_all();
 		queueSpaceAvailable_.notify_all();
-		joinThreads();
+		joinRunner();
+		completionDispatcher_.finish();
+		if (pipeline_) {
+			pipeline_->finishBatch();
+		}
 	}
 
 private:
-	struct Task {
-		TaskId id;
-		pipeline::PipelinePacket packet;
-		CompletionCallback<ResultType> callback;
-		std::shared_ptr<detail::TaskSharedState<ResultType>> state;
-	};
-
-	struct Completion {
-		Task task;
-		core::Result<ResultType> result;
-	};
+	using Task = ExecutorTask<ResultType>;
 
 	[[nodiscard]] static core::Result<TaskHandle<ResultType>> submitFailure(
 		core::StatusCode code,
@@ -149,30 +140,24 @@ private:
 
 				task.emplace(std::move(taskQueue_.front()));
 				taskQueue_.pop_front();
-				runningTask_ = task->state;
+				runningTask_ = &*task;
 			}
 			queueSpaceAvailable_.notify_one();
 
-			if (task->state->cancelRequested.load()) {
+			if (task->cancellationRequested()) {
 				queueCompletion(std::move(*task), cancelledResult("task was cancelled"));
 			} else {
-				task->state->state.store(TaskState::Running);
-				auto result = execute(std::move(task->packet));
-				if (task->state->cancelRequested.load()) {
+				task->markRunning();
+				auto result = execute(std::move(task->packet()));
+				if (task->cancellationRequested()) {
 					result = cancelledResult("task was cancelled");
 				}
 				queueCompletion(std::move(*task), std::move(result));
 			}
 
 			std::lock_guard lock(queueMutex_);
-			runningTask_.reset();
+			runningTask_ = nullptr;
 		}
-
-		{
-			std::lock_guard lock(completionMutex_);
-			runnerFinished_ = true;
-		}
-		completionReady_.notify_all();
 	}
 
 	[[nodiscard]] core::Result<ResultType> execute(
@@ -191,59 +176,19 @@ private:
 	}
 
 	void queueCompletion(Task task, core::Result<ResultType> result) noexcept {
-		{
-			std::lock_guard lock(completionMutex_);
-			completionQueue_.push_back(Completion{std::move(task), std::move(result)});
-		}
-		completionReady_.notify_one();
+		auto sharedTask = std::make_shared<Task>(std::move(task));
+		static_cast<void>(completionDispatcher_.dispatch(
+			std::move(result),
+			[sharedTask = std::move(sharedTask)](auto delivered) {
+				sharedTask->complete(std::move(delivered));
+			}));
 	}
 
-	void dispatchCompletions() noexcept {
-		for (;;) {
-			std::optional<Completion> completion;
-			{
-				std::unique_lock lock(completionMutex_);
-				completionReady_.wait(lock, [this] {
-					return runnerFinished_ || !completionQueue_.empty();
-				});
-				if (runnerFinished_ && completionQueue_.empty()) {
-					break;
-				}
-				completion.emplace(std::move(completionQueue_.front()));
-				completionQueue_.pop_front();
-			}
-
-			auto& state = completion->task.state;
-			if (completion->result) {
-				state->state.store(TaskState::Completed);
-			} else if (completion->result.status().code() == core::StatusCode::Cancelled) {
-				state->state.store(TaskState::Cancelled);
-			} else {
-				state->state.store(TaskState::Failed);
-			}
-			state->promise.set_value(std::move(completion->result));
-
-			if (completion->task.callback) {
-				try {
-					completion->task.callback(
-						completion->task.id, state->future.get());
-				} catch (...) {
-				}
-			}
-		}
-	}
-
-	void joinThreads() noexcept {
+	void joinRunner() noexcept {
 		std::lock_guard lock(joinMutex_);
-		if (runnerThread_.joinable()) {
-			if (runnerThread_.get_id() != std::this_thread::get_id()) {
-				runnerThread_.join();
-			}
-		}
-		if (completionThread_.joinable()) {
-			if (completionThread_.get_id() != std::this_thread::get_id()) {
-				completionThread_.join();
-			}
+		if (runnerThread_.joinable() &&
+			runnerThread_.get_id() != std::this_thread::get_id()) {
+			runnerThread_.join();
 		}
 	}
 
@@ -251,22 +196,17 @@ private:
 	const std::size_t queueCapacity_;
 	const QueueFullPolicy queueFullPolicy_;
 	std::atomic<TaskId> nextTaskId_{1};
+	core::CompletionDispatcher<ResultType> completionDispatcher_;
 
 	std::mutex queueMutex_;
 	std::condition_variable queueReady_;
 	std::condition_variable queueSpaceAvailable_;
 	std::deque<Task> taskQueue_;
-	std::shared_ptr<detail::TaskSharedState<ResultType>> runningTask_;
+	Task* runningTask_ = nullptr;
 	bool accepting_ = true;
 	bool stopRequested_ = false;
 	std::thread runnerThread_;
 	std::mutex joinMutex_;
-
-	std::mutex completionMutex_;
-	std::condition_variable completionReady_;
-	std::deque<Completion> completionQueue_;
-	bool runnerFinished_ = false;
-	std::thread completionThread_;
 };
 
 } // namespace visionRuntime::executor

@@ -193,7 +193,10 @@ TEST(TimedPipelineTest, ReportsSuccessfulStageDurations) {
 			EXPECT_GE(durations.preprocessMilliseconds, 0.0);
 			EXPECT_GE(durations.inferenceMilliseconds, 0.0);
 			EXPECT_GE(durations.postprocessMilliseconds, 0.0);
-			EXPECT_GE(durations.totalMilliseconds, 0.0);
+			EXPECT_GE(durations.stageMilliseconds, 0.0);
+			EXPECT_GE(durations.waitMilliseconds, 0.0);
+			EXPECT_GE(durations.latencyMilliseconds,
+				durations.stageMilliseconds);
 		});
 
 	auto result = pipeline.run(visionRuntime::pipeline::PipelinePacket({}));
@@ -268,7 +271,9 @@ TEST(AnomalyCsvTimedPipelineTest, WritesHeaderAndResultToFile) {
 		std::ifstream output(outputPath);
 		const std::string contents{
 			std::istreambuf_iterator<char>(output), std::istreambuf_iterator<char>()};
-		EXPECT_NE(contents.find("sequence,score,threshold,result,preprocess_ms,"),
+		EXPECT_NE(contents.find("sequence,score,threshold,result,pre_ms,"),
+			std::string::npos);
+		EXPECT_NE(contents.find("stage_ms,wait_ms,latency_ms"),
 			std::string::npos);
 		EXPECT_NE(contents.find("0,2.5,2,NG,"), std::string::npos);
 	}

@@ -48,6 +48,7 @@ python Runtime/tools/vision-modelc.py model.onnx `
 - CMake 配置期相机 SDK/推理平台选择，以及生成的强类型 `BuildProfile` 和能力描述。
 - 池化 Float32 NCHW 张量直写与原地归一化，避免临时 Tensor 和处理后的整块复制。
 - OpenVINO 单输入/单输出 Float32 同步后端，以及标量异常分数阈值后处理。
+- `RuntimeFactory` 组装帧源、Pipeline 和执行策略并返回统一生命周期的 `RuntimeSession`。
 - `vision-modelc` ONNX 到 OpenVINO IR 转译工具，输出制品哈希和端口信息构建记录。
 - `anomalyDirectorySample` 文件夹异常检测示例，逐图输出 score 和 OK/NG。
 
@@ -177,7 +178,7 @@ Build/SampleConsumer/bin/anomalyDirectorySample.exe `
 
 `VISON_RUNTIME_ROOT` 只在当前仓库内验证 sample 时用于指向框架位置；复制成真实业务工程后，默认位置就是 `Thirdparty/VisonRuntime`。构建 sample 后，CMake 只复制公共 OpenVINO Runtime、所选设备插件、ONNX/IR frontend、TBB 和 MinGW 运行库。缺失必需 DLL 会在配置期报错；设备和模型类型不能通过命令行切换到未打包能力。
 
-示例通过 `PreprocessBuilder` 组合 `Resize`、`CenterCrop`、`ToTensor` 和 `Normalize`，实现 PatchCore 所需的短边缩放到 256、中心裁剪 224、RGB、Float32 NCHW 和 ImageNet mean/std 前处理。`benchmark::TimedPipeline` 测量各阶段耗时，sample 将 sequence、score、判定和耗时 CSV 写到标准输出，不会自动创建文件；需要保存时可执行 `anomalyDirectorySample.exe ... > result.csv`。使用参考工程已知 NG 图验证时，sample 输出 `2.91676521`，Python 参考结果为 `2.90172958`，相对误差约 0.52%，阈值 2.0 下均判定为 NG。剩余误差主要来自 Pillow 与 C++ resize 的像素取整差异。
+示例通过 `PreprocessBuilder` 组合 `Resize`、`CenterCrop`、`ToTensor` 和 `Normalize`，实现 PatchCore 所需的短边缩放到 256、中心裁剪 224、RGB、Float32 NCHW 和 ImageNet mean/std 前处理。`benchmark::TimedPipeline` 在标准输出中显示 pre、infer、post、stage、wait 和端到端 latency，并在批次结束时显示总耗时、完成/失败数和 FPS；配置文件输出时使用对应 CSV 列。`stage = pre + infer + post`，`wait = latency - stage`，因此并行队列中的等待不会被误认为阶段执行时间。
 
 ## 图像所有权
 
@@ -194,11 +195,22 @@ Business Frame -> infer -> postprocess/heatmap -> release business buffer
 
 ## 执行模型
 
-运行时同时提供同步 `run()` 和异步 `submit()`。当前 `PipelineExecutor<ResultType>` 在 `IVisionPipeline<ResultType>` 之上提供单执行通道：并发调用的 `submit()` 进入线程安全的固定容量队列，执行线程按 FIFO 调用 `run()`，独立完成线程设置 shared future 并触发业务回调。入口满载时返回 `QueueFull`，Pipeline 或回调异常不会逃出工作线程。
+运行时同时提供同步 `run()` 和异步 `submit()`。推荐由 `RuntimeFactory::createRuntime()` 返回 `RuntimeSession<ResultType>`，业务代码只通过 `start()`、`wait()` 和 `stop()` 管理整次运行。`RuntimeSession` 持有帧采集控制器；`FrameExecutor` 只处理帧源、停止条件、失败策略和统计，并通过 `IPipelineExecutor<ResultType>` 提交任务，不创建或识别具体执行器。
 
-`TaskHandle` 提供 task ID、状态、shared future 和取消请求。任务按提交顺序交付；平滑停止会排空已接受任务，立即停止会按顺序取消正在运行及排队任务，并拒绝新提交。执行中的后端调用不被抢占，其结果会在安全边界替换为 `Cancelled`。
+```cpp
+auto runtime = runtime::RuntimeFactory::createRuntime(
+	std::move(source), std::move(pipeline), deployment, {
+		.frameCount = frameCount,
+	}).value();
+runtime->start().value();
+const auto summary = runtime->wait();
+```
 
-当前公共 Pipeline 接口只暴露整体 `run()`，因此尚未实现前处理、推理、后处理的三线程重叠执行及阶段间 SPSC 队列。该阶段化能力需要先增加统一的可分阶段 Pipeline contract，且不能让 Executor 判断具体 Pipeline 类型。详细边界见 [Docs/architecture.md](Docs/architecture.md#37-executor)。
+`IPipelineExecutor<ResultType>` 统一异步提交与停止接口；`SerialPipelineExecutor` 使用单执行线程按 FIFO 调用整体 `run()`，`ParallelPipelineExecutor` 则让 preprocess、inference、postprocess 在三个专属线程上重叠执行不同任务。preprocess→inference、inference→postprocess、postprocess→completion 均使用固定容量 SPSC 环形队列，内部满载或 callback 变慢时阻塞上游并逐级形成背压。SPSC 队列通过原子索引和 `atomic::wait/notify` 工作，head/tail 分离到独立 64 字节缓存行以避免伪共享；并发 `submit()` 的入口仍使用支持多生产者的互斥队列。
+
+`TaskHandle` 提供 task ID、状态、shared future 和取消请求。两种执行器都按提交顺序交付；平滑停止会排空已接受任务，立即停止会按顺序取消正在运行及排队任务，并拒绝新提交。执行中的阶段调用不被抢占，其结果会在安全边界替换为 `Cancelled`。
+
+模型 Pipeline 通过 `IStagedVisionPipeline` 暴露三个阶段；OpenCV 单阶段 Pipeline 仍只支持串行执行。`RuntimeFactory` 根据部署配置中的 `performancePolicy`、`queueFullPolicy`、入口容量和阶段容量选择执行器，并将其与帧源组装为 `RuntimeSession`。高级调用方仍可使用 `createExecutor()` 单独取得提交接口。详细边界见 [Docs/architecture.md](Docs/architecture.md#37-executor)。
 
 ## 构建环境
 
@@ -223,4 +235,4 @@ ctest --preset mingw-debug
 
 所有构建产物写入 `Build`。
 
-当前共有 50 个单元测试，覆盖构建 Profile、基础结果类型、Tensor 视图、缓冲池、池耗尽、非法布局、Pipeline 与 Executor 行为、跨阶段图像生命周期、目录图像解码、前处理数值、异常分数后处理、张量池 lease 和节点组合约束。
+当前 CTest 发现 77 项测试，覆盖构建 Profile、基础结果类型、Tensor 视图、缓冲池、SPSC 队列、串行/并行 Executor、背压与取消、Pipeline 生命周期、目录图像解码、前处理和异常后处理。Executor 相关 18 项测试全部通过；当前仍有一项既有单通道前处理链构建测试失败，详见 `PreprocessChainTest.MaterializesAndNormalizesSingleChannelFrame`。

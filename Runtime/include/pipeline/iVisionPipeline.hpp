@@ -12,6 +12,7 @@ public:
 
 	[[nodiscard]] virtual core::Result<ResultType> run(
 		PipelinePacket packet) = 0;
+	virtual void finishBatch() noexcept {}
 };
 
 } // namespace visionRuntime::pipeline

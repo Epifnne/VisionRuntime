@@ -60,9 +60,10 @@ public:
 						"benchmark output file could not be opened"));
 			}
 			output->stream_ = &output->file_;
+			output->csv_ = true;
+			*output->stream_ << "sequence,score,threshold,result,pre_ms,"
+				"infer_ms,post_ms,stage_ms,wait_ms,latency_ms\n";
 		}
-		*output->stream_ << "sequence,score,threshold,result,preprocess_ms,"
-			"inference_ms,postprocess_ms,pipeline_ms\n";
 		return core::Result<std::shared_ptr<AnomalyCsvTimingOutput>>::success(
 			std::move(output));
 	}
@@ -76,14 +77,49 @@ public:
 		}
 
 		std::ostringstream line;
-		line << sequenceNumber << ',' << std::setprecision(9)
-			<< result->score << ',' << result->threshold << ','
-			<< vision::anomalyDecisionName(result->decision)
-			<< ',' << std::fixed << std::setprecision(3)
-			<< durations.preprocessMilliseconds << ','
-			<< durations.inferenceMilliseconds << ','
-			<< durations.postprocessMilliseconds << ','
-			<< durations.totalMilliseconds << '\n';
+		if (csv_) {
+			line << sequenceNumber << ',' << std::setprecision(9)
+				<< result->score << ',' << result->threshold << ','
+				<< vision::anomalyDecisionName(result->decision)
+				<< ',' << std::fixed << std::setprecision(3)
+				<< durations.preprocessMilliseconds << ','
+				<< durations.inferenceMilliseconds << ','
+				<< durations.postprocessMilliseconds << ','
+				<< durations.stageMilliseconds << ','
+				<< durations.waitMilliseconds << ','
+				<< durations.latencyMilliseconds << '\n';
+		} else {
+			line << "sequence: " << sequenceNumber
+				<< " | score: " << std::setprecision(9) << result->score
+				<< " | threshold: " << result->threshold
+				<< " | result: " << vision::anomalyDecisionName(result->decision)
+				<< " | pre: " << std::fixed << std::setprecision(3)
+				<< durations.preprocessMilliseconds << " ms"
+				<< " | infer: " << durations.inferenceMilliseconds << " ms"
+				<< " | post: " << durations.postprocessMilliseconds << " ms"
+				<< " | stage: " << durations.stageMilliseconds << " ms"
+				<< " | wait: " << durations.waitMilliseconds << " ms"
+				<< " | latency: " << durations.latencyMilliseconds << " ms\n";
+		}
+		std::scoped_lock lock(mutex_);
+		*stream_ << line.str();
+	}
+
+	void writeBatch(const BatchPerformance& performance) {
+		std::ostringstream line;
+		if (csv_) {
+			line << "# batch,completed=" << performance.completed
+				<< ",failed=" << performance.failed
+				<< ",total_ms=" << std::fixed << std::setprecision(3)
+				<< performance.totalMilliseconds
+				<< ",throughput_fps=" << performance.framesPerSecond << '\n';
+		} else {
+			line << "batch | completed: " << performance.completed
+				<< " | failed: " << performance.failed
+				<< " | total: " << std::fixed << std::setprecision(3)
+				<< performance.totalMilliseconds << " ms"
+				<< " | throughput: " << performance.framesPerSecond << " fps\n";
+		}
 		std::scoped_lock lock(mutex_);
 		*stream_ << line.str();
 	}
@@ -93,6 +129,7 @@ private:
 
 	std::ofstream file_;
 	std::ostream* stream_ = &std::cout;
+	bool csv_ = false;
 	std::mutex mutex_;
 };
 
@@ -122,6 +159,9 @@ private:
 				const core::Result<vision::AnomalyResult>& result,
 				const PipelineDurations& durations) {
 				sharedOutput->write(sequenceNumber, result, durations);
+			},
+			[sharedOutput](const BatchPerformance& performance) {
+				sharedOutput->writeBatch(performance);
 			}));
 }
 

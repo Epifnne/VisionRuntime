@@ -6,6 +6,12 @@ add_executable(buildProfileTest
 target_link_libraries(buildProfileTest PRIVATE visionRuntime GTest::gtest_main)
 gtest_discover_tests(buildProfileTest)
 
+add_executable(configLoaderTest
+	config/configLoaderTest.cpp
+)
+target_link_libraries(configLoaderTest PRIVATE visionRuntime GTest::gtest_main)
+gtest_discover_tests(configLoaderTest)
+
 foreach(testTarget IN ITEMS typeConstraintTest statusTest resultTest tensorTest)
 	add_executable(${testTarget}
 		core/${testTarget}.cpp

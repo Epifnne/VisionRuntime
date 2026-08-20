@@ -4,6 +4,7 @@
 #include "pipeline/frameRetentionPolicy.hpp"
 #include "pipeline/inferenceOutput.hpp"
 #include "pipeline/iOpenCvAlgorithm.hpp"
+#include "pipeline/iStagedVisionPipeline.hpp"
 #include "pipeline/iVisionPipeline.hpp"
 #include "pipeline/openCvPipeline.hpp"
 #include "pipeline/openCvPipelineBuilder.hpp"
