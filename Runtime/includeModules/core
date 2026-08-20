@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/completionDispatcher.hpp"
 #include "core/dataType.hpp"
 #include "core/device.hpp"
 #include "core/result.hpp"

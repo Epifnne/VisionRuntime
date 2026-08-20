@@ -23,3 +23,26 @@ Thirdparty/
 | GoogleTest | 1.17.0 | `git@github.com:google/googletest.git` | `52eb8108c5bdec04579160ae17225d66034bd723` |
 | nlohmann/json | 3.12.0 | `https://github.com/nlohmann/json.git` | `55f93686c01528224f448c19128836e7df245f72` |
 | spdlog | 1.15.3 | `https://github.com/gabime/spdlog.git` | `6fa36017cfd5731d617e1a934f0e5ea9c4445b13` |
+| OpenVINO | 2026.2.1 | `https://pypi.org/project/openvino/2026.2.1/` | PyPI 2026.2.1 platform wheel |
+
+OpenVINO 使用平台隔离目录，CMake 会按目标平台自动查找：
+
+```text
+Thirdparty/openvino/2026.2.1/
+├─ windows-x86_64/openvino/cmake/OpenVINOConfig.cmake
+└─ linux-x86_64/openvino/cmake/OpenVINOConfig.cmake
+```
+
+Windows 安装命令：
+
+```powershell
+python -m pip install --target Thirdparty/openvino/2026.2.1/windows-x86_64 openvino==2026.2.1
+```
+
+WSL Ubuntu 安装命令（在仓库根目录执行）：
+
+```bash
+python3 -m pip install --target Thirdparty/openvino/2026.2.1/linux-x86_64 openvino==2026.2.1
+```
+
+这些平台包属于本机依赖并由 `.gitignore` 排除。需要使用其他位置时，可显式设置 `OpenVINO_DIR` 指向包含 `OpenVINOConfig.cmake` 的目录。

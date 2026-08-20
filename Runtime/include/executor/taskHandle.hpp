@@ -11,6 +11,9 @@
 
 namespace visionRuntime::executor {
 
+template<typename ResultType>
+class ExecutorTask;
+
 using TaskId = std::uint64_t;
 
 enum class TaskState {
@@ -70,7 +73,7 @@ public:
 
 private:
 	template<typename>
-	friend class PipelineExecutor;
+	friend class ExecutorTask;
 
 	TaskHandle(TaskId id, std::shared_ptr<detail::TaskSharedState<ResultType>> state)
 		: id_(id), state_(std::move(state)) {}

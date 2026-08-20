@@ -2,9 +2,7 @@
 
 #include "camera/iFrameSource.hpp"
 #include "core/result.hpp"
-#include "executor/executorOptions.hpp"
-#include "executor/pipelineExecutor.hpp"
-#include "pipeline/iVisionPipeline.hpp"
+#include "executor/iPipelineExecutor.hpp"
 
 #include <chrono>
 #include <condition_variable>
@@ -35,7 +33,6 @@ struct FrameExecutionSummary {
 
 template<typename ResultType>
 struct FrameExecutionOptions {
-	ExecutorOptions executor;
 	std::optional<std::size_t> frameCount;
 	std::optional<std::chrono::milliseconds> duration;
 	std::chrono::milliseconds frameInterval{0};
@@ -50,10 +47,10 @@ class FrameExecutor {
 public:
 	FrameExecutor(
 		std::unique_ptr<camera::IFrameSource> source,
-		std::unique_ptr<pipeline::IVisionPipeline<ResultType>> pipeline,
+		std::unique_ptr<IPipelineExecutor<ResultType>> executor,
 		FrameExecutionOptions<ResultType> options = {})
 		: source_(std::move(source)),
-		  executor_(std::move(pipeline), options.executor),
+		  executor_(std::move(executor)),
 		  options_(std::move(options)) {}
 
 	~FrameExecutor() {
@@ -69,6 +66,10 @@ public:
 		if (!source_) {
 			return failure(core::StatusCode::InvalidState,
 				"frame executor requires a source");
+		}
+		if (!executor_) {
+			return failure(core::StatusCode::InvalidState,
+				"frame executor requires a pipeline executor");
 		}
 		if (options_.frameCount && *options_.frameCount == 0) {
 			return failure(core::StatusCode::InvalidArgument,
@@ -138,7 +139,7 @@ public:
 		if (source_) {
 			static_cast<void>(source_->stop());
 		}
-		executor_.stop(StopMode::Graceful);
+		executor_->stop(StopMode::Graceful);
 		{
 			std::lock_guard lock(stateMutex_);
 			finished_ = true;
@@ -173,7 +174,7 @@ private:
 			invokeStatusCallback(options_.sourceFailureCallback, frame.status());
 			stopForFailure = options_.sourceFailurePolicy == SourceFailurePolicy::Stop;
 		} else {
-			auto submitted = executor_.submit(
+			auto submitted = executor_->submit(
 				pipeline::PipelinePacket(std::move(frame).value()),
 				[this](TaskId id, const core::Result<ResultType>& result) {
 					{
@@ -237,7 +238,7 @@ private:
 
 	void finishWithoutSource() noexcept {
 		cancelTimer();
-		executor_.stop(StopMode::Graceful);
+		executor_->stop(StopMode::Graceful);
 		{
 			std::lock_guard lock(stateMutex_);
 			finished_ = true;
@@ -263,7 +264,7 @@ private:
 	}
 
 	std::unique_ptr<camera::IFrameSource> source_;
-	PipelineExecutor<ResultType> executor_;
+	std::unique_ptr<IPipelineExecutor<ResultType>> executor_;
 	FrameExecutionOptions<ResultType> options_;
 
 	std::mutex stateMutex_;

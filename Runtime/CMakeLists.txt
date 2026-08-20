@@ -75,6 +75,7 @@ function(vision_add_runtime targetName)
 	)
 
 	add_library(${targetName}
+		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/config/configLoader.cpp
 		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/camera/fileSource.cpp
 		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/postprocess/anomalyPostprocessor.cpp
 		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/postprocess/anomalyThresholdPostprocessor.cpp
@@ -108,6 +109,7 @@ function(vision_add_runtime targetName)
 
 	target_link_libraries(${targetName}
 		PRIVATE
+			nlohmann_json::nlohmann_json
 			opencv_imgcodecs
 	)
 	if(VISION_PLATFORM STREQUAL "OPENVINO_INTEL")

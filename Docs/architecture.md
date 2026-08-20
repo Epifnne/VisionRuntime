@@ -23,7 +23,15 @@ FileSource / Camera Adapter
 	v  Frame（图像语义）
 	|
 	v
-PipelineExecutor  -- 多生产者有界提交队列、任务 ID、future、回调
+RuntimeSession / FrameExecutor -- 全局生命周期、停止条件、采集统计
+	|
+	v  PipelinePacket
+	|
+	v
+IPipelineExecutor -- 可替换提交边界
+	|
+	v
+Serial / Parallel PipelineExecutor -- 有界队列、任务 ID、future、回调
 	|
 	v
 Preprocess Thread  -- resize、颜色转换、归一化、layout 转换
@@ -49,14 +57,16 @@ VisionResult  -- Classification / Detection / Anomaly / OCR / Keypoint
 Runtime/
 ├─ benchmark/        # Pipeline 分阶段计时装饰器和指标结构
 ├─ include/
+│  ├─ common/        # 无业务语义的并发容器等底层设施
 │  ├─ core/          # 无视觉业务语义的基础类型
 │  ├─ vision/        # 图像、几何、变换上下文和标准结果
 │  ├─ preprocess/    # 前处理节点接口与内置节点
 │  ├─ backends/      # 统一后端接口及各后端声明
 │  ├─ postprocess/   # 后处理节点接口与标准任务实现
 │  ├─ pipeline/      # 线性流水线、构建器和运行时门面
-│  ├─ executor/      # 队列、任务、线程和结果交付
+│  ├─ executor/      # 任务调度、线程和执行器接口
 │  ├─ config/        # 模型清单、部署配置、校验和对象构造
+│  ├─ runtime/       # RuntimeFactory 与 RuntimeSession 全局生命周期
 │  ├─ camera/        # 文件夹图像源、图像源抽象及海康 MVS 适配器
 │  ├─ logs/          # 日志接口和运行指标
 │  └─ gui/           # 预留，不属于首版核心 SDK
@@ -72,16 +82,19 @@ Samples/
 
 ### 3.1 core
 
-`core` 是最低层模块，只提供通用能力：
+`core` 位于 `common` 之上，只提供通用基础能力：
 
 - `Status`、错误码和 `Result<T>`。
 - `TensorBuffer` 描述底层存储的地址、容量、设备、内存类型、可写性和共享生命周期。
 - `TensorBufferPool` 提供线程安全的固定容量可复用缓冲区；最后一个视图释放后槽位自动归还。
 - `Tensor` 是 `TensorBuffer` 上的类型化多维视图，支持 shape、byte stride、offset、连续性和 subview。
 - CPU/CUDA 等 `Device` 描述。
+- `CompletionDispatcher<ResultType>` 使用固定容量 SPSC 队列和独立消费线程，按 FIFO 设置任务结果并触发回调。
 - 公共导出宏和基础类型。
 
-`core` 不依赖 OpenCV、推理 SDK、配置解析器或执行器。
+`common` 位于 `core` 下方，当前提供 `BoundedBlockingQueue<T>`：固定容量 SPSC 环形队列，数据路径使用 acquire/release 原子操作，阻塞等待使用 C++20 `atomic::wait/notify`。生产者写入的 tail 与消费者写入的 head 分别占用 64 字节缓存行，避免伪共享。该队列只允许一个生产者和一个消费者，不能用于多业务线程并发提交的入口队列。
+
+`core` 只依赖 `common`，不依赖 OpenCV、推理 SDK、配置解析器或执行器。
 
 ### 3.2 vision
 
@@ -204,29 +217,29 @@ Business Frame
 
 Executor 在 Pipeline 之上提供在线调度：
 
-当前已实现的基础调度层：
+当前调度层：
 
-- `PipelineExecutor<ResultType>` 只依赖 `IVisionPipeline<ResultType>`，使用单执行线程按 FIFO 调用整体 `run()`。
+- `RuntimeSession<ResultType>` 是 `RuntimeFactory` 返回的整次运行门面，统一提供 `start()`、`wait()` 和 `stop()`，业务代码不需要持有具体 Executor。
+- `FrameExecutor<ResultType>` 只拥有 `IFrameSource` 和注入的 `IPipelineExecutor<ResultType>`，负责帧数/时长停止条件、源错误策略与运行统计，不包含 Pipeline 构造和队列配置。
+- `IPipelineExecutor<ResultType>` 统一 `submit()` 与 `stop()`；`SerialPipelineExecutor` 使用单执行线程按 FIFO 调用整体 `run()`。
+- `ParallelPipelineExecutor` 依赖 `IStagedVisionPipeline<ResultType>`，preprocess、inference 和 postprocess 各由一个专属线程执行，不同任务可以在不同阶段重叠。
+- `ExecutorTask<ResultType>` 集中管理 task ID、PipelinePacket、取消状态、future 和 callback；串行与并行执行器不重复实现任务状态机。
 - `submit()` 支持多业务线程并发调用；固定容量入口队列满时返回 `QueueFull`。
 - `TaskHandle` 提供 task ID、任务状态、shared future 和取消请求。
 - 独立完成线程设置 future 并触发回调；Pipeline 与回调异常均不会逃出线程入口。
 - 平滑停止排空已接受任务；立即停止标记正在运行和排队任务为取消，并保持提交顺序完成。执行中的 Pipeline 调用不被抢占。
-
-下一阶段的分阶段 PipelineRunner 设计：
-
-- `PipelineRunner` 是单通道的三阶段流水线，前处理、推理和后处理各由一个专属线程串行执行本阶段任务。
 - `submit()` 可以由多个业务线程并发调用，因此入口使用线程安全的固定容量有界提交队列，不假定单生产者。
-- `PipelineRunner` 内相邻阶段通过固定容量、FIFO 的有界 SPSC 队列连接；内部队列满时阻塞生产阶段，使背压逐级传到入口。
+- 并行执行器的 preprocess→inference、inference→postprocess、postprocess→completion 三条边均为固定容量 FIFO SPSC 环形队列；队列满时阻塞生产阶段，使慢推理或慢回调的背压逐级传到入口。
 - 只有 `submit()` 在入口容量不足时返回 `QueueFull`；已经接受的任务不得因中间队列满载而丢失。
 - `TaskHandle` 持有 future、任务状态和 task ID。
 - `CompletionDispatcher` 在独立线程完成 future 并触发业务回调，业务回调不占用流水线阶段线程。
 - 单通道各阶段保持 FIFO，结果严格按提交顺序交付；首版不提供完成即交付模式。
-- 记录排队、前处理、推理、后处理和总耗时的 P50/P95/P99。
+- `TimedPipeline` 当前记录 pre、infer、post、stage、wait 和端到端 latency，并在批次结束时输出 wall-clock 总耗时及 FPS；P50/P95/P99 聚合尚未实现。
 - 平滑停止拒绝新任务并排空已接受任务；立即停止取消所有未开始任务，正在执行的阶段允许完成后停止向下游交付。
 - 未开始任务可以取消；执行中的任务只记录取消请求，不抢占后端调用，并在安全边界停止后续阶段或结果交付。
 - 阶段函数和业务回调产生的异常必须转换为失败状态，不能逃出线程入口。
 
-当前 `IVisionPipeline` 只暴露整体 `run()`，无法在不识别具体 Pipeline 类型的前提下拆分三个阶段。实现 `PipelineRunner` 前必须先定义模型 Pipeline 与 OpenCV Pipeline 均可遵守的阶段化 contract；在该 contract 落地前，Executor 不宣称具备阶段重叠或内部 SPSC 背压。
+`IVisionPipeline` 保留整体 `run()` contract；可阶段化的模型 Pipeline 额外实现 `IStagedVisionPipeline`。`RuntimeFactory` 在选择并行策略时验证该 contract，不识别具体 Pipeline 类型；OpenCV 单阶段 Pipeline 配置并行策略时返回配置错误。工厂通过 `createRuntime()` 组合 source、pipeline、部署策略和帧执行选项，通过 `createExecutor()` 保留只构造调度层的高级入口。
 
 提交异步任务时通过 move-only `Frame` 明确移交图像。底层 `TensorBuffer` 使用 lease 保证异步阶段访问期间内存有效；最后一个 Frame/Tensor 视图释放时自动归还所属池。`PipelineOwnershipOptions` 可分别配置相机帧和业务帧的释放阶段。
 
@@ -238,8 +251,9 @@ Executor 在 Pipeline 之上提供在线调度：
 
 - `ModelManifest` 描述模型输入输出语义、前后处理参数和资源文件。
 - `DeploymentConfig` 描述编译期平台族内的设备实例、精度、缓存、线程、队列及交付顺序，不能改变相机 SDK 或推理平台族。
+- `ExecutorConfig` 描述串行或阶段并行性能策略、入口满载策略、入口容量和阶段队列容量。
 - JSON Schema 在创建 Runtime 前完成字段、类型、范围和版本校验。
-- `ConfigLoader` 解析 JSON，`RuntimeFactory` 根据强类型配置组装运行时对象。
+- `config::ConfigLoader` 解析 JSON；`runtime::RuntimeFactory` 根据强类型配置选择具体 `IPipelineExecutor`，并将帧源与执行器组装为 `RuntimeSession`。
 
 模型语义与机器部署策略分离。模型包可以携带多个目标制品，但运行时只选择与编译期 Profile 和实际设备兼容的制品。
 
@@ -266,11 +280,13 @@ OpenCV 仅存在于 `FileSource` 的 `.cpp` 实现和私有链接依赖中，不
 
 日志模块定义轻量日志门面和指标结构。框架记录后端选择、模型缓存命中、错误上下文以及阶段耗时，但不记录图像数据。具体日志库作为实现细节，避免泄漏到公共 API。
 
-`benchmark::TimedPipeline<ResultType>` 装饰具体 `pipeline::Pipeline<ResultType>`，按顺序执行并测量 preprocess、inference、postprocess 和总耗时，再通过 observer 交给调用方。它不负责业务字段格式化或文件输出；sample 可选择输出 CSV，生产代码可将同一指标接入日志或聚合器。
+`benchmark::TimedPipeline<ResultType>` 装饰具体 `pipeline::Pipeline<ResultType>`，测量 preprocess、inference、postprocess 的纯执行时间。`stage` 为三阶段执行时间之和，`wait` 为阶段队列等待时间，`latency` 为任务从 preprocess 开始到结果完成的端到端延迟。批次指标记录 wall-clock 总耗时、完成/失败数和 FPS。标准输出使用带阶段名的可读文本，文件输出保持 CSV。
 
 ## 4. 依赖规则
 
 ```text
+common
+	^
 core
   ^
   ├── vision
@@ -307,12 +323,11 @@ public:
     virtual Result<TensorMap> infer(const TensorMap&) = 0;
 };
 
-class PipelineExecutor {
+class IPipelineExecutor {
 public:
-    Result<TaskHandle> submit(Frame frame);
-    Result<TaskHandle> submit(Frame frame, CompletionCallback callback);
-    Result<VisionResult> run(Frame frame);
-    void stop(StopMode mode);
+	virtual Result<TaskHandle> submit(
+		PipelinePacket packet, CompletionCallback callback = {}) = 0;
+	virtual void stop(StopMode mode) noexcept = 0;
 };
 ```
 

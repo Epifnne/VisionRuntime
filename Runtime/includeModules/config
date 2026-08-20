@@ -3,5 +3,5 @@
 #include "config/buildProfile.hpp"
 #include "config/configLoader.hpp"
 #include "config/deploymentConfig.hpp"
+#include "config/executorConfig.hpp"
 #include "config/modelManifest.hpp"
-#include "config/runtimeFactory.hpp"

@@ -43,7 +43,7 @@
 - [ ] 完成异常后处理（标量异常分数、阈值判断和 `AnomalyResult` 已实现；热力图还原与缺陷区域待实现）。
 - [x] 实现 `AnomalyResult` 示例程序：文件夹读取、OpenVINO CPU 推理及逐图 score/OK/NG 输出，并与参考 NG 图完成数值对比。
 - [x] 使用同一输入与 Python 参考实现对比数值误差（已知 NG 图相对误差约 0.52%，判定一致）。
-- [ ] 记录前处理、推理、后处理和总耗时。
+- [x] 记录 pre、infer、post、stage、wait、端到端 latency、批次总耗时和 FPS。
 
 验收：固定 NCHW、batch 1 的异常模型可从 ONNX 经 `vision-modelc` 转译为 IR，并完成端到端推理，结果在约定容差内与 Python 一致。
 
@@ -52,7 +52,7 @@
 - [ ] 定义 `manifest.json` 与 `deployment.json` 的版本化 JSON Schema。
 - [ ] 实现 `ModelManifest`、`DeploymentConfig` 和严格配置校验。
 - [ ] 实现模型包相对路径解析、资源文件加载和错误上下文。
-- [ ] 实现 `RuntimeFactory`，按生成的构建 Profile 与部署配置组装前处理、后端、后处理和 Runtime，并拒绝跨平台族切换。
+- [ ] 完成 `RuntimeFactory` 的模型包级组装和跨平台族校验（已完成按部署配置选择 Executor，并将 source、pipeline 组装为 `RuntimeSession`）。
 - [ ] 实现模型制品 SHA-256、设备、驱动、精度、后端版本和构建参数组成的缓存键。
 - [ ] 支持 `BuildIfMissing` 与 `CacheOnly` 两种模型准备策略。
 - [ ] 完善独立 Python CLI `vision-modelc`（ONNX 到 IR、端口名校验和构建记录已实现；待增加 manifest 校验）。
@@ -65,14 +65,16 @@
 ## M4：异步 Executor
 
 - [x] 实现支持并发 `submit()` 的固定容量有界提交队列。
-- [ ] 实现有界 SPSC 队列，连接前处理、推理、后处理和结果交付阶段。
+- [x] 以 `IPipelineExecutor` 解耦帧采集控制与串行/阶段并行任务调度。
+- [x] 增加 `RuntimeSession`，由 `RuntimeFactory` 返回统一的 `start()`、`wait()`、`stop()` 全局生命周期入口。
+- [x] 实现固定容量 SPSC 环形队列，连接前处理、推理、后处理和结果交付阶段；head/tail 独占缓存行并使用原子等待。
 - [x] 实现 `TaskHandle`、future、回调和任务状态机。
-- [ ] 实现单通道 `PipelineRunner`：前处理、推理和后处理各使用一个专属线程，并配置独立 `CompletionDispatcher`。
-- [ ] 入口队列满时返回 `QueueFull`；内部队列满时阻塞上游阶段并传播背压，保证任务不静默丢失。
-- [ ] 保证各阶段 FIFO 和按提交顺序交付；多通道及完成即交付留作后续扩展。
+- [x] 实现单通道 `ParallelPipelineExecutor`：前处理、推理和后处理各使用一个专属线程，并配置独立 `CompletionDispatcher`。
+- [x] 入口队列满时返回 `QueueFull`；内部队列满时阻塞上游阶段并传播背压，保证任务不静默丢失。
+- [x] 保证各阶段 FIFO 和按提交顺序交付；多通道及完成即交付留作后续扩展。
 - [x] 定义基础执行器的平滑停止、立即停止和取消语义；执行中的 Pipeline 调用不抢占，在安全边界转换结果。
 - [x] 保证 Pipeline 与业务回调异常不终止工作线程。
-- [ ] 增加阶段并行、队列满载、背压、停止、取消、结果顺序、回调异常和图像生命周期测试。
+- [x] 增加阶段并行、队列满载、背压、停止、取消、结果顺序、回调异常和图像生命周期测试。
 
 验收：单通道流水线持续异步提交时没有悬空图像、任务泄漏和未捕获异常，任务严格有序，结果可通过 task ID 与工件稳定关联。
 
@@ -124,7 +126,7 @@
 
 ## M9：性能、稳定性和交付
 
-- [ ] 建立 benchmark 工具，输出排队及各阶段 P50/P95/P99、FPS、峰值内存。
+- [ ] 建立 benchmark 工具，输出排队及各阶段 P50/P95/P99、FPS、峰值内存（逐任务阶段/等待/延迟、批次总耗时和 FPS 已实现）。
 - [ ] 分析并减少不必要的 `cv::Mat`、Tensor 和 host/device 拷贝（已建立相机/业务双池和阶段间零拷贝所有权基础）。
 - [ ] 建立坏模型、错误 shape、队列满载、回调异常和后端失败测试。
 - [ ] 进行长时间运行和资源泄漏测试。
@@ -135,6 +137,7 @@
 
 ## 后续候选能力
 
+- [ ] 多个 `RuntimeSession` 共享工作线程池和设备级配额的进程级调度器。
 - [ ] 动态 batch 与自动合批。
 - [ ] 动态高宽和 TensorRT optimization profile 管理。
 - [ ] CUDA/OpenVINO 设备前后处理及零拷贝。

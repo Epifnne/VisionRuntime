@@ -29,21 +29,46 @@ function(vision_add_openvino_target)
 	if(TARGET Vision::OpenVino)
 		return()
 	endif()
+	if(NOT OpenVINO_DIR)
+		if(WIN32)
+			set(openVinoPlatformDirectory windows-x86_64)
+		elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
+			set(openVinoPlatformDirectory linux-x86_64)
+		else()
+			message(FATAL_ERROR
+				"Set OpenVINO_DIR for the current platform: "
+				"${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR}")
+		endif()
+		set(openVinoPackageRoot
+			"${VISION_RUNTIME_REPOSITORY_DIRECTORY}/Thirdparty/openvino/2026.2.1/${openVinoPlatformDirectory}")
+		find_path(OpenVINO_DIR OpenVINOConfig.cmake
+			HINTS "${openVinoPackageRoot}"
+			PATH_SUFFIXES cmake openvino/cmake runtime/cmake
+			NO_DEFAULT_PATH
+		)
+		if(NOT OpenVINO_DIR)
+			message(FATAL_ERROR
+				"OpenVINO 2026.2.1 was not found under '${openVinoPackageRoot}'. "
+				"Install the platform package there or set OpenVINO_DIR explicitly.")
+		endif()
+	endif()
 	find_package(OpenVINO CONFIG REQUIRED COMPONENTS Runtime)
-	get_target_property(openVinoRuntimeLocation
-		openvino::runtime::c IMPORTED_LOCATION_RELEASE)
-	if(NOT openVinoRuntimeLocation)
+	if(WIN32)
 		get_target_property(openVinoRuntimeLocation
-			openvino::runtime::c IMPORTED_LOCATION)
+			openvino::runtime::c IMPORTED_LOCATION_RELEASE)
+		if(NOT openVinoRuntimeLocation)
+			get_target_property(openVinoRuntimeLocation
+				openvino::runtime::c IMPORTED_LOCATION)
+		endif()
+		if(NOT openVinoRuntimeLocation)
+			message(FATAL_ERROR
+				"OpenVINO C Runtime target does not expose an imported DLL location")
+		endif()
+		get_filename_component(openVinoRuntimeDirectory
+			"${openVinoRuntimeLocation}" DIRECTORY)
+		set(VISION_OPENVINO_RUNTIME_DIRECTORY "${openVinoRuntimeDirectory}"
+			CACHE INTERNAL "OpenVINO runtime deployment directory" FORCE)
 	endif()
-	if(NOT openVinoRuntimeLocation)
-		message(FATAL_ERROR
-			"OpenVINO C Runtime target does not expose an imported DLL location")
-	endif()
-	get_filename_component(openVinoRuntimeDirectory
-		"${openVinoRuntimeLocation}" DIRECTORY)
-	set(VISION_OPENVINO_RUNTIME_DIRECTORY "${openVinoRuntimeDirectory}"
-		CACHE INTERNAL "OpenVINO runtime deployment directory" FORCE)
 
 	add_library(VisionOpenVino INTERFACE IMPORTED GLOBAL)
 	set_property(TARGET VisionOpenVino PROPERTY

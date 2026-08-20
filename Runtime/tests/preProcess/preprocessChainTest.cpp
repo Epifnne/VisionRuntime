@@ -125,6 +125,7 @@ TEST(PreprocessChainTest, MaterializesAndNormalizesSingleChannelFrame) {
 	normalizeOptions.standardDeviation = {2.0F};
 
 	auto chain = PreprocessBuilder::start<vision::Frame>()
+		.then(preprocess::CenterCrop({4, 2}))
 		.then(preprocess::ToTensor(std::move(toTensorOptions)))
 		.then(preprocess::Normalize(std::move(normalizeOptions)))
 		.build();

@@ -1,6 +1,0 @@
-{
-  "camera": "NONE",
-  "platform": "OPENVINO_INTEL",
-  "device": "CPU",
-  "artifact": "ONNX"
-}

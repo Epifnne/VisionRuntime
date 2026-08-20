@@ -9,7 +9,7 @@
 | 类、结构体、枚举、类型别名 | UpperCamelCase | `PipelineExecutor`、`ModelManifest` |
 | 函数、成员函数 | lowerCamelCase | `prepareModel()`、`submitFrame()` |
 | 局部变量、参数、非静态成员 | lowerCamelCase | `taskId`、`modelPath` |
-| 文件名 | lowerCamelCase | `pipelineExecutor.hpp`、`modelManifest.hpp` |
+| 文件名 | lowerCamelCase | `serialPipelineExecutor.hpp`、`modelManifest.hpp` |
 | 目录名 | lowerCamelCase | `preprocess`、`postprocess` |
 | namespace | lowerCamelCase | `visionRuntime`、`preprocess` |
 | 枚举值 | UpperCamelCase | `QueueFull`、`BuildIfMissing` |
