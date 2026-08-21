@@ -1,9 +1,9 @@
 #include "core/tensorBuffer.hpp"
-#include "preprocess/frameNodes/centerCropNode.hpp"
-#include "preprocess/frameNodes/resizeNode.hpp"
-#include "preprocess/frameNodes/toTensorNode.hpp"
-#include "preprocess/preprocessChain.hpp"
-#include "preprocess/tensorNodes/normalizeNode.hpp"
+#include "preProcess/frameNodes/centerCropNode.hpp"
+#include "preProcess/frameNodes/resizeNode.hpp"
+#include "preProcess/frameNodes/toTensorNode.hpp"
+#include "preProcess/preprocessChain.hpp"
+#include "preProcess/tensorNodes/normalizeNode.hpp"
 #include "vision/frame.hpp"
 
 #include <gtest/gtest.h>

@@ -1,4 +1,4 @@
-#include "preprocess/openCvNchwPreprocessor.hpp"
+#include "preProcess/openCvNchwPreProcessor.hpp"
 
 #include "core/tensor.hpp"
 #include "vision/frame.hpp"

@@ -1,4 +1,4 @@
-#include "postprocess/anomalyPostprocessor.hpp"
+#include "postProcess/anomalyPostprocessor.hpp"
 
 #include "core/dataType.hpp"
 

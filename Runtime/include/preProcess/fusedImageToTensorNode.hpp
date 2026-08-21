@@ -1,7 +1,7 @@
 #pragma once
 
 #include "core/tensorBufferPool.hpp"
-#include "preprocess/preprocessContext.hpp"
+#include "preProcess/preprocessContext.hpp"
 
 #include <cstddef>
 #include <string>

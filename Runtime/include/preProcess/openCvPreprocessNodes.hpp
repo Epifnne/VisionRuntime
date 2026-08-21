@@ -1,4 +1,4 @@
 #pragma once
 
-#include "preprocess/fusedImageToTensorNode.hpp"
-#include "preprocess/tensorNormalizeNode.hpp"
+#include "preProcess/fusedImageToTensorNode.hpp"
+#include "preProcess/tensorNormalizeNode.hpp"

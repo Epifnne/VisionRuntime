@@ -1,7 +1,7 @@
 #pragma once
 
 #include "core/result.hpp"
-#include "preprocess/preparedInput.hpp"
+#include "preProcess/preparedInput.hpp"
 
 namespace visionRuntime::backends {
 

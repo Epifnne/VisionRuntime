@@ -1,6 +1,6 @@
 #include "core/tensorBuffer.hpp"
 #include "pipeline/pipelinePacket.hpp"
-#include "preprocess/openCvNchwPreprocessor.hpp"
+#include "preProcess/openCvNchwPreProcessor.hpp"
 #include "vision/frame.hpp"
 
 #include <gtest/gtest.h>

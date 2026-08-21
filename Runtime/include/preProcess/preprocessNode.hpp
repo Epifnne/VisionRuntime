@@ -1,7 +1,7 @@
 #pragma once
 
 #include "core/result.hpp"
-#include "preprocess/preprocessContext.hpp"
+#include "preProcess/preprocessContext.hpp"
 #include "vision/transformContext.hpp"
 
 #include <concepts>

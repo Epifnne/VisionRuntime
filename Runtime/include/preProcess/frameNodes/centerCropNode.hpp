@@ -1,7 +1,7 @@
 #pragma once
 
-#include "preprocess/frameNodes/frameNodeTypes.hpp"
-#include "preprocess/preprocessNode.hpp"
+#include "preProcess/frameNodes/frameNodeTypes.hpp"
+#include "preProcess/preprocessNode.hpp"
 
 #include <memory>
 

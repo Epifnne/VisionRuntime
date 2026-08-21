@@ -1,5 +1,5 @@
-#include "postprocess/anomalyPostprocessor.hpp"
-#include "postprocess/anomalyThresholdPostprocessor.hpp"
+#include "postProcess/anomalyPostprocessor.hpp"
+#include "postProcess/anomalyThresholdPostprocessor.hpp"
 
 #include "core/tensor.hpp"
 

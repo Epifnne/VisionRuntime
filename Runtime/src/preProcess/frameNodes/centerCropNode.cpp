@@ -1,4 +1,4 @@
-#include "preprocess/frameNodes/centerCropNode.hpp"
+#include "preProcess/frameNodes/centerCropNode.hpp"
 
 #include "vision/frame.hpp"
 

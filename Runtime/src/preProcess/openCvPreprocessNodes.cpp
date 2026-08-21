@@ -1,5 +1,5 @@
-#include "preprocess/fusedImageToTensorNode.hpp"
-#include "preprocess/tensorNormalizeNode.hpp"
+#include "preProcess/fusedImageToTensorNode.hpp"
+#include "preProcess/tensorNormalizeNode.hpp"
 
 #include "core/tensor.hpp"
 #include "vision/frame.hpp"

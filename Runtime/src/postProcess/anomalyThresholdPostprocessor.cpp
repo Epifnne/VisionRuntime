@@ -1,4 +1,4 @@
-#include "postprocess/anomalyThresholdPostprocessor.hpp"
+#include "postProcess/anomalyThresholdPostprocessor.hpp"
 
 #include <cmath>
 #include <memory>

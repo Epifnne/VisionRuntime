@@ -5,8 +5,8 @@
 #include "pipeline/inferenceOutput.hpp"
 #include "pipeline/iStagedVisionPipeline.hpp"
 #include "pipeline/iVisionPipeline.hpp"
-#include "postprocess/iPostprocessor.hpp"
-#include "preprocess/iPreprocessor.hpp"
+#include "postProcess/iPostProcessor.hpp"
+#include "preProcess/iPreProcessor.hpp"
 
 #include <exception>
 #include <memory>
