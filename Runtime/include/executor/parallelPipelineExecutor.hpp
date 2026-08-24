@@ -41,7 +41,8 @@ public:
 	}
 
 	~ParallelPipelineExecutor() override {
-		stop(StopMode::Graceful);
+		requestStop(StopMode::Immediate);
+		wait();
 	}
 
 	ParallelPipelineExecutor(const ParallelPipelineExecutor&) = delete;
@@ -88,7 +89,7 @@ public:
 			std::move(handle));
 	}
 
-	void stop(StopMode mode = StopMode::Graceful) noexcept override {
+	void requestStop(StopMode mode = StopMode::Graceful) noexcept override {
 		{
 			std::lock_guard lock(entryMutex_);
 			accepting_ = false;
@@ -102,8 +103,13 @@ public:
 		}
 		entryReady_.notify_all();
 		entrySpaceAvailable_.notify_all();
+	}
+
+	void wait() noexcept override {
+		requestStop();
 		joinThreads();
-		completionDispatcher_.finish();
+		completionDispatcher_.closeInput();
+		completionDispatcher_.wait();
 		if (pipeline_) {
 			pipeline_->finishBatch();
 		}

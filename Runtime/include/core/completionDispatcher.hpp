@@ -20,7 +20,8 @@ public:
 		: queue_(capacity), worker_([this] { run(); }) {}
 
 	~CompletionDispatcher() {
-		finish();
+		closeInput();
+		wait();
 	}
 
 	CompletionDispatcher(const CompletionDispatcher&) = delete;
@@ -35,8 +36,11 @@ public:
 			std::move(result), std::move(delivery)});
 	}
 
-	void finish() noexcept {
+	void closeInput() noexcept {
 		queue_.close();
+	}
+
+	void wait() noexcept {
 		std::lock_guard joinLock(joinMutex_);
 		if (worker_.joinable() && worker_.get_id() != std::this_thread::get_id()) {
 			worker_.join();

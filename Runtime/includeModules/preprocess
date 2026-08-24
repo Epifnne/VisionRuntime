@@ -1,11 +1,10 @@
 #pragma once
 
-#include "preProcess/frameNodes/centerCropNode.hpp"
-#include "preProcess/frameNodes/resizeNode.hpp"
+#include "preProcess/frameNodes/cvCenterCropNode.hpp"
+#include "preProcess/frameNodes/cvResizeNode.hpp"
 #include "preProcess/frameNodes/toTensorNode.hpp"
 #include "preProcess/iPreProcessor.hpp"
 #include "preProcess/preprocessNode.hpp"
-#include "preProcess/openCvNchwPreProcessor.hpp"
 #include "preProcess/preparedInput.hpp"
 #include "preProcess/preprocessChain.hpp"
 #include "preProcess/preprocessContext.hpp"

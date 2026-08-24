@@ -2,6 +2,7 @@
 
 #include "backends/iInferenceBackend.hpp"
 
+#include <cstddef>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -13,6 +14,7 @@ struct OpenVinoBackendOptions {
 	std::string device = "CPU";
 	std::string inputName = "image";
 	std::string outputName = "score";
+	std::size_t inferenceThreads = 0;
 };
 
 class OpenVinoBackend final : public IInferenceBackend {

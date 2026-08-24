@@ -77,7 +77,8 @@ TEST(FileSourceTest, ReadsDirectoryImagesAsFrames) {
 			return received;
 		}));
 	}
-	ASSERT_TRUE(source->stop());
+	source->requestStop();
+	source->wait();
 	ASSERT_TRUE(receivedFrame) << receivedFrame.status().toString();
 	EXPECT_EQ(receivedFrame->width(), 2U);
 	EXPECT_EQ(receivedFrame->height(), 1U);

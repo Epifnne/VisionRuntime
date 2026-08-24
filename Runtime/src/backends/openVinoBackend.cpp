@@ -84,9 +84,15 @@ core::Result<std::unique_ptr<OpenVinoBackend>> OpenVinoBackend::create(
 
 	ov_compiled_model_t* rawCompiledModel = nullptr;
 	const auto modelPath = std::filesystem::absolute(options.modelPath).string();
-	status = ov_core_compile_model_from_file(
-		impl->core.get(), modelPath.c_str(), options.device.c_str(), 0,
-		&rawCompiledModel);
+	const auto inferenceThreads = std::to_string(options.inferenceThreads);
+	status = options.inferenceThreads == 0
+		? ov_core_compile_model_from_file(
+			impl->core.get(), modelPath.c_str(), options.device.c_str(), 0,
+			&rawCompiledModel)
+		: ov_core_compile_model_from_file(
+			impl->core.get(), modelPath.c_str(), options.device.c_str(), 2,
+			&rawCompiledModel, ov_property_key_inference_num_threads,
+			inferenceThreads.c_str());
 	if (status != OK) {
 		return core::Result<std::unique_ptr<OpenVinoBackend>>::failure(
 			openVinoError("OpenVINO model compilation", status));

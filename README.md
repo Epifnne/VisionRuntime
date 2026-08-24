@@ -92,8 +92,8 @@ core::Result<std::unique_ptr<camera::FileSource>> startImageDirectory() {
 		std::move(source));
 }
 
-// 持有返回的 FileSource；退出前调用 stop() 并检查结果。
-// 析构函数也会等待工作线程结束。
+// 持有返回的 FileSource；退出时先调用 requestStop()，再调用 wait()。
+// 析构函数也会请求停止并等待工作线程结束。
 ```
 
 默认扩展名为 `.bmp`、`.jpeg`、`.jpg`、`.png`、`.tif` 和 `.tiff`，匹配不区分大小写。可配置递归扫描、循环播放、帧间隔，以及字典序或最后修改时间排序。当前支持 Gray8、Gray16、Float32Gray、BGR8 和 BGRA8 解码结果；无法解码或不支持的文件通过 callback 返回失败 `Result<Frame>`，不会阻止后续文件处理。
@@ -195,7 +195,7 @@ Business Frame -> infer -> postprocess/heatmap -> release business buffer
 
 ## 执行模型
 
-运行时同时提供同步 `run()` 和异步 `submit()`。推荐由 `RuntimeFactory::createRuntime()` 返回 `RuntimeSession<ResultType>`，业务代码只通过 `start()`、`wait()` 和 `stop()` 管理整次运行。`RuntimeSession` 持有帧采集控制器；`FrameExecutor` 只处理帧源、停止条件、失败策略和统计，并通过 `IPipelineExecutor<ResultType>` 提交任务，不创建或识别具体执行器。
+运行时同时提供同步 `run()` 和异步 `submit()`。推荐由 `RuntimeFactory::createRuntime()` 返回 `RuntimeSession<ResultType>`，业务代码只通过 `start()`、`requestStop()` 和 `wait()` 管理整次运行。`requestStop()` 可从任意线程非阻塞调用，负责关闭输入并唤醒等待者；`wait()` 只能由外部控制线程调用，负责等待并回收 Source、Executor 和完成线程。`RuntimeSession` 持有帧采集控制器；`FrameExecutor` 只处理帧源、停止条件、失败策略和运行统计。
 
 ```cpp
 auto runtime = runtime::RuntimeFactory::createRuntime(
@@ -206,9 +206,13 @@ runtime->start().value();
 const auto summary = runtime->wait();
 ```
 
-`IPipelineExecutor<ResultType>` 统一异步提交与停止接口；`SerialPipelineExecutor` 使用单执行线程按 FIFO 调用整体 `run()`，`ParallelPipelineExecutor` 则让 preprocess、inference、postprocess 在三个专属线程上重叠执行不同任务。preprocess→inference、inference→postprocess、postprocess→completion 均使用固定容量 SPSC 环形队列，内部满载或 callback 变慢时阻塞上游并逐级形成背压。SPSC 队列通过原子索引和 `atomic::wait/notify` 工作，head/tail 分离到独立 64 字节缓存行以避免伪共享；并发 `submit()` 的入口仍使用支持多生产者的互斥队列。
+`IPipelineExecutor<ResultType>` 统一异步提交、停止请求和等待接口；`SerialPipelineExecutor` 使用单执行线程按 FIFO 调用整体 `run()`，`ParallelPipelineExecutor` 则让 preprocess、inference、postprocess 在三个专属线程上重叠执行不同任务。preprocess→inference、inference→postprocess、postprocess→completion 均使用固定容量 SPSC 环形队列，内部满载或 callback 变慢时阻塞上游并逐级形成背压。SPSC 队列通过原子索引和 `atomic::wait/notify` 工作，head/tail 分离到独立 64 字节缓存行以避免伪共享；并发 `submit()` 的入口仍使用支持多生产者的互斥队列。
 
 `TaskHandle` 提供 task ID、状态、shared future 和取消请求。两种执行器都按提交顺序交付；平滑停止会排空已接受任务，立即停止会按顺序取消正在运行及排队任务，并拒绝新提交。执行中的阶段调用不被抢占，其结果会在安全边界替换为 `Cancelled`。
+
+框架只提供协作式停止，不设置回收超时，也不会强杀线程或终止进程。若第三方调用或用户 callback 永久阻塞，`wait()` 与析构也会持续阻塞；应用或操作系统负责最终的进程级强制退出。用户 callback 可以调用 `requestStop()`，不能调用 `wait()`。
+
+当前 MinGW Release 独立消费者 `anomalyDirectorySample` 已使用 `Samples/anomalyDirectory/image` 中的 80 张图（27 NG、53 OK）完成构建和端到端运行。Runtime 在有限 `FileSource` 结束后平滑排空已接受任务，`wait()` 返回前完成 Source、三阶段 Executor 和结果回调线程的回收。全量自动化测试为 76 项，全部通过。
 
 模型 Pipeline 通过 `IStagedVisionPipeline` 暴露三个阶段；OpenCV 单阶段 Pipeline 仍只支持串行执行。`RuntimeFactory` 根据部署配置中的 `performancePolicy`、`queueFullPolicy`、入口容量和阶段容量选择执行器，并将其与帧源组装为 `RuntimeSession`。高级调用方仍可使用 `createExecutor()` 单独取得提交接口。详细边界见 [Docs/architecture.md](Docs/architecture.md#37-executor)。
 

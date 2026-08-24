@@ -148,14 +148,17 @@ private:
 class CountingSource final : public visionRuntime::camera::IFrameSource {
 public:
 	~CountingSource() override {
-		static_cast<void>(stop());
+		requestStop();
+		wait();
 	}
 
 	visionRuntime::core::Result<void> start(
 		visionRuntime::camera::FrameCallback callback) override {
 		running_ = true;
+		stopSource_ = std::stop_source{};
+		auto stopToken = stopSource_.get_token();
 		worker_ = std::jthread(
-			[this, callback = std::move(callback)](std::stop_token stopToken) mutable {
+			[this, callback = std::move(callback), stopToken](std::stop_token) mutable {
 				std::size_t index = 0;
 				while (!stopToken.stop_requested()) {
 					if (index++ == 0) {
@@ -175,13 +178,15 @@ public:
 		return visionRuntime::core::Result<void>::success();
 	}
 
-	visionRuntime::core::Result<void> stop() override {
-		worker_.request_stop();
+	void requestStop() noexcept override {
+		stopSource_.request_stop();
+	}
+
+	void wait() noexcept override {
 		if (worker_.joinable() && worker_.get_id() != std::this_thread::get_id()) {
 			worker_.join();
 		}
 		running_ = false;
-		return visionRuntime::core::Result<void>::success();
 	}
 
 	[[nodiscard]] bool isRunning() const noexcept override {
@@ -189,6 +194,7 @@ public:
 	}
 
 private:
+	std::stop_source stopSource_;
 	std::jthread worker_;
 	std::atomic_bool running_ = false;
 };
@@ -247,7 +253,8 @@ TEST(CompletionDispatcherTest, DeliversResultOnWorkerThread) {
 			delivered.set_value(std::this_thread::get_id());
 		}));
 	EXPECT_NE(delivered.get_future().get(), caller);
-	dispatcher.finish();
+	dispatcher.closeInput();
+	dispatcher.wait();
 }
 
 TEST(ExecutorTaskTest, CompletesHandleAndCallback) {
@@ -284,7 +291,8 @@ TEST(PipelineExecutorTest, RejectsSubmissionWhenEntryQueueIsFull) {
 	EXPECT_FALSE(rejected);
 	EXPECT_EQ(rejected.status().code(), visionRuntime::core::StatusCode::QueueFull);
 	pipelinePointer->release();
-	executor.stop();
+	executor.requestStop();
+	executor.wait();
 	EXPECT_TRUE(running->future().get());
 	EXPECT_TRUE(queued->future().get());
 }
@@ -305,7 +313,8 @@ TEST(PipelineExecutorTest, DeliversResultsAndCallbacksInSubmissionOrder) {
 	ASSERT_TRUE(second);
 	EXPECT_EQ(first->future().get().value(), 1);
 	EXPECT_EQ(second->future().get().value(), 2);
-	executor.stop();
+	executor.requestStop();
+	executor.wait();
 
 	EXPECT_EQ(callbacks, (std::vector<visionRuntime::executor::TaskId>{
 		first->id(), second->id()}));
@@ -338,7 +347,8 @@ TEST(PipelineExecutorTest, CancelsQueuedTaskWithoutExecutingIt) {
 
 	EXPECT_TRUE(queued->cancel());
 	pipelinePointer->release();
-	executor.stop();
+	executor.requestStop();
+	executor.wait();
 	EXPECT_EQ(queued->future().get().status().code(),
 		visionRuntime::core::StatusCode::Cancelled);
 	EXPECT_EQ(queued->state(), visionRuntime::executor::TaskState::Cancelled);
@@ -360,7 +370,8 @@ TEST(PipelineExecutorTest, ImmediateStopCancelsAcceptedTasks) {
 	ASSERT_TRUE(queued);
 
 	pipelinePointer->release();
-	executor.stop(visionRuntime::executor::StopMode::Immediate);
+	executor.requestStop(visionRuntime::executor::StopMode::Immediate);
+	executor.wait();
 	EXPECT_EQ(running->future().get().status().code(),
 		visionRuntime::core::StatusCode::Cancelled);
 	EXPECT_EQ(queued->future().get().status().code(),
@@ -386,9 +397,13 @@ TEST(PipelineExecutorTest, BlocksSubmissionUntilQueueHasSpace) {
 	});
 	EXPECT_EQ(blocked.wait_for(std::chrono::milliseconds(20)),
 		std::future_status::timeout);
+	executor.requestStop();
+	auto blockedResult = blocked.get();
+	EXPECT_FALSE(blockedResult);
+	EXPECT_EQ(blockedResult.status().code(),
+		visionRuntime::core::StatusCode::InvalidState);
 	pipelinePointer->release();
-	EXPECT_TRUE(blocked.get());
-	executor.stop();
+	executor.wait();
 }
 
 TEST(ParallelPipelineExecutorTest, OverlapsStagesAndPreservesOrder) {
@@ -407,7 +422,8 @@ TEST(ParallelPipelineExecutorTest, OverlapsStagesAndPreservesOrder) {
 
 	EXPECT_EQ(first->future().get().value(), 1);
 	EXPECT_EQ(second->future().get().value(), 2);
-	executor.stop();
+	executor.requestStop();
+	executor.wait();
 }
 
 TEST(ParallelPipelineExecutorTest, RejectsZeroStageQueueCapacity) {
@@ -433,9 +449,7 @@ TEST(ParallelPipelineExecutorTest, ImmediateStopCancelsRunningStage) {
 	ASSERT_TRUE(submitted);
 	pipelinePointer->waitUntilInferenceStarted();
 
-	auto stopping = std::async(std::launch::async, [&executor] {
-		executor.stop(visionRuntime::executor::StopMode::Immediate);
-	});
+	executor.requestStop(visionRuntime::executor::StopMode::Immediate);
 	for (;;) {
 		auto probe = executor.submit(
 			visionRuntime::pipeline::PipelinePacket({}));
@@ -446,7 +460,7 @@ TEST(ParallelPipelineExecutorTest, ImmediateStopCancelsRunningStage) {
 		std::this_thread::yield();
 	}
 	pipelinePointer->releaseInference();
-	stopping.get();
+	executor.wait();
 
 	EXPECT_EQ(submitted->future().get().status().code(),
 		visionRuntime::core::StatusCode::Cancelled);
@@ -459,7 +473,8 @@ TEST(RuntimeFactoryTest, CreatesConfiguredExecutorStrategy) {
 	ASSERT_TRUE(serial);
 	EXPECT_NE(dynamic_cast<visionRuntime::executor::SerialPipelineExecutor<int>*>(
 		serial->get()), nullptr);
-	(*serial)->stop();
+	(*serial)->requestStop();
+	(*serial)->wait();
 
 	config.executor.performancePolicy =
 		visionRuntime::config::PerformancePolicy::PipelineParallel;
@@ -468,7 +483,8 @@ TEST(RuntimeFactoryTest, CreatesConfiguredExecutorStrategy) {
 	ASSERT_TRUE(parallel);
 	EXPECT_NE(dynamic_cast<visionRuntime::executor::ParallelPipelineExecutor<int>*>(
 		parallel->get()), nullptr);
-	(*parallel)->stop();
+	(*parallel)->requestStop();
+	(*parallel)->wait();
 }
 
 TEST(RuntimeFactoryTest, RejectsNonStagedPipelineForParallelPolicy) {

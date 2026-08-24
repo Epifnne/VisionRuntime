@@ -32,8 +32,9 @@ public:
 		return frameExecutor_.wait();
 	}
 
-	void stop() noexcept {
-		frameExecutor_.stop();
+	void requestStop(
+		executor::StopMode mode = executor::StopMode::Graceful) noexcept {
+		frameExecutor_.requestStop(mode);
 	}
 
 private:

@@ -7,13 +7,13 @@
 
 namespace visionRuntime::preprocess {
 
-class CenterCrop {
+class CvCenterCrop {
 public:
 	static constexpr auto inputState = PreprocessDataState::CameraFrame;
 	static constexpr auto outputState = PreprocessDataState::CameraFrame;
 	static constexpr bool materializes = false;
 
-	explicit CenterCrop(ImageSize size) : size_(size) {}
+	explicit CvCenterCrop(ImageSize size) : size_(size) {}
 
 	[[nodiscard]] core::Result<std::unique_ptr<IPreprocessNode>> build(
 		PreprocessBuildContext& context) &&;
@@ -22,9 +22,9 @@ private:
 	ImageSize size_;
 };
 
-class CenterCropNode final : public IPreprocessNode {
+class CvCenterCropNode final : public IPreprocessNode {
 public:
-	explicit CenterCropNode(ImageSize size) : size_(size) {}
+	explicit CvCenterCropNode(ImageSize size) : size_(size) {}
 	[[nodiscard]] core::Result<void> process(PreprocessContext& context) override;
 
 private:

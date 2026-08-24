@@ -47,7 +47,8 @@ public:
 	FileSource& operator=(FileSource&&) = delete;
 
 	core::Result<void> start(FrameCallback callback) override;
-	core::Result<void> stop() override;
+	void requestStop() noexcept override;
+	void wait() noexcept override;
 	[[nodiscard]] bool isRunning() const noexcept override;
 
 	[[nodiscard]] const FileSourceOptions& options() const noexcept;

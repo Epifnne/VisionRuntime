@@ -1,6 +1,6 @@
 #include "core/tensorBuffer.hpp"
-#include "preProcess/frameNodes/centerCropNode.hpp"
-#include "preProcess/frameNodes/resizeNode.hpp"
+#include "preProcess/frameNodes/cvCenterCropNode.hpp"
+#include "preProcess/frameNodes/cvResizeNode.hpp"
 #include "preProcess/frameNodes/toTensorNode.hpp"
 #include "preProcess/preprocessChain.hpp"
 #include "preProcess/tensorNodes/normalizeNode.hpp"
@@ -17,14 +17,14 @@ namespace {
 
 using visionRuntime::preprocess::Normalize;
 using visionRuntime::preprocess::PreprocessBuilder;
-using visionRuntime::preprocess::CenterCrop;
-using visionRuntime::preprocess::Resize;
+using visionRuntime::preprocess::CvCenterCrop;
+using visionRuntime::preprocess::CvResize;
 using visionRuntime::preprocess::ToTensor;
 
 using CameraBuilder = decltype(PreprocessBuilder::start<visionRuntime::vision::Frame>());
 using TensorBuilder = decltype(
 	std::declval<CameraBuilder>()
-		.then(CenterCrop({2, 2}))
+		.then(CvCenterCrop({2, 2}))
 		.then(ToTensor()));
 
 struct CustomTensorNode {
@@ -96,7 +96,7 @@ TEST(PreprocessChainTest, MaterializesThenNormalizesInPlace) {
 	normalizeOptions.standardDeviation = {2.0F, 4.0F, 5.0F};
 
 	auto chain = PreprocessBuilder::start<vision::Frame>()
-		.then(preprocess::CenterCrop({2, 2}))
+		.then(preprocess::CvCenterCrop({2, 2}))
 		.then(preprocess::ToTensor(std::move(toTensorOptions)))
 		.then(preprocess::Normalize(std::move(normalizeOptions)))
 		.build();
@@ -125,7 +125,7 @@ TEST(PreprocessChainTest, MaterializesAndNormalizesSingleChannelFrame) {
 	normalizeOptions.standardDeviation = {2.0F};
 
 	auto chain = PreprocessBuilder::start<vision::Frame>()
-		.then(preprocess::CenterCrop({4, 2}))
+		.then(preprocess::CvCenterCrop({4, 2}))
 		.then(preprocess::ToTensor(std::move(toTensorOptions)))
 		.then(preprocess::Normalize(std::move(normalizeOptions)))
 		.build();
@@ -141,21 +141,40 @@ TEST(PreprocessChainTest, MaterializesAndNormalizesSingleChannelFrame) {
 	EXPECT_FLOAT_EQ(values[7], 35.0F);
 }
 
+TEST(PreprocessChainTest, RejectsBgrFrameForSingleChannelTensor) {
+	using namespace visionRuntime;
+
+	preprocess::ToTensorOptions options;
+	options.tensorName = "image";
+	options.bufferCount = 1;
+	options.channels = 1;
+	auto chain = PreprocessBuilder::start<vision::Frame>()
+		.then(preprocess::CvCenterCrop({2, 2}))
+		.then(preprocess::ToTensor(std::move(options)))
+		.build();
+	ASSERT_TRUE(chain);
+	auto prepared = chain.value()->process(pipeline::PipelinePacket(makeFrame()));
+	EXPECT_FALSE(prepared);
+	EXPECT_EQ(prepared.status().code(), core::StatusCode::InvalidArgument);
+}
+
 TEST(PreprocessChainTest, ResizesShortSideAndCenterCrops) {
 	using namespace visionRuntime;
 
 	preprocess::ToTensorOptions options;
 	options.tensorName = "image";
 	options.bufferCount = 1;
+	options.channels = 1;
 	auto chain = PreprocessBuilder::start<vision::Frame>()
-		.then(preprocess::Resize::shortSide(2))
-		.then(preprocess::CenterCrop({2, 2}))
+		.then(preprocess::CvResize::shortSide(2))
+		.then(preprocess::CvCenterCrop({2, 2}))
 		.then(preprocess::ToTensor(std::move(options)))
 		.build();
 	ASSERT_TRUE(chain);
 	auto prepared = chain.value()->process(pipeline::PipelinePacket(makeWideGrayFrame()));
 	ASSERT_TRUE(prepared);
 	const auto& tensor = prepared->tensors().at("image");
+	EXPECT_EQ(tensor.shape(), core::TensorShape({1, 1, 2, 2}));
 	const auto* values = static_cast<const float*>(tensor.data());
 	ASSERT_NE(values, nullptr);
 	EXPECT_FLOAT_EQ(values[0], 20.0F);
@@ -172,8 +191,8 @@ TEST(PreprocessChainTest, ReportsInvalidNodeConfigurationAtBuild) {
 	using namespace visionRuntime;
 
 	auto chain = preprocess::PreprocessBuilder::start<vision::Frame>()
-		.then(preprocess::Resize::shortSide(0))
-		.then(preprocess::CenterCrop({224, 224}))
+		.then(preprocess::CvResize::shortSide(0))
+		.then(preprocess::CvCenterCrop({224, 224}))
 		.then(preprocess::ToTensor())
 		.then(preprocess::Normalize())
 		.build();
