@@ -66,17 +66,19 @@
 
 - [x] 实现支持并发 `submit()` 的固定容量有界提交队列。
 - [x] 以 `IPipelineExecutor` 解耦帧采集控制与串行/阶段并行任务调度。
-- [x] 增加 `RuntimeSession`，由 `RuntimeFactory` 返回统一的 `start()`、`wait()`、`stop()` 全局生命周期入口。
+- [x] 增加 `RuntimeSession`，由 `RuntimeFactory` 返回统一的 `start()`、非阻塞 `requestStop()` 和同步 `wait()` 全局生命周期入口。
 - [x] 实现固定容量 SPSC 环形队列，连接前处理、推理、后处理和结果交付阶段；head/tail 独占缓存行并使用原子等待。
 - [x] 实现 `TaskHandle`、future、回调和任务状态机。
 - [x] 实现单通道 `ParallelPipelineExecutor`：前处理、推理和后处理各使用一个专属线程，并配置独立 `CompletionDispatcher`。
 - [x] 入口队列满时返回 `QueueFull`；内部队列满时阻塞上游阶段并传播背压，保证任务不静默丢失。
 - [x] 保证各阶段 FIFO 和按提交顺序交付；多通道及完成即交付留作后续扩展。
 - [x] 定义基础执行器的平滑停止、立即停止和取消语义；执行中的 Pipeline 调用不抢占，在安全边界转换结果。
+- [x] 将 Source、Executor 和 CompletionDispatcher 的停止请求与线程回收拆分，先关闭并唤醒阻塞入口，再由外部 `wait()` 按所有权顺序回收线程，消除 Block 队列停止等待环。
+- [x] 明确框架只提供协作式停止；不设置回收超时、不强杀线程，永久阻塞时由应用或操作系统负责进程级退出。
 - [x] 保证 Pipeline 与业务回调异常不终止工作线程。
 - [x] 增加阶段并行、队列满载、背压、停止、取消、结果顺序、回调异常和图像生命周期测试。
 
-验收：单通道流水线持续异步提交时没有悬空图像、任务泄漏和未捕获异常，任务严格有序，结果可通过 task ID 与工件稳定关联。
+验收：单通道流水线持续异步提交时没有悬空图像、任务泄漏、停止死锁和未捕获异常，任务严格有序，结果可通过 task ID 与工件稳定关联。当前全量 76 项测试通过，MinGW Release 独立消费者 sample 使用 80 张图完成端到端运行。
 
 ## M5：ONNX Runtime 后端
 

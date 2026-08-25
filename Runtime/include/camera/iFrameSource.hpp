@@ -14,7 +14,8 @@ public:
 	virtual ~IFrameSource() = default;
 
 	virtual core::Result<void> start(FrameCallback callback) = 0;
-	virtual core::Result<void> stop() = 0;
+	virtual void requestStop() noexcept = 0;
+	virtual void wait() noexcept = 0;
 	[[nodiscard]] virtual bool isRunning() const noexcept = 0;
 };
 

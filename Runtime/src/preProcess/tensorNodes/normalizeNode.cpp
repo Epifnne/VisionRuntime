@@ -1,11 +1,12 @@
-#include "preprocess/tensorNodes/normalizeNode.hpp"
+#include "preProcess/tensorNodes/normalizeNode.hpp"
 
 #include <cmath>
+#include <utility>
 
 namespace visionRuntime::preprocess {
 namespace {
 
-core::Status invalidArgument(std::string message) {
+[[nodiscard]] core::Status invalidArgument(std::string message) {
 	return core::Status::error(core::StatusCode::InvalidArgument, std::move(message));
 }
 
@@ -37,7 +38,8 @@ core::Result<void> NormalizeNode::process(PreprocessContext& context) {
 	auto iterator = context.tensors.find(inputName_);
 	if (iterator == context.tensors.end()) {
 		return core::Result<void>::failure(core::Status::error(
-			core::StatusCode::InvalidState, "normalize input tensor does not exist"));
+			core::StatusCode::InvalidState,
+			"normalize input tensor does not exist"));
 	}
 	auto& tensor = iterator->second;
 	const auto& dimensions = tensor.shape().dimensions();
@@ -50,8 +52,9 @@ core::Result<void> NormalizeNode::process(PreprocessContext& context) {
 			core::StatusCode::Unsupported,
 			"normalize parameters must match writable contiguous Float32 NCHW channels"));
 	}
-	auto* values = static_cast<float*>(tensor.data());
+
 	const auto planeSize = static_cast<std::size_t>(dimensions[2] * dimensions[3]);
+	auto* values = static_cast<float*>(tensor.data());
 	for (std::size_t channel = 0; channel < options_.mean.size(); ++channel) {
 		for (std::size_t index = 0; index < planeSize; ++index) {
 			auto& value = values[channel * planeSize + index];

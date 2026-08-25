@@ -1,7 +1,7 @@
 #pragma once
 
 #include "core/tensorBufferPool.hpp"
-#include "preprocess/preprocessNode.hpp"
+#include "preProcess/preprocessNode.hpp"
 
 #include <cstddef>
 #include <memory>
@@ -35,6 +35,7 @@ private:
 class ToTensorNode final : public IPreprocessNode {
 public:
 	[[nodiscard]] core::Result<void> process(PreprocessContext& context) override;
+	[[nodiscard]] std::size_t availableBuffers() const;
 
 private:
 	friend class ToTensor;

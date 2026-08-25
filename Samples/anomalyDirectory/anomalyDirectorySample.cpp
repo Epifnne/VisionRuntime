@@ -7,7 +7,8 @@ int main() {
 			.directory = "image",
 		},
 		.model = {
-			.path = "model/model.onnx",
+			.path = "model/model-int8.onnx",
+			.inferenceThreads = 8,
 		},
 		.threshold = 2.0F,
 		.timed = true,

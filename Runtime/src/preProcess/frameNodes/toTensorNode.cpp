@@ -1,4 +1,4 @@
-#include "preprocess/frameNodes/toTensorNode.hpp"
+#include "preProcess/frameNodes/toTensorNode.hpp"
 
 #include "core/tensor.hpp"
 #include "vision/frame.hpp"
@@ -90,12 +90,22 @@ core::Result<void> ToTensorNode::process(PreprocessContext& context) {
 	}
 	auto* output = static_cast<float*>(tensor->data());
 	const auto planeSize = static_cast<std::size_t>(inputSize_.width) * inputSize_.height;
-	for (std::size_t y = 0; y < inputSize_.height; ++y) {
-		for (std::size_t x = 0; x < inputSize_.width; ++x) {
-			const auto rgb = readRgb(*frame, x, y);
-			const auto offset = y * inputSize_.width + x;
-			for (std::size_t channel = 0; channel < options_.channels; ++channel) {
-				output[channel * planeSize + offset] = rgb[channel];
+	if (options_.channels == 1) {
+		for (std::size_t y = 0; y < inputSize_.height; ++y) {
+			const auto* input = static_cast<const std::uint8_t*>(frame->data()) +
+				y * frame->rowStride();
+			for (std::size_t x = 0; x < inputSize_.width; ++x) {
+				output[y * inputSize_.width + x] = static_cast<float>(input[x]);
+			}
+		}
+	} else {
+		for (std::size_t y = 0; y < inputSize_.height; ++y) {
+			for (std::size_t x = 0; x < inputSize_.width; ++x) {
+				const auto rgb = readRgb(*frame, x, y);
+				const auto offset = y * inputSize_.width + x;
+				for (std::size_t channel = 0; channel < options_.channels; ++channel) {
+					output[channel * planeSize + offset] = rgb[channel];
+				}
 			}
 		}
 	}

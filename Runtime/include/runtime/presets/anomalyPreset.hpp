@@ -8,14 +8,14 @@
 #include "config/deploymentConfig.hpp"
 #include "config/modelManifest.hpp"
 #include "pipeline/pipelineBuilder.hpp"
-#include "postprocess/anomalyPostprocessor.hpp"
-#include "postprocess/anomalyThresholdPostprocessor.hpp"
-#include "preprocess/frameNodes/centerCropNode.hpp"
-#include "preprocess/frameNodes/resizeNode.hpp"
-#include "preprocess/frameNodes/toTensorNode.hpp"
-#include "preprocess/iPreprocessor.hpp"
-#include "preprocess/preprocessChain.hpp"
-#include "preprocess/tensorNodes/normalizeNode.hpp"
+#include "postProcess/anomalyPostprocessor.hpp"
+#include "postProcess/anomalyThresholdPostprocessor.hpp"
+#include "preProcess/frameNodes/cvCenterCropNode.hpp"
+#include "preProcess/frameNodes/cvResizeNode.hpp"
+#include "preProcess/frameNodes/toTensorNode.hpp"
+#include "preProcess/iPreProcessor.hpp"
+#include "preProcess/preprocessChain.hpp"
+#include "preProcess/tensorNodes/normalizeNode.hpp"
 #include "runtime/runtimeFactory.hpp"
 #include "vision/anomalyResult.hpp"
 
@@ -47,6 +47,7 @@ struct AnomalyModelOptions {
 	std::filesystem::path path;
 	config::ModelManifest manifest = anomalyModelManifest();
 	std::string device = "CPU";
+	std::size_t inferenceThreads = 0;
 };
 
 struct AnomalyRuntimeOptions {
@@ -94,18 +95,20 @@ public:
 
 		auto preprocessor = std::move(options.preprocessor);
 		if (!preprocessor) {
+			preprocess::ToTensorOptions toTensorOptions{
+				.tensorName = options.model.manifest.inputs.front().name,
+				.bufferCount = options.deployment.executor.stageQueueCapacity + 2,
+				.channels = 1,
+			};
+			preprocess::NormalizeOptions normalizeOptions{
+				.mean = {0.449F},
+				.standardDeviation = {0.226F},
+			};
 			auto built = preprocess::PreprocessBuilder::start<vision::Frame>()
-				.then(preprocess::Resize::shortSide(256))
-				.then(preprocess::CenterCrop({224, 224}))
-				.then(preprocess::ToTensor({
-					.tensorName = options.model.manifest.inputs.front().name,
-					.bufferCount = options.deployment.executor.stageQueueCapacity + 2,
-					.channels = 1,
-				}))
-				.then(preprocess::Normalize({
-					.mean = {0.449F},
-					.standardDeviation = {0.226F},
-				}))
+				.then(preprocess::CvResize::shortSide(256))
+				.then(preprocess::CvCenterCrop({224, 224}))
+				.then(preprocess::ToTensor(std::move(toTensorOptions)))
+				.then(preprocess::Normalize(std::move(normalizeOptions)))
 				.build();
 			if (!built) {
 				return core::Result<std::unique_ptr<Session>>::failure(built.status());
@@ -120,6 +123,7 @@ public:
 				.device = std::move(options.model.device),
 				.inputName = options.model.manifest.inputs.front().name,
 				.outputName = options.model.manifest.outputs.front().name,
+				.inferenceThreads = options.model.inferenceThreads,
 			});
 			if (!built) {
 				return core::Result<std::unique_ptr<Session>>::failure(built.status());

@@ -54,7 +54,8 @@ public:
 		  options_(std::move(options)) {}
 
 	~FrameExecutor() {
-		stop();
+		requestStop(StopMode::Immediate);
+		static_cast<void>(wait());
 	}
 
 	FrameExecutor(const FrameExecutor&) = delete;
@@ -98,7 +99,7 @@ public:
 				std::unique_lock lock(timerMutex_);
 				if (!timerReady_.wait_for(lock, duration, [this] { return timerCancelled_; })) {
 					lock.unlock();
-					stop();
+					requestStop();
 				}
 			});
 		}
@@ -107,7 +108,8 @@ public:
 			onFrame(std::move(frame));
 		});
 		if (!started) {
-			finishWithoutSource();
+			requestStop(StopMode::Immediate);
+			static_cast<void>(wait());
 			return started;
 		}
 		return core::Result<void>::success();
@@ -115,38 +117,45 @@ public:
 
 	[[nodiscard]] FrameExecutionSummary wait() {
 		{
-			std::unique_lock lock(stateMutex_);
-			finishedReady_.wait(lock, [this] { return finished_; });
+			std::lock_guard lock(waitMutex_);
+			bool finished;
+			{
+				std::lock_guard stateLock(stateMutex_);
+				finished = finished_;
+			}
+			if (!finished) {
+				if (source_) {
+					source_->wait();
+				}
+				requestStop();
+				if (executor_) {
+					executor_->wait();
+				}
+				joinTimer();
+				std::lock_guard stateLock(stateMutex_);
+				finished_ = true;
+			}
 		}
-		joinTimer();
 		std::lock_guard lock(stateMutex_);
 		return summary_;
 	}
 
-	void stop() noexcept {
-		std::unique_lock stopLock(stopMutex_);
+	void requestStop(StopMode mode = StopMode::Graceful) noexcept {
 		{
 			std::lock_guard lock(stateMutex_);
 			if (finished_) {
-				stopLock.unlock();
-				cancelTimer();
-				joinTimer();
 				return;
 			}
+			stopRequested_ = true;
 		}
 
 		cancelTimer();
 		if (source_) {
-			static_cast<void>(source_->stop());
+			source_->requestStop();
 		}
-		executor_->stop(StopMode::Graceful);
-		{
-			std::lock_guard lock(stateMutex_);
-			finished_ = true;
+		if (executor_) {
+			executor_->requestStop(mode);
 		}
-		finishedReady_.notify_all();
-		stopLock.unlock();
-		joinTimer();
 	}
 
 private:
@@ -197,9 +206,14 @@ private:
 				invokeStatusCallback(
 					options_.droppedFrameCallback, submitted.status());
 			} else {
-				stopForFailure = true;
-				invokeStatusCallback(
-					options_.sourceFailureCallback, submitted.status());
+				{
+					std::lock_guard lock(stateMutex_);
+					stopForFailure = !stopRequested_;
+				}
+				if (stopForFailure) {
+					invokeStatusCallback(
+						options_.sourceFailureCallback, submitted.status());
+				}
 			}
 		}
 
@@ -208,7 +222,7 @@ private:
 			std::this_thread::sleep_for(options_.frameInterval);
 		}
 		if (reachedFrameCount || stopForFailure) {
-			stop();
+			requestStop(stopForFailure ? StopMode::Immediate : StopMode::Graceful);
 		}
 	}
 
@@ -236,17 +250,6 @@ private:
 		}
 	}
 
-	void finishWithoutSource() noexcept {
-		cancelTimer();
-		executor_->stop(StopMode::Graceful);
-		{
-			std::lock_guard lock(stateMutex_);
-			finished_ = true;
-		}
-		finishedReady_.notify_all();
-		joinTimer();
-	}
-
 	void cancelTimer() noexcept {
 		{
 			std::lock_guard lock(timerMutex_);
@@ -268,11 +271,11 @@ private:
 	FrameExecutionOptions<ResultType> options_;
 
 	std::mutex stateMutex_;
-	std::condition_variable finishedReady_;
 	FrameExecutionSummary summary_;
 	bool started_ = false;
+	bool stopRequested_ = false;
 	bool finished_ = false;
-	std::mutex stopMutex_;
+	std::mutex waitMutex_;
 
 	std::thread timerThread_;
 	std::mutex timerMutex_;

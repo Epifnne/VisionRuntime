@@ -77,14 +77,13 @@ function(vision_add_runtime targetName)
 	add_library(${targetName}
 		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/config/configLoader.cpp
 		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/camera/fileSource.cpp
-		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/postprocess/anomalyPostprocessor.cpp
-		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/postprocess/anomalyThresholdPostprocessor.cpp
-		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/preprocess/openCvNchwPreprocessor.cpp
-		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/preprocess/frameNodes/centerCropNode.cpp
-		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/preprocess/frameNodes/resizeNode.cpp
-		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/preprocess/frameNodes/toTensorNode.cpp
-		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/preprocess/preprocessChain.cpp
-		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/preprocess/tensorNodes/normalizeNode.cpp
+		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/postProcess/anomalyPostprocessor.cpp
+		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/postProcess/anomalyThresholdPostprocessor.cpp
+		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/preProcess/frameNodes/cvCenterCropNode.cpp
+		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/preProcess/frameNodes/cvResizeNode.cpp
+		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/preProcess/frameNodes/toTensorNode.cpp
+		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/preProcess/preprocessChain.cpp
+		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/preProcess/tensorNodes/normalizeNode.cpp
 	)
 	target_compile_features(${targetName} PUBLIC cxx_std_20)
 	target_compile_options(${targetName} PRIVATE
@@ -104,6 +103,7 @@ function(vision_add_runtime targetName)
 	target_include_directories(${targetName} SYSTEM PRIVATE
 			${VISION_RUNTIME_REPOSITORY_DIRECTORY}/Thirdparty/opencv/4.12.0/modules/core/include
 			${VISION_RUNTIME_REPOSITORY_DIRECTORY}/Thirdparty/opencv/4.12.0/modules/imgcodecs/include
+			${VISION_RUNTIME_REPOSITORY_DIRECTORY}/Thirdparty/opencv/4.12.0/modules/imgproc/include
 			${CMAKE_BINARY_DIR}
 	)
 
@@ -111,6 +111,7 @@ function(vision_add_runtime targetName)
 		PRIVATE
 			nlohmann_json::nlohmann_json
 			opencv_imgcodecs
+			opencv_imgproc
 	)
 	if(VISION_PLATFORM STREQUAL "OPENVINO_INTEL")
 		target_sources(${targetName} PRIVATE

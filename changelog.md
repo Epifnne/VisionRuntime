@@ -18,9 +18,7 @@
 - 实现模板化 `PipelineExecutor`、`TaskHandle` 和任务状态机，支持固定容量并发提交、shared future、独立回调交付、FIFO 顺序、取消及平滑/立即停止。
 - 增加 Executor 队列满载、顺序交付、异常隔离、排队取消和立即停止测试。
 - 增加类型状态化 `PreprocessChainBuilder`，支持按顺序组合前处理节点，并在编译期禁止错误节点顺序和第二个物化节点。
-- 增加 `FusedImageToTensorNode`，将 Gray8/Bgr8/Bgra8 图像双线性缩放并直接写入池化 Float32 NCHW Tensor，完成后释放相机 Frame。
-- 扩展 `FusedImageToTensorNode`，支持保持宽高比的短边缩放、中心裁剪、缩小抗锯齿和可选 8-bit 像素取整语义。
-- 增加 `TensorNormalizeNode`，在同一池化 Tensor 上原地执行逐通道 scale、mean 和 standard deviation 归一化。
+- 增加 `CvResizeNode`、`CvCenterCropNode`、`ToTensorNode` 和 `NormalizeNode`，支持短边缩放、中心裁剪、Float32 NCHW 物化及逐通道归一化。
 - 增加前处理数值、相机 Frame 释放、TensorBufferPool lease 归还和节点组合约束测试。
 - 增加 `vision_add_runtime` CMake 入口及 `VISION_CAMERA_SDK`、`VISION_INFERENCE_PLATFORM` 缓存选项，校验 `NONE`/`HIK_MVS` 与 `NONE`/`OPENVINO_INTEL` 选择。
 - 由 CMake 生成公共 `config/buildProfile.hpp`，暴露 `SelectedCamera`、`SelectedPlatform`、稳定枚举、名称和相机/CPU/GPU/NPU 能力。
@@ -87,6 +85,9 @@
 
 ### Changed
 
+- Runtime、FrameSource、Pipeline Executor 和 CompletionDispatcher 将非阻塞停止请求与同步线程回收拆分为 `requestStop()` 和 `wait()`；回调线程不再执行 join。
+- `FrameExecutor` 先请求 Source 与 Executor 停止以解除阻塞提交，再由外部 `wait()` 按所有权顺序回收线程，避免 Block 队列停止时形成等待环。
+- `FileSource` 使用独立 stop source，并允许停止请求唤醒帧间隔等待；框架不提供回收超时或进程终止语义。
 - `FrameExecutor` 仅依赖注入的 `IPipelineExecutor`，不再接收 Pipeline、构造串行执行器或持有执行器队列配置。
 - `anomalyDirectorySample` 改为只持有 `RuntimeFactory` 返回的 `RuntimeSession`，不再手工组装 `FrameExecutor` 与 Pipeline Executor。
 - 串行与并行执行器复用 `ExecutorTask` 和 `CompletionDispatcher`，移除重复任务状态机、完成队列、完成线程及阶段 mutex/CV。
@@ -97,6 +98,6 @@
 ### Validation
 
 - MinGW Debug `pipelineExecutorTest` 构建及 RuntimeFactory、FrameExecutor、串行/并行 Executor 相关测试通过。
-- 独立消费者 Release `anomalyDirectorySample` 使用新 RuntimeSession API 构建并运行通过。
-- Executor 相关 18 项定向测试全部通过；Release sample 使用 6 张图完整排空并输出批次吞吐量。
-- MinGW Debug 全量构建通过；全套 CTest 仅保留既有 `PreprocessChainTest.MaterializesAndNormalizesSingleChannelFrame` 失败。
+- Source 与 Executor 生命周期相关 21 项定向测试全部通过，包含 Block 提交停止唤醒与回调线程请求停止场景。
+- MinGW Debug 全量 76 项测试全部通过。
+- 独立消费者 Release `anomalyDirectorySample` 使用新 `RuntimeSession` 生命周期 API 构建并运行通过；当前目录中的 80 张图（27 NG、53 OK）全部提交并在有限 Source 结束后平滑排空。

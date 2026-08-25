@@ -4,7 +4,7 @@
 #include "pipeline/inferenceOutput.hpp"
 #include "pipeline/iVisionPipeline.hpp"
 #include "pipeline/pipelinePacket.hpp"
-#include "preprocess/preparedInput.hpp"
+#include "preProcess/preparedInput.hpp"
 
 #include <cstdint>
 

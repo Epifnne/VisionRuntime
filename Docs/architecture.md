@@ -219,9 +219,9 @@ Executor 在 Pipeline 之上提供在线调度：
 
 当前调度层：
 
-- `RuntimeSession<ResultType>` 是 `RuntimeFactory` 返回的整次运行门面，统一提供 `start()`、`wait()` 和 `stop()`，业务代码不需要持有具体 Executor。
+- `RuntimeSession<ResultType>` 是 `RuntimeFactory` 返回的整次运行门面，统一提供 `start()`、非阻塞 `requestStop()` 和同步 `wait()`，业务代码不需要持有具体 Executor。
 - `FrameExecutor<ResultType>` 只拥有 `IFrameSource` 和注入的 `IPipelineExecutor<ResultType>`，负责帧数/时长停止条件、源错误策略与运行统计，不包含 Pipeline 构造和队列配置。
-- `IPipelineExecutor<ResultType>` 统一 `submit()` 与 `stop()`；`SerialPipelineExecutor` 使用单执行线程按 FIFO 调用整体 `run()`。
+- `IPipelineExecutor<ResultType>` 统一 `submit()`、`requestStop()` 与 `wait()`；`SerialPipelineExecutor` 使用单执行线程按 FIFO 调用整体 `run()`。
 - `ParallelPipelineExecutor` 依赖 `IStagedVisionPipeline<ResultType>`，preprocess、inference 和 postprocess 各由一个专属线程执行，不同任务可以在不同阶段重叠。
 - `ExecutorTask<ResultType>` 集中管理 task ID、PipelinePacket、取消状态、future 和 callback；串行与并行执行器不重复实现任务状态机。
 - `submit()` 支持多业务线程并发调用；固定容量入口队列满时返回 `QueueFull`。
@@ -238,6 +238,8 @@ Executor 在 Pipeline 之上提供在线调度：
 - 平滑停止拒绝新任务并排空已接受任务；立即停止取消所有未开始任务，正在执行的阶段允许完成后停止向下游交付。
 - 未开始任务可以取消；执行中的任务只记录取消请求，不抢占后端调用，并在安全边界停止后续阶段或结果交付。
 - 阶段函数和业务回调产生的异常必须转换为失败状态，不能逃出线程入口。
+- 所有工作线程和用户 callback 只能请求停止；只有外部控制线程调用 `wait()` 并按 Source、Executor 内部阶段、CompletionDispatcher、Timer 的所有权层级回收线程。
+- 框架不提供 shutdown timeout、线程强杀或进程终止。不可取消的第三方调用或永久阻塞 callback 会使 `wait()` 与析构持续阻塞，最终强制退出由应用或操作系统负责。
 
 `IVisionPipeline` 保留整体 `run()` contract；可阶段化的模型 Pipeline 额外实现 `IStagedVisionPipeline`。`RuntimeFactory` 在选择并行策略时验证该 contract，不识别具体 Pipeline 类型；OpenCV 单阶段 Pipeline 配置并行策略时返回配置错误。工厂通过 `createRuntime()` 组合 source、pipeline、部署策略和帧执行选项，通过 `createExecutor()` 保留只构造调度层的高级入口。
 
@@ -268,7 +270,7 @@ Executor 在 Pipeline 之上提供在线调度：
 - 文件按字典序或最后修改时间排序，可配置循环播放与帧间隔。
 - `start()` 创建工作线程，依次解码文件并通过 `FrameCallback` 移交 `Result<Frame>`；单个文件解码失败时回调错误，后续文件继续处理。
 - 解码结果支持 Gray8、Gray16、Float32Gray、BGR8 和 BGRA8。`TensorBuffer` 共享持有 `cv::Mat` 的生命周期，创建 `Frame` 时不再复制像素数据。
-- 文件帧的 `sequenceNumber` 从零递增，`capturedAt` 记录实际解码交付时间。`stop()` 请求停止并等待工作线程退出，也允许从回调线程中请求停止而不自等待。
+- 文件帧的 `sequenceNumber` 从零递增，`capturedAt` 记录实际解码交付时间。`requestStop()` 只请求停止并唤醒帧间隔等待，`wait()` 由外部控制线程调用并回收工作线程。
 
 OpenCV 仅存在于 `FileSource` 的 `.cpp` 实现和私有链接依赖中，不泄漏到 `IFrameSource`、`Frame`、`TensorBuffer` 等公共 API。当前从源码最小构建 `core`、`imgproc` 和 `imgcodecs` 模块，并关闭 FileSource 不需要的 ADE、FFmpeg、GStreamer 和 IPP。
 
@@ -397,9 +399,12 @@ cache/
 - 不使用 vcpkg；OpenCV、JSON、日志和测试框架等依赖直接下载到 `Thirdparty/<package>/<version>`。
 - OpenVINO、TensorRT、ONNX Runtime 和海康 MVS 通过 CMake imported target 隔离厂商 SDK。
 - 单元测试覆盖纯逻辑；所有后端运行同一套 contract tests。
+- 生命周期测试覆盖 Block 提交唤醒、回调线程请求停止、平滑排空、立即取消和按所有权顺序 join；`wait()` 返回后汇总数据不再变化。
 - 使用 Python 参考结果验证数值正确性，并为浮点误差设定明确容差。
 - benchmark 输出各阶段 P50/P95/P99、吞吐、峰值内存和缓存命中情况。
 - 稳定性测试覆盖队列满载、坏模型、错误 shape、回调异常、相机断线和长时间运行。
+
+当前 MinGW Debug 全量 76 项测试通过；MinGW Release 独立消费者 `anomalyDirectorySample` 使用 80 张目录图像（27 NG、53 OK）完成端到端运行，并在有限 Source 结束后平滑回收 Source、Executor stages 和 CompletionDispatcher 线程。
 
 ## 8. 暂不纳入首版
 

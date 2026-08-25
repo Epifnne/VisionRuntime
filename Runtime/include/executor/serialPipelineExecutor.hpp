@@ -40,7 +40,8 @@ public:
 			std::move(pipeline), ExecutorOptions{queueCapacity}) {}
 
 	~SerialPipelineExecutor() override {
-		stop(StopMode::Graceful);
+		requestStop(StopMode::Immediate);
+		wait();
 	}
 
 	SerialPipelineExecutor(const SerialPipelineExecutor&) = delete;
@@ -87,7 +88,7 @@ public:
 			std::move(handle));
 	}
 
-	void stop(StopMode mode = StopMode::Graceful) noexcept override {
+	void requestStop(StopMode mode = StopMode::Graceful) noexcept override {
 		{
 			std::lock_guard lock(queueMutex_);
 			accepting_ = false;
@@ -104,8 +105,13 @@ public:
 
 		queueReady_.notify_all();
 		queueSpaceAvailable_.notify_all();
+	}
+
+	void wait() noexcept override {
+		requestStop();
 		joinRunner();
-		completionDispatcher_.finish();
+		completionDispatcher_.closeInput();
+		completionDispatcher_.wait();
 		if (pipeline_) {
 			pipeline_->finishBatch();
 		}

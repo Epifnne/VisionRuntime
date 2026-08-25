@@ -59,13 +59,6 @@ target_include_directories(openCvPipelineTest PRIVATE ${PROJECT_SOURCE_DIR}/Runt
 target_link_libraries(openCvPipelineTest PRIVATE GTest::gtest_main)
 gtest_discover_tests(openCvPipelineTest)
 
-add_executable(openCvNchwPreprocessorTest
-	preprocess/openCvNchwPreprocessorTest.cpp
-)
-target_include_directories(openCvNchwPreprocessorTest PRIVATE ${PROJECT_SOURCE_DIR}/Runtime/include)
-target_link_libraries(openCvNchwPreprocessorTest PRIVATE visionRuntime GTest::gtest_main)
-gtest_discover_tests(openCvNchwPreprocessorTest)
-
 add_executable(preprocessChainTest
 	preprocess/preprocessChainTest.cpp
 )

@@ -17,6 +17,7 @@
 #include <atomic>
 #include <cctype>
 #include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <filesystem>
 #include <memory>
@@ -113,7 +114,8 @@ public:
 		: options_(std::move(options)), imagePaths_(std::move(imagePaths)) {}
 
 	~Impl() {
-		static_cast<void>(stop());
+		requestStop();
+		wait();
 	}
 
 	[[nodiscard]] core::Result<void> start(FrameCallback callback) {
@@ -128,30 +130,38 @@ public:
 				error(core::StatusCode::InvalidState, "file source is already running"));
 		}
 		running_ = true;
+		stopSource_ = std::stop_source{};
+		auto stopToken = stopSource_.get_token();
 		worker_ = std::jthread(
-			[this, callback = std::move(callback)](std::stop_token stopToken) mutable {
+			[this, callback = std::move(callback), stopToken](std::stop_token) mutable {
 				run(stopToken, callback);
 			});
 		return core::Result<void>::success();
 	}
 
-	[[nodiscard]] core::Result<void> stop() {
+	void requestStop() noexcept {
+		{
+			std::scoped_lock lock(mutex_);
+			stopSource_.request_stop();
+		}
+		intervalReady_.notify_all();
+	}
+
+	void wait() noexcept {
 		std::jthread worker;
 		{
 			std::scoped_lock lock(mutex_);
 			if (!worker_.joinable()) {
 				running_ = false;
-				return core::Result<void>::success();
+				return;
 			}
-			worker_.request_stop();
 			if (worker_.get_id() == std::this_thread::get_id()) {
-				return core::Result<void>::success();
+				return;
 			}
 			worker = std::move(worker_);
 		}
 		worker.join();
 		running_ = false;
-		return core::Result<void>::success();
 	}
 
 	[[nodiscard]] bool isRunning() const noexcept {
@@ -178,7 +188,9 @@ private:
 					}
 					callback(decodeFrame(imagePath, sequenceNumber++));
 					if (options_.frameInterval.count() > 0) {
-						std::this_thread::sleep_for(options_.frameInterval);
+						std::unique_lock lock(intervalMutex_);
+						intervalReady_.wait_for(lock, options_.frameInterval,
+							[&stopToken] { return stopToken.stop_requested(); });
 					}
 				}
 			} while (options_.loop && !stopToken.stop_requested());
@@ -190,8 +202,11 @@ private:
 	FileSourceOptions options_;
 	std::vector<std::filesystem::path> imagePaths_;
 	mutable std::mutex mutex_;
+	std::stop_source stopSource_;
 	std::jthread worker_;
 	std::atomic_bool running_ = false;
+	std::mutex intervalMutex_;
+	std::condition_variable intervalReady_;
 };
 
 core::Result<std::unique_ptr<FileSource>> FileSource::create(
@@ -277,8 +292,12 @@ core::Result<void> FileSource::start(FrameCallback callback) {
 	return impl_->start(std::move(callback));
 }
 
-core::Result<void> FileSource::stop() {
-	return impl_->stop();
+void FileSource::requestStop() noexcept {
+	impl_->requestStop();
+}
+
+void FileSource::wait() noexcept {
+	impl_->wait();
 }
 
 bool FileSource::isRunning() const noexcept {
