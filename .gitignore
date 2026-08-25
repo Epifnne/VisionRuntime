@@ -64,7 +64,7 @@ coverage.info
 *.plan
 
 # sample pictures and models
-/model/
+model/
 *.onnx
 *.bmp
 *.jepg
