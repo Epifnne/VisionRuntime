@@ -265,6 +265,7 @@ TEST(AnomalyCsvTimedPipelineTest, WritesHeaderAndResultToFile) {
 		ASSERT_TRUE(timedPipeline);
 		EXPECT_TRUE(timedPipeline.value()->run(
 			visionRuntime::pipeline::PipelinePacket({})));
+		timedPipeline.value()->finishBatch();
 	}
 
 	{
@@ -276,6 +277,9 @@ TEST(AnomalyCsvTimedPipelineTest, WritesHeaderAndResultToFile) {
 		EXPECT_NE(contents.find("stage_ms,wait_ms,latency_ms"),
 			std::string::npos);
 		EXPECT_NE(contents.find("0,2.5,2,NG,"), std::string::npos);
+		EXPECT_NE(contents.find("stage_p50_ms="), std::string::npos);
+		EXPECT_NE(contents.find("stage_p95_ms="), std::string::npos);
+		EXPECT_NE(contents.find("stage_p99_ms="), std::string::npos);
 	}
 	std::filesystem::remove(outputPath);
 }

@@ -2,28 +2,20 @@
 
 #include "runtime/presets/anomalyPreset.hpp"
 
-#include <filesystem>
-#include <iostream>
-
-int main(int argc, char* argv[]) {
-	if (argc != 2) {
-		std::cerr << "usage: anomalyDirectorySample <benchmark.csv>\n";
-		return 1;
-	}
-
+int main() {
 	using namespace visionRuntime;
 	auto session = runtime::AnomalyRuntimeFactory::create({
-		.source = {
-			.directory = "image",
+		.source = camera::ContinuousCameraSourceConfig{
+			.device = {
+				.ipAddress = "192.168.1.64",
+				.pixelFormat = vision::PixelFormat::Gray8,
+			},
 		},
 		.model = {
-			.path = "model/model-int8.onnx",
+			.path = "../anomalyDirectory/model/model-int8.onnx",
 			.inferenceThreads = 8,
 		},
 		.threshold = 2.0F,
-		.timed = true,
-		.timingOutput = benchmark::TimingOutputPath::file(
-			std::filesystem::path{argv[1]}),
 		.callback = [](executor::TaskId,
 			const core::Result<vision::AnomalyResult>&) {},
 	}).value();

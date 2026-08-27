@@ -16,12 +16,11 @@ using visionRuntime::config::OpenVinoIntelPlatform;
 using visionRuntime::config::SelectedCamera;
 using visionRuntime::config::SelectedPlatform;
 
+static_assert(!BuildProfile::cameraCapabilities.supportsHardwareTrigger);
 static_assert(
-	BuildProfile::cameraCapabilities.supportsHardwareTrigger ==
+	BuildProfile::cameraCapabilities.supportsSdkBufferLease ==
 	(BuildProfile::cameraSdk == CameraSdk::HikMvs));
-static_assert(
-	BuildProfile::cameraCapabilities.supportsExternalBuffers ==
-	(BuildProfile::cameraSdk == CameraSdk::HikMvs));
+static_assert(!BuildProfile::cameraCapabilities.supportsUserBuffers);
 static_assert(
 	BuildProfile::inferenceCapabilities.supportsCpu ==
 	(BuildProfile::inferencePlatform == InferencePlatform::OpenVinoIntel));

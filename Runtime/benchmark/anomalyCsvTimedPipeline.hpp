@@ -112,13 +112,19 @@ public:
 				<< ",failed=" << performance.failed
 				<< ",total_ms=" << std::fixed << std::setprecision(3)
 				<< performance.totalMilliseconds
-				<< ",throughput_fps=" << performance.framesPerSecond << '\n';
+				<< ",throughput_fps=" << performance.framesPerSecond
+				<< ",stage_p50_ms=" << performance.stageP50Milliseconds
+				<< ",stage_p95_ms=" << performance.stageP95Milliseconds
+				<< ",stage_p99_ms=" << performance.stageP99Milliseconds << '\n';
 		} else {
 			line << "batch | completed: " << performance.completed
 				<< " | failed: " << performance.failed
 				<< " | total: " << std::fixed << std::setprecision(3)
 				<< performance.totalMilliseconds << " ms"
-				<< " | throughput: " << performance.framesPerSecond << " fps\n";
+				<< " | throughput: " << performance.framesPerSecond << " fps"
+				<< " | stage p50: " << performance.stageP50Milliseconds << " ms"
+				<< " | p95: " << performance.stageP95Milliseconds << " ms"
+				<< " | p99: " << performance.stageP99Milliseconds << " ms\n";
 		}
 		std::scoped_lock lock(mutex_);
 		*stream_ << line.str();

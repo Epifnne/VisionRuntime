@@ -40,14 +40,14 @@ function(vision_add_runtime targetName)
 	set(VISION_CAMERA_TYPE "NoCamera")
 	set(VISION_CAMERA_NAME "none")
 	set(VISION_CAMERA_SUPPORTS_HARDWARE_TRIGGER false)
-	set(VISION_CAMERA_SUPPORTS_EXTERNAL_BUFFERS false)
+	set(VISION_CAMERA_SUPPORTS_SDK_BUFFER_LEASE false)
+	set(VISION_CAMERA_SUPPORTS_USER_BUFFERS false)
 	if(VISION_CAMERA STREQUAL "HIK_MVS")
 		vision_add_hik_mvs_target()
 		set(VISION_CAMERA_ENUM "CameraSdk::HikMvs")
 		set(VISION_CAMERA_TYPE "HikMvsCamera")
 		set(VISION_CAMERA_NAME "hik-mvs")
-		set(VISION_CAMERA_SUPPORTS_HARDWARE_TRIGGER true)
-		set(VISION_CAMERA_SUPPORTS_EXTERNAL_BUFFERS true)
+		set(VISION_CAMERA_SUPPORTS_SDK_BUFFER_LEASE true)
 	endif()
 
 	set(VISION_PLATFORM_ENUM "InferencePlatform::None")
@@ -76,7 +76,10 @@ function(vision_add_runtime targetName)
 
 	add_library(${targetName}
 		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/config/configLoader.cpp
+		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/camera/continuousCameraSource.cpp
 		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/camera/fileSource.cpp
+		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/camera/frameSourceFactory.cpp
+		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/camera/timedTriggerSource.cpp
 		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/postProcess/anomalyPostprocessor.cpp
 		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/postProcess/anomalyThresholdPostprocessor.cpp
 		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/preProcess/frameNodes/cvCenterCropNode.cpp
@@ -118,6 +121,12 @@ function(vision_add_runtime targetName)
 			${VISION_RUNTIME_SOURCE_DIRECTORY}/src/backends/openVinoBackend.cpp
 		)
 		target_link_libraries(${targetName} PRIVATE Vision::OpenVino)
+	endif()
+	if(VISION_CAMERA STREQUAL "HIK_MVS")
+		target_sources(${targetName} PRIVATE
+			${VISION_RUNTIME_SOURCE_DIRECTORY}/src/camera/hikrobotMvsCameraDevice.cpp
+		)
+		target_link_libraries(${targetName} PRIVATE Vision::HikMvs)
 	endif()
 endfunction()
 

@@ -2,20 +2,37 @@ function(vision_add_hik_mvs_target)
 	if(TARGET Vision::HikMvs)
 		return()
 	endif()
-	set(HIK_MVS_ROOT "" CACHE PATH "Hikrobot MVS SDK root")
+	if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+		message(FATAL_ERROR "Hikrobot MVS profile currently requires a 64-bit target")
+	endif()
+	if(WIN32)
+		set(hikMvsPlatformDirectory windows-x86_64)
+	elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
+		set(hikMvsPlatformDirectory linux-x86_64)
+	else()
+		message(FATAL_ERROR
+			"Hikrobot MVS 4.8.1 is unavailable for "
+			"${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR}")
+	endif()
+	set(defaultHikMvsRoot
+		"${VISION_RUNTIME_REPOSITORY_DIRECTORY}/Thirdparty/hik-mvs/4.8.1")
+	set(HIK_MVS_ROOT "${defaultHikMvsRoot}" CACHE PATH
+		"Hikrobot MVS SDK root")
 	find_path(HIK_MVS_INCLUDE_DIRECTORY MvCameraControl.h
 		HINTS "${HIK_MVS_ROOT}"
-		PATH_SUFFIXES Development/Includes include
+		PATH_SUFFIXES "${hikMvsPlatformDirectory}/include" include Development/Includes
 		NO_DEFAULT_PATH
 	)
 	find_library(HIK_MVS_LIBRARY NAMES MvCameraControl
 		HINTS "${HIK_MVS_ROOT}"
-		PATH_SUFFIXES Development/Libraries/win64 lib/64 lib
+		PATH_SUFFIXES "${hikMvsPlatformDirectory}/lib" Development/Libraries/win64 lib/64 lib
 		NO_DEFAULT_PATH
 	)
 	if(NOT HIK_MVS_INCLUDE_DIRECTORY OR NOT HIK_MVS_LIBRARY)
 		message(FATAL_ERROR
-			"HIK_MVS profile requires the Hikrobot MVS SDK. Set HIK_MVS_ROOT to its root directory.")
+			"HIK_MVS profile requires Hikrobot MVS 4.8.1 development files for "
+			"${hikMvsPlatformDirectory}. Add include/MvCameraControl.h and the platform "
+			"import/shared library under '${HIK_MVS_ROOT}', or set HIK_MVS_ROOT.")
 	endif()
 	add_library(VisionHikMvs UNKNOWN IMPORTED)
 	set_target_properties(VisionHikMvs PROPERTIES

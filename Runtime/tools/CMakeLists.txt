@@ -8,3 +8,9 @@ add_custom_target(visionModelc
 
 add_custom_target(visionRuntimeTools)
 add_dependencies(visionRuntimeTools visionModelc)
+
+if(VISION_CAMERA_SDK STREQUAL "HIK_MVS")
+	add_executable(hikMvsCaptureSmoke hikMvsCaptureSmoke.cpp)
+	target_link_libraries(hikMvsCaptureSmoke PRIVATE visionRuntime)
+	add_dependencies(visionRuntimeTools hikMvsCaptureSmoke)
+endif()

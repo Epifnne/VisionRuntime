@@ -1,8 +1,12 @@
+#include "camera/iCameraDevice.hpp"
+#include "camera/iFrameSource.hpp"
 #include "core/tensorSpec.hpp"
 #include "pipeline/port.hpp"
 #include "vision/frameSpec.hpp"
 
 #include <gtest/gtest.h>
+
+#include <concepts>
 
 namespace visionRuntime::core {
 
@@ -32,6 +36,9 @@ using FrameInput = visionRuntime::pipeline::InputPort<
 
 static_assert(Connectable<TensorOutput, TensorInput>);
 static_assert(!Connectable<TensorOutput, FrameInput>);
+static_assert(!std::derived_from<
+	visionRuntime::camera::ICameraDevice,
+	visionRuntime::camera::IFrameSource>);
 
 } // namespace
 

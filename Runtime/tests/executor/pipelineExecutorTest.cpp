@@ -193,6 +193,14 @@ public:
 		return running_;
 	}
 
+	[[nodiscard]] visionRuntime::camera::FrameSourceInfo info() const override {
+		return {
+			.outputSpec = {{visionRuntime::vision::PixelFormat::Gray8}, 1, 1,
+				visionRuntime::core::Device::cpu()},
+			.isFinite = false,
+		};
+	}
+
 private:
 	std::stop_source stopSource_;
 	std::jthread worker_;

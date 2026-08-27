@@ -1,24 +1,19 @@
 #pragma once
 
+#include "camera/frameSourceConfig.hpp"
+#include "camera/iFrameSource.hpp"
+#include "core/result.hpp"
+
 #include <memory>
 
-namespace visionRuntime::core {
-
-template<typename T>
-class Result;
-
-} // namespace visionRuntime::core
-
 namespace visionRuntime::camera {
-
-class IFrameSource;
-struct FrameSourceConfig;
 
 class FrameSourceFactory {
 public:
     FrameSourceFactory() = delete;
 
-    [[nodiscard]] static core::Result<std::unique_ptr<IFrameSource>> create(const FrameSourceConfig& config);
+    [[nodiscard]] static core::Result<std::unique_ptr<IFrameSource>> create(
+        const FrameSourceConfig& config);
 };
 
 } // namespace visionRuntime::camera

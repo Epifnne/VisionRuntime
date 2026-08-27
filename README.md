@@ -44,6 +44,8 @@ python Runtime/tools/vision-modelc.py model.onnx `
 - 独立的相机 `FrameBufferPool` 与业务 `BusinessFramePool`。
 - 相机图像准备完成后释放相机 Buffer，业务图像保留到热力图等后处理完成。
 - 异步目录 `FileSource`，按顺序解码文件夹图像并以 move-only `Frame` 回调交付。
+- 海康 MVS GigE/USB 相机适配器，支持连续采集、软件触发和 SDK Buffer 到 `Frame` 的只读零拷贝 lease。
+- `FrameSourceConfig` 与 `FrameSourceFactory` 统一组装目录、连续相机和定时软件触发输入，上层只持有 `IFrameSource`。
 - 类型状态化可组合前处理链，编译期校验节点顺序和唯一物化边界。
 - CMake 配置期相机 SDK/推理平台选择，以及生成的强类型 `BuildProfile` 和能力描述。
 - 池化 Float32 NCHW 张量直写与原地归一化，避免临时 Tensor 和处理后的整块复制。
@@ -54,25 +56,26 @@ python Runtime/tools/vision-modelc.py model.onnx `
 
 ## 文件夹图像源
 
-`FileSource` 在创建时扫描目录，在启动后由工作线程依次解码图像。内部使用 OpenCV，但公共接口只暴露 `Frame`、`Result` 和标准库类型。
+目录输入在创建时扫描目录，在启动后由工作线程依次解码图像。内部使用 OpenCV，但公共接口只暴露配置、`IFrameSource`、`Frame`、`Result` 和标准库类型。
 
 ```cpp
-#include "camera/fileSource.hpp"
+#include <visionruntime>
 
 #include <chrono>
 #include <memory>
-#include <utility>
 
 using namespace visionRuntime;
 
-core::Result<std::unique_ptr<camera::FileSource>> startImageDirectory() {
-	camera::FileSourceOptions options;
-	options.directory = "images";
-	options.recursive = true;
-	options.loop = false;
-	options.frameInterval = std::chrono::milliseconds(100);
-
-	auto sourceResult = camera::FileSource::create(std::move(options));
+core::Result<std::unique_ptr<camera::IFrameSource>> startImageDirectory() {
+	camera::FrameSourceConfig config = camera::FileFrameSourceConfig{
+		.source = {
+			.directory = "images",
+			.frameInterval = std::chrono::milliseconds(100),
+			.recursive = true,
+			.loop = false,
+		},
+	};
+	auto sourceResult = camera::FrameSourceFactory::create(config);
 	if (!sourceResult) {
 		return sourceResult;
 	}
@@ -85,20 +88,61 @@ core::Result<std::unique_ptr<camera::FileSource>> startImageDirectory() {
 		// 将 std::move(frame).value() 提交给 Pipeline。
 	});
 	if (!started) {
-		return core::Result<std::unique_ptr<camera::FileSource>>::failure(
+		return core::Result<std::unique_ptr<camera::IFrameSource>>::failure(
 			started.status());
 	}
-	return core::Result<std::unique_ptr<camera::FileSource>>::success(
+	return core::Result<std::unique_ptr<camera::IFrameSource>>::success(
 		std::move(source));
 }
 
-// 持有返回的 FileSource；退出时先调用 requestStop()，再调用 wait()。
-// 析构函数也会请求停止并等待工作线程结束。
+// 退出时先调用 requestStop()，再调用 wait()。
 ```
 
 默认扩展名为 `.bmp`、`.jpeg`、`.jpg`、`.png`、`.tif` 和 `.tiff`，匹配不区分大小写。可配置递归扫描、循环播放、帧间隔，以及字典序或最后修改时间排序。当前支持 Gray8、Gray16、Float32Gray、BGR8 和 BGRA8 解码结果；无法解码或不支持的文件通过 callback 返回失败 `Result<Frame>`，不会阻止后续文件处理。
 
 每个 `Frame` 的 `TensorBuffer` 共享持有 OpenCV 解码内存，因此 callback 返回后像素仍然有效，直到最后一个 Frame/Buffer 视图释放。文件源输出 `Frame`，不是裸 `TensorBuffer`；模型输入 `Tensor` 由前处理阶段生成。
+
+## 海康 MVS 相机源
+
+选择 `HIK_MVS` Profile 后，Runtime 条件编译 `HikrobotMvsCameraDevice`。SDK 开发包默认位于 `Thirdparty/hik-mvs/4.8.1`，并按 `windows-x86_64` 和 `linux-x86_64` 隔离平台文件；也可通过 `HIK_MVS_ROOT` 指向其他位置。本地 Thirdparty 包含运行库，但目标机仍须安装匹配版本的 MVS 驱动和系统服务。
+
+```powershell
+cmake --preset mingw-debug -B Build/HikMvsDebug `
+	-DVISION_CAMERA_SDK=HIK_MVS `
+	-DVISION_INFERENCE_PLATFORM=NONE
+cmake --build Build/HikMvsDebug --target hikMvsCaptureSmoke
+```
+
+业务代码通过 Factory 选择连续采集；省略序列号只在当前恰好存在一台相机时有效：
+
+```cpp
+#include <visionruntime>
+
+using namespace visionRuntime;
+
+camera::FrameSourceConfig config = camera::ContinuousCameraSourceConfig{
+	.device = {
+		.serialNumber = "camera-serial",
+		.pixelFormat = vision::PixelFormat::Bgr8,
+		.maxFramesInFlight = 3,
+	},
+	.source = {.frameRate = 30.0},
+};
+auto source = camera::FrameSourceFactory::create(config).value();
+source->start([](core::Result<vision::Frame> frame) {
+	if (frame) {
+		// 将 std::move(frame).value() 提交给 Pipeline。
+	}
+}).value();
+```
+
+定时软件触发使用 `TimedCameraSourceConfig`。`triggerInterval` 是相邻成功输入帧的最小到达间隔：回调耗时计入间隔，但下一次触发仍须等待当前回调返回；始终最多一个 trigger 在途，不积压、不补发。`responseTimeout` 约束触发后的设备响应。连续模式的 `frameRate` 是下发给相机的真实采集帧率，不是回调节流。
+
+`IFrameSource` 和 `ICameraDevice` 都是单次启动对象；首次成功启动后不能原地重启。`requestStop()` 非阻塞且幂等，`wait()` 回收线程并保证返回后不再开始回调。响应超时、触发失败和设备错误会作为终止错误交付；重新连接应销毁旧 Source/Device 后由 Factory 创建新实例。
+
+取流采用 `MV_CC_GetImageBuffer`，`Frame` 以只读 `TensorBuffer` 共享 SDK Buffer；最后一个 Frame/Buffer 视图释放后自动调用 `MV_CC_FreeImageBuffer`。因此 `maxFramesInFlight` 必须覆盖 Pipeline 可能同时持有的相机帧数。具体 Source、`ICameraDevice` 和 `HikrobotMvsCameraDevice` 不由 `<visionruntime>` 或 `<camera>` 聚合头导出；诊断工具需要显式包含对应高级扩展头。
+
+首版直接支持 Gray8、Gray16、RGB8、BGR8、RGBA8 和 BGRA8。Bayer、YUV、Packed 10/12 bit 不进行隐式转换；硬件触发、设备时间戳校准和断线重连仍在后续计划中。实机检查工具用法为 `hikMvsCaptureSmoke [serial] [trigger]`。
 
 ## 可组合前处理
 
@@ -130,7 +174,7 @@ auto preprocessor = preprocess::PreprocessBuilder::start<vision::Frame>()
 	.build();
 ```
 
-`Resize` 将短边缩放到目标尺寸，并把保持原像素格式的 8-bit Frame 写入节点自己的 BufferPool；`CenterCrop` 在该 Frame 上建立零拷贝中心裁剪视图；`ToTensor` 只负责将当前 Gray8、Bgr8 或 Bgra8 Frame 转换为 RGB、Float32 NCHW Tensor。写入完成后释放工作 Frame；`Normalize` 随后自动读取当前 Tensor 并原地归一化。所有操作节点遵循统一的 `PreprocessNode` 协议，Builder 只提供一个泛型 `then()`；参数校验和 BufferPool 创建错误由 `build()` 统一返回。
+`Resize` 将短边缩放到目标尺寸，并把保持原像素格式的 8-bit Frame 写入节点自己的 BufferPool；`CenterCrop` 在该 Frame 上建立零拷贝中心裁剪视图；`ToTensor` 只负责将当前 Gray8、Bgr8 或 Bgra8 Frame 转换为 Float32 NCHW Tensor。写入完成后释放工作 Frame；`Normalize` 随后自动读取当前 Tensor 并原地归一化。所有操作节点遵循统一的 `PreprocessNode` 协议，Builder 只提供一个泛型 `then()`；参数校验和 BufferPool 创建错误由 `build()` 统一返回。
 
 ## 文件夹异常检测示例
 
@@ -173,12 +217,12 @@ cmake -S Samples/anomalyDirectory -B Build/SampleConsumer -G Ninja `
 cmake --build Build/SampleConsumer --target anomalyDirectorySample
 
 Build/SampleConsumer/bin/anomalyDirectorySample.exe `
-	<model.onnx> <image-directory> 2.0
+	<benchmark.csv>
 ```
 
 `VISON_RUNTIME_ROOT` 只在当前仓库内验证 sample 时用于指向框架位置；复制成真实业务工程后，默认位置就是 `Thirdparty/VisonRuntime`。构建 sample 后，CMake 只复制公共 OpenVINO Runtime、所选设备插件、ONNX/IR frontend、TBB 和 MinGW 运行库。缺失必需 DLL 会在配置期报错；设备和模型类型不能通过命令行切换到未打包能力。
 
-示例通过 `PreprocessBuilder` 组合 `Resize`、`CenterCrop`、`ToTensor` 和 `Normalize`，实现 PatchCore 所需的短边缩放到 256、中心裁剪 224、RGB、Float32 NCHW 和 ImageNet mean/std 前处理。`benchmark::TimedPipeline` 在标准输出中显示 pre、infer、post、stage、wait 和端到端 latency，并在批次结束时显示总耗时、完成/失败数和 FPS；配置文件输出时使用对应 CSV 列。`stage = pre + infer + post`，`wait = latency - stage`，因此并行队列中的等待不会被误认为阶段执行时间。
+示例通过 `PreprocessBuilder` 组合 `Resize`、`CenterCrop`、`ToTensor` 和 `Normalize`，实现 PatchCore 所需的短边缩放到 256、中心裁剪 224、RGB、Float32 NCHW 和 ImageNet mean/std 前处理。sample 将逐帧 benchmark 写入命令行指定的 CSV，并在批次结束时追加总耗时、完成/失败数、FPS 以及每帧 stage 总执行时间的 P50/P95/P99。`stage = pre + infer + post`，`wait = latency - stage`，因此并行队列中的等待不会被误认为阶段执行时间。
 
 ## 图像所有权
 

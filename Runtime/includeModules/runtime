@@ -1,5 +1,4 @@
 #pragma once
 
 #include "runtime/runtimeFactory.hpp"
-#include "runtime/presets/anomalyPreset.hpp"
 #include "runtime/runtimeSession.hpp"

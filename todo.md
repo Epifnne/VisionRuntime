@@ -118,13 +118,23 @@
 - [x] 实现固定容量相机缓冲池及异步 Frame/Tensor lease 生命周期。
 - [x] 实现目录图像源，供测试和离线回放使用。
 - [ ] 实现视频图像源。
-- [ ] 封装海康 MVS 枚举、打开、触发、采集和关闭流程。
-- [ ] 定义海康 MVS 编译期能力 Profile，并在启动时校验具体型号、序列号、触发和像素格式要求。
-- [ ] 管理厂商缓冲区释放及 `cv::Mat` 所有权转换。
+- [x] 封装海康 MVS GigE/USB 枚举、按序列号打开、连续/软件触发采集和关闭流程。
+- [x] 定义通用 `ICameraDevice`、设备信息、采集配置和运行时能力接口，公共 API 不暴露厂商类型。
+- [x] 实现 `ContinuousCameraSource` 与 `TimedTriggerSource`，分离设备取流和连续/定时输入语义。
+- [x] 使用互斥 `FrameSourceConfig` 和 `FrameSourceFactory` 统一组装目录、连续相机和定时触发输入。
+- [x] 收紧 `<camera>`/`<visionruntime>` 聚合头，具体 Source、设备接口和厂商适配器仅通过显式高级扩展头使用。
+- [x] 按 HIK Profile 条件编译并链接 MVS 适配器，默认 `NONE` Profile 不解析相机 SDK。
+- [x] 使用 `TensorBuffer` 共享 lease 零拷贝包装 SDK Buffer，最后一个视图释放时调用 `MV_CC_FreeImageBuffer`，并保证设备句柄最后释放。
+- [x] 区分 SDK Buffer lease 与用户注册 Buffer 能力；MVS 4.8.1 当前不声明用户 Buffer 注册支持。
+- [ ] 完成 MVS fake API 单元测试，覆盖错误映射、像素格式、帧号回绕、调用顺序和 Source 先析构时的 Frame lease。
+- [ ] 在安装 MVS Runtime 的目标机使用 `hikMvsCaptureSmoke` 验证 GigE/USB 连续采集、软件触发和多帧在途。
+- [ ] 查询并校准具体设备 timestamp tick frequency，再启用 `FrameMetadata::hardwareTimestamp`。
+- [ ] 增加硬件触发模式及触发线、触发沿配置。
 - [ ] 实现断线检测、重连策略和采集错误报告。
-- [ ] 建立无相机硬件可运行的模拟源测试。
+- [x] 建立无相机硬件可运行的 Fake Device 测试，覆盖连续委托、单 trigger 在途、输入帧间隔、超时、设备错误和停止唤醒。
+- [ ] 增加可重建设备实例的自动重连 Source 策略，并定义结构化终止错误来源与可重试性。
 
-验收：相机 SDK 类型不出现在 camera 模块之外，相机回调返回后异步任务仍可安全访问图像。
+验收：业务只依赖 `FrameSourceConfig`、`FrameSourceFactory` 和 `IFrameSource`；相机回调返回后异步任务仍可安全访问图像。
 
 ## M9：性能、稳定性和交付
 

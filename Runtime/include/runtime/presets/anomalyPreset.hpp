@@ -3,7 +3,7 @@
 #include "backends/iInferenceBackend.hpp"
 #include "backends/openVinoBackend.hpp"
 #include "benchmark/anomalyCsvTimedPipeline.hpp"
-#include "camera/fileSource.hpp"
+#include "camera/frameSourceFactory.hpp"
 #include "config/buildProfile.hpp"
 #include "config/deploymentConfig.hpp"
 #include "config/modelManifest.hpp"
@@ -51,7 +51,7 @@ struct AnomalyModelOptions {
 };
 
 struct AnomalyRuntimeOptions {
-	camera::FileSourceOptions source;
+	camera::FrameSourceConfig source = camera::FileFrameSourceConfig{};
 	AnomalyModelOptions model;
 	float threshold = 0.5F;
 	bool timed = false;
@@ -86,12 +86,12 @@ public:
 			return failure("anomaly threshold must be finite");
 		}
 
-		auto sourceResult = camera::FileSource::create(std::move(options.source));
+		auto sourceResult = camera::FrameSourceFactory::create(options.source);
 		if (!sourceResult) {
 			return core::Result<std::unique_ptr<Session>>::failure(sourceResult.status());
 		}
 		auto source = std::move(sourceResult).value();
-		const auto frameCount = source->imageCount();
+		const auto frameCount = source->info().expectedFrameCount;
 
 		auto preprocessor = std::move(options.preprocessor);
 		if (!preprocessor) {
