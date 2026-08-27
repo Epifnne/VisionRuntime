@@ -28,16 +28,27 @@ function(vision_add_hik_mvs_target)
 		PATH_SUFFIXES "${hikMvsPlatformDirectory}/lib" Development/Libraries/win64 lib/64 lib
 		NO_DEFAULT_PATH
 	)
-	if(NOT HIK_MVS_INCLUDE_DIRECTORY OR NOT HIK_MVS_LIBRARY)
+	set(hikMvsRuntimeDirectory "")
+	set(hikMvsRuntimeMissing FALSE)
+	if(WIN32)
+		set(hikMvsRuntimeDirectory
+			"${HIK_MVS_ROOT}/${hikMvsPlatformDirectory}/bin")
+		if(NOT EXISTS "${hikMvsRuntimeDirectory}/MvCameraControl.dll")
+			set(hikMvsRuntimeMissing TRUE)
+		endif()
+	endif()
+	if(NOT HIK_MVS_INCLUDE_DIRECTORY OR NOT HIK_MVS_LIBRARY OR
+		hikMvsRuntimeMissing)
 		message(FATAL_ERROR
 			"HIK_MVS profile requires Hikrobot MVS 4.8.1 development files for "
 			"${hikMvsPlatformDirectory}. Add include/MvCameraControl.h and the platform "
-			"import/shared library under '${HIK_MVS_ROOT}', or set HIK_MVS_ROOT.")
+			"import/shared library and runtime under '${HIK_MVS_ROOT}', or set HIK_MVS_ROOT.")
 	endif()
 	add_library(VisionHikMvs UNKNOWN IMPORTED)
 	set_target_properties(VisionHikMvs PROPERTIES
 		IMPORTED_LOCATION "${HIK_MVS_LIBRARY}"
 		INTERFACE_INCLUDE_DIRECTORIES "${HIK_MVS_INCLUDE_DIRECTORY}"
+		VISION_HIK_MVS_RUNTIME_DIRECTORY "${hikMvsRuntimeDirectory}"
 	)
 	add_library(Vision::HikMvs ALIAS VisionHikMvs)
 endfunction()

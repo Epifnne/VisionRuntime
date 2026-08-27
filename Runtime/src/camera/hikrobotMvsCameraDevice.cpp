@@ -622,7 +622,6 @@ core::Result<std::unique_ptr<HikrobotMvsCameraDevice>> HikrobotMvsCameraDevice::
 		return core::Result<std::unique_ptr<HikrobotMvsCameraDevice>>::failure(
 			configured.status());
 	}
-
 	auto impl = std::make_unique<Impl>(
 		std::move(options), std::move(selectedInfo), std::move(device));
 	return core::Result<std::unique_ptr<HikrobotMvsCameraDevice>>::success(

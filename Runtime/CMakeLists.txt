@@ -89,13 +89,17 @@ function(vision_add_runtime targetName)
 		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/preProcess/tensorNodes/normalizeNode.cpp
 	)
 	target_compile_features(${targetName} PUBLIC cxx_std_20)
-	target_compile_options(${targetName} PRIVATE
-		-Wall
-		-Wextra
-		-Wpedantic
-		-Wconversion
-		-Wsign-conversion
-	)
+	if(MSVC)
+		target_compile_options(${targetName} PRIVATE /W4 /permissive-)
+	else()
+		target_compile_options(${targetName} PRIVATE
+			-Wall
+			-Wextra
+			-Wpedantic
+			-Wconversion
+			-Wsign-conversion
+		)
+	endif()
 
 	target_include_directories(${targetName}
 		PUBLIC

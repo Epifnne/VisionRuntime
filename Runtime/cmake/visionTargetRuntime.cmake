@@ -87,6 +87,23 @@ function(vision_target_runtime targetName)
 			_vision_deploy_openvino_runtime(${targetName} ${VISION_DEVICE} ${VISION_ARTIFACT})
 		endif()
 	endif()
+	if(WIN32 AND VISION_CAMERA STREQUAL "HIK_MVS")
+		_vision_deploy_hik_mvs_runtime(${targetName})
+	endif()
+endfunction()
+
+function(_vision_deploy_hik_mvs_runtime targetName)
+	get_target_property(runtimeDirectory
+		VisionHikMvs VISION_HIK_MVS_RUNTIME_DIRECTORY)
+	if(NOT runtimeDirectory OR NOT EXISTS "${runtimeDirectory}/MvCameraControl.dll")
+		message(FATAL_ERROR
+			"Required Hikrobot MVS runtime was not found: ${runtimeDirectory}")
+	endif()
+	add_custom_command(TARGET ${targetName} POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_directory
+			"${runtimeDirectory}" "$<TARGET_FILE_DIR:${targetName}>"
+		VERBATIM
+	)
 endfunction()
 
 function(_vision_deploy_openvino_runtime targetName device artifact)
@@ -122,17 +139,19 @@ function(_vision_deploy_openvino_runtime targetName device artifact)
 		)
 	endforeach()
 
-	get_filename_component(mingwBinDirectory "${CMAKE_CXX_COMPILER}" DIRECTORY)
-	foreach(runtimeDll IN ITEMS libgcc_s_seh-1.dll libstdc++-6.dll libwinpthread-1.dll)
-		set(runtimeDllPath "${mingwBinDirectory}/${runtimeDll}")
-		if(NOT EXISTS "${runtimeDllPath}")
-			message(FATAL_ERROR
-				"Required MinGW runtime DLL was not found: ${runtimeDllPath}")
-		endif()
-		add_custom_command(TARGET ${targetName} POST_BUILD
-			COMMAND ${CMAKE_COMMAND} -E copy_if_different
-				"${runtimeDllPath}" "$<TARGET_FILE_DIR:${targetName}>"
-			VERBATIM
-		)
-	endforeach()
+	if(MINGW)
+		get_filename_component(mingwBinDirectory "${CMAKE_CXX_COMPILER}" DIRECTORY)
+		foreach(runtimeDll IN ITEMS libgcc_s_seh-1.dll libstdc++-6.dll libwinpthread-1.dll)
+			set(runtimeDllPath "${mingwBinDirectory}/${runtimeDll}")
+			if(NOT EXISTS "${runtimeDllPath}")
+				message(FATAL_ERROR
+					"Required MinGW runtime DLL was not found: ${runtimeDllPath}")
+			endif()
+			add_custom_command(TARGET ${targetName} POST_BUILD
+				COMMAND ${CMAKE_COMMAND} -E copy_if_different
+					"${runtimeDllPath}" "$<TARGET_FILE_DIR:${targetName}>"
+				VERBATIM
+			)
+		endforeach()
+	endif()
 endfunction()
