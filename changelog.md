@@ -121,8 +121,5 @@
 - Source 与 Executor 生命周期相关 21 项定向测试全部通过，包含 Block 提交停止唤醒与回调线程请求停止场景。
 - MinGW Debug 全量 76 项测试全部通过。
 - 独立消费者 Release `anomalyDirectorySample` 使用新 `RuntimeSession` 生命周期 API 构建并运行通过；当前目录中的 80 张图（27 NG、53 OK）全部提交并在有限 Source 结束后平滑排空。
-<<<<<<< HEAD
-=======
 - Factory 测试 3 项、相机 Source 相关测试 17 项通过；默认 `NONE` Profile 的 `<visionruntime>` 消费者可编译链接，并对相机配置返回 `Unsupported`。
 - `HIK_MVS/NONE` smoke 目标与独立 `hikMvsCaptureSample` 成功链接；显式厂商扩展头不泄漏到默认聚合 API。
->>>>>>> 0ad5a53 (add camera adapter && HikMvs sample)
