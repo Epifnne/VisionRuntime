@@ -7,32 +7,13 @@
 
 #pragma once
 
+#include "camera/cameraSourceOptions.hpp"
 #include "camera/iFrameSource.hpp"
 #include "core/result.hpp"
 
-#include <chrono>
-#include <cstddef>
-#include <filesystem>
 #include <memory>
-#include <string>
-#include <vector>
 
 namespace visionRuntime::camera {
-
-enum class FileOrder {
-	Lexicographical,
-	LastWriteTime
-};
-
-struct FileSourceOptions {
-	std::filesystem::path directory;
-	std::vector<std::string> extensions{
-		".bmp", ".jpeg", ".jpg", ".png", ".tif", ".tiff"};
-	FileOrder order = FileOrder::Lexicographical;
-	std::chrono::milliseconds frameInterval{0};
-	bool recursive = false;
-	bool loop = false;
-};
 
 class FileSource final : public IFrameSource {
 public:
@@ -50,9 +31,9 @@ public:
 	void requestStop() noexcept override;
 	void wait() noexcept override;
 	[[nodiscard]] bool isRunning() const noexcept override;
+	[[nodiscard]] FrameSourceInfo info() const override;
 
 	[[nodiscard]] const FileSourceOptions& options() const noexcept;
-	[[nodiscard]] std::size_t imageCount() const noexcept;
 
 private:
 	class Impl;

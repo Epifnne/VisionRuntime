@@ -21,6 +21,9 @@ struct BatchPerformance {
 	std::size_t failed = 0;
 	double totalMilliseconds = 0.0;
 	double framesPerSecond = 0.0;
+	double stageP50Milliseconds = 0.0;
+	double stageP95Milliseconds = 0.0;
+	double stageP99Milliseconds = 0.0;
 };
 
 [[nodiscard]] inline double elapsedMilliseconds(

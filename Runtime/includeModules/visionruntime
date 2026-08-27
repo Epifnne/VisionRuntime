@@ -1,6 +1,5 @@
 #pragma once
 
-#include <benchmark>
 #include <backends>
 #include <camera>
 #include <config>

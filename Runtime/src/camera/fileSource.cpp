@@ -119,15 +119,14 @@ public:
 	}
 
 	[[nodiscard]] core::Result<void> start(FrameCallback callback) {
+		std::scoped_lock lock(mutex_);
+		if (started_) {
+			return core::Result<void>::failure(
+				error(core::StatusCode::InvalidState, "file source has already started"));
+		}
 		if (!callback) {
 			return core::Result<void>::failure(
 				error(core::StatusCode::InvalidArgument, "frame callback must not be empty"));
-		}
-
-		std::scoped_lock lock(mutex_);
-		if (running_) {
-			return core::Result<void>::failure(
-				error(core::StatusCode::InvalidState, "file source is already running"));
 		}
 		running_ = true;
 		stopSource_ = std::stop_source{};
@@ -136,6 +135,7 @@ public:
 			[this, callback = std::move(callback), stopToken](std::stop_token) mutable {
 				run(stopToken, callback);
 			});
+		started_ = true;
 		return core::Result<void>::success();
 	}
 
@@ -172,8 +172,20 @@ public:
 		return options_;
 	}
 
-	[[nodiscard]] std::size_t imageCount() const noexcept {
-		return imagePaths_.size();
+	[[nodiscard]] FrameSourceInfo info() const {
+		return {
+			.outputSpec = {{
+				vision::PixelFormat::Gray8,
+				vision::PixelFormat::Gray16,
+				vision::PixelFormat::Bgr8,
+				vision::PixelFormat::Bgra8,
+				vision::PixelFormat::Float32Gray,
+			}, {}, {}, core::Device::cpu()},
+			.expectedFrameCount = options_.loop
+				? std::nullopt
+				: std::optional<std::size_t>{imagePaths_.size()},
+			.isFinite = !options_.loop,
+		};
 	}
 
 private:
@@ -205,6 +217,7 @@ private:
 	std::stop_source stopSource_;
 	std::jthread worker_;
 	std::atomic_bool running_ = false;
+	bool started_ = false;
 	std::mutex intervalMutex_;
 	std::condition_variable intervalReady_;
 };
@@ -304,12 +317,12 @@ bool FileSource::isRunning() const noexcept {
 	return impl_->isRunning();
 }
 
-const FileSourceOptions& FileSource::options() const noexcept {
-	return impl_->options();
+FrameSourceInfo FileSource::info() const {
+	return impl_->info();
 }
 
-std::size_t FileSource::imageCount() const noexcept {
-	return impl_->imageCount();
+const FileSourceOptions& FileSource::options() const noexcept {
+	return impl_->options();
 }
 
 } // namespace visionRuntime::camera

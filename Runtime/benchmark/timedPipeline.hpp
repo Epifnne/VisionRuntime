@@ -5,12 +5,15 @@
 #include "pipeline/iStagedVisionPipeline.hpp"
 #include "pipeline/pipeline.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <functional>
 #include <mutex>
 #include <optional>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 namespace visionRuntime::benchmark {
 
@@ -125,6 +128,7 @@ public:
 		}
 		std::lock_guard lock(mutex_);
 		++batchCompleted_;
+		batchStageDurations_.push_back(timing->durations.stageMilliseconds);
 		if (!result) {
 			++batchFailed_;
 		}
@@ -146,6 +150,10 @@ public:
 				? static_cast<double>(performance.completed) * 1000.0 /
 					performance.totalMilliseconds
 				: 0.0;
+			std::ranges::sort(batchStageDurations_);
+			performance.stageP50Milliseconds = percentile(batchStageDurations_, 0.50);
+			performance.stageP95Milliseconds = percentile(batchStageDurations_, 0.95);
+			performance.stageP99Milliseconds = percentile(batchStageDurations_, 0.99);
 		}
 		if (batchObserver_) {
 			try {
@@ -156,6 +164,17 @@ public:
 	}
 
 private:
+	[[nodiscard]] static double percentile(
+		const std::vector<double>& sortedValues,
+		double quantile) noexcept {
+		if (sortedValues.empty()) {
+			return 0.0;
+		}
+		const auto rank = static_cast<std::size_t>(
+			std::ceil(quantile * static_cast<double>(sortedValues.size())));
+		return sortedValues[std::max<std::size_t>(rank, 1) - 1];
+	}
+
 	struct TimingState {
 		std::uint64_t sequenceNumber;
 		Clock::time_point pipelineStarted;
@@ -181,6 +200,7 @@ private:
 	std::optional<Clock::time_point> batchStarted_;
 	std::size_t batchCompleted_ = 0;
 	std::size_t batchFailed_ = 0;
+	std::vector<double> batchStageDurations_;
 	bool batchReported_ = false;
 };
 

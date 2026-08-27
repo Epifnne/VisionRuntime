@@ -82,6 +82,13 @@
 - 增加 `executor::ExecutorTask<ResultType>`，统一任务 ID、状态、取消、future 和 callback 生命周期。
 - 增加 `ExecutorConfig`、部署 JSON 解析和 `RuntimeFactory` 执行策略组装，支持入口满载策略、入口容量及阶段容量。
 - 增加 SPSC 顺序、阻塞唤醒、关闭唤醒、零容量、阶段重叠、立即取消和工厂策略测试。
+- 增加通用 `CameraDeviceInfo`、`CameraDeviceOptions`、`CameraCapabilities` 和 `ICameraDevice` 工业相机契约。
+- 增加 `HikrobotMvsCameraDevice`，支持 MVS GigE/USB 枚举、序列号选择、连续采集和软件触发。
+- 增加 MVS SDK Buffer 的只读零拷贝 Frame lease，最后一个视图释放时归还 SDK Buffer，并延长设备句柄生命周期至所有在途帧释放。
+- 增加 HIK Profile 专用 `hikMvsCaptureSmoke` 实机检查工具。
+- 增加 `ContinuousCameraSource` 和 `TimedTriggerSource`，将设备取流与连续/定时输入调度分离。
+- 增加互斥的 `FrameSourceConfig` variant 与 `FrameSourceFactory`，统一组装目录、连续相机和定时软件触发输入。
+- 增加无硬件 Fake Device 测试，覆盖连续委托、单 trigger 在途、输入帧间隔、响应超时、触发/设备错误和停止唤醒。
 
 ### Changed
 
@@ -94,10 +101,28 @@
 - 并行执行器的 preprocess→inference、inference→postprocess、postprocess→completion 均改为固定容量 SPSC 队列，慢阶段和慢 callback 会向入口传播背压。
 - `TimedPipeline` 输出改为带名的 pre、infer、post、stage、wait、latency，并增加批次总耗时、完成/失败数和 FPS；文件输出使用对应 CSV 列。
 - 删除旧 `PipelineExecutor` 名称和兼容头，串行实现直接使用 `SerialPipelineExecutor`。
+- HIK Profile 现在条件编译并链接 MVS 适配器；`HIK_MVS_ROOT` 默认指向仓库 `Thirdparty/hik-mvs/4.8.1`。
+- 相机 Build Profile 将 SDK Buffer lease 与用户注册 Buffer 分开描述；MVS 4.8.1 不再错误声明用户 Buffer 注册能力。
+- `IFrameSource` 与 `ICameraDevice` 明确为单次启动对象；停止请求与线程回收分离，终止后重建设备需要创建新实例。
+- 连续源的 `frameRate` 改为设备真实采集帧率；定时源的 `triggerInterval` 从上一成功输入帧到达时刻计算，回调耗时计入间隔且不允许 trigger 重叠。
+- 定时源在响应等待、回调后和 interval 期间都转发设备终止错误，不再因成功响应去重状态而丢失错误。
+- `<camera>` 聚合头只导出配置、Factory、值类型和 `IFrameSource`；具体 Source、`ICameraDevice`、Buffer Pool 与海康 API 改为显式高级扩展头。顶层聚合头不再默认导出 benchmark 和业务 Preset。
+
+### Pending Validation
+
+- 在已安装 MVS Runtime 和驱动的目标机运行 `hikMvsCaptureSmoke`，验证连续采集、软件触发、停止延迟和多帧在途 lease。
+- 增加可注入 MVS C API 后的无硬件单元测试，覆盖错误映射、帧号回绕和 `Free -> Close -> Destroy` 顺序。
+- 增加基于 Factory 重建设备实例的自动重连策略，并完善结构化终止错误分类。
 
 ### Validation
 
+- MinGW Debug 默认 `NONE` Profile 下 `visionRuntime`、`buildProfileTest` 和 `frameBufferPoolTest` 目标构建通过；相关 7 项定向 CTest 全部通过。
 - MinGW Debug `pipelineExecutorTest` 构建及 RuntimeFactory、FrameExecutor、串行/并行 Executor 相关测试通过。
 - Source 与 Executor 生命周期相关 21 项定向测试全部通过，包含 Block 提交停止唤醒与回调线程请求停止场景。
 - MinGW Debug 全量 76 项测试全部通过。
 - 独立消费者 Release `anomalyDirectorySample` 使用新 `RuntimeSession` 生命周期 API 构建并运行通过；当前目录中的 80 张图（27 NG、53 OK）全部提交并在有限 Source 结束后平滑排空。
+<<<<<<< HEAD
+=======
+- Factory 测试 3 项、相机 Source 相关测试 17 项通过；默认 `NONE` Profile 的 `<visionruntime>` 消费者可编译链接，并对相机配置返回 `Unsupported`。
+- `HIK_MVS/NONE` smoke 目标与独立 `hikMvsCaptureSample` 成功链接；显式厂商扩展头不泄漏到默认聚合 API。
+>>>>>>> 0ad5a53 (add camera adapter && HikMvs sample)

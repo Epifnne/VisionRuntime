@@ -24,6 +24,7 @@ Thirdparty/
 | nlohmann/json | 3.12.0 | `https://github.com/nlohmann/json.git` | `55f93686c01528224f448c19128836e7df245f72` |
 | spdlog | 1.15.3 | `https://github.com/gabime/spdlog.git` | `6fa36017cfd5731d617e1a934f0e5ea9c4445b13` |
 | OpenVINO | 2026.2.1 | `https://pypi.org/project/openvino/2026.2.1/` | PyPI 2026.2.1 platform wheel |
+| Hikrobot MVS | 4.8.1 | 海康机器人 MVS 官方开发包 | 厂商版本 4.8.1 |
 
 OpenVINO 使用平台隔离目录，CMake 会按目标平台自动查找：
 
@@ -46,3 +47,20 @@ python3 -m pip install --target Thirdparty/openvino/2026.2.1/linux-x86_64 openvi
 ```
 
 这些平台包属于本机依赖并由 `.gitignore` 排除。需要使用其他位置时，可显式设置 `OpenVINO_DIR` 指向包含 `OpenVINOConfig.cmake` 的目录。
+
+海康 MVS 4.8.1 使用平台隔离布局：
+
+```text
+Thirdparty/hik-mvs/4.8.1/
+├─ include/MvCameraControl.h
+├─ windows-x86_64/
+│  ├─ lib/MvCameraControl.lib
+│  └─ bin/MvCameraControl.dll
+└─ linux-x86_64/lib/libMvCameraControl.so
+```
+
+CMake 按目标平台读取头文件和链接库，也可设置 `HIK_MVS_ROOT`。厂商的
+`MvCamCtrlSDK_STD_V4.8.1_260729.zip` 提供 Linux Runtime，Windows 客户端的
+`Development` 目录提供公共头文件和 `MvCameraControl.lib`。当前已迁入两个平台的
+x64 运行库、公共头文件和 Windows import library。目标机仍需安装匹配版本的 MVS
+驱动和系统服务。

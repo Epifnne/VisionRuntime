@@ -2,7 +2,9 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <condition_variable>
@@ -10,6 +12,7 @@
 #include <fstream>
 #include <mutex>
 #include <string>
+#include <thread>
 
 namespace {
 
@@ -55,7 +58,12 @@ TEST(FileSourceTest, ReadsDirectoryImagesAsFrames) {
 	auto sourceResult = camera::FileSource::create(std::move(options));
 	ASSERT_TRUE(sourceResult) << sourceResult.status().toString();
 	auto source = std::move(sourceResult).value();
-	EXPECT_EQ(source->imageCount(), 1U);
+	const auto info = source->info();
+	EXPECT_TRUE(info.isFinite);
+	EXPECT_EQ(info.expectedFrameCount, 1U);
+	EXPECT_EQ(info.outputSpec.device, core::Device::cpu());
+	EXPECT_NE(std::ranges::find(info.outputSpec.pixelFormats,
+		vision::PixelFormat::Bgr8), info.outputSpec.pixelFormats.end());
 
 	std::mutex mutex;
 	std::condition_variable frameReady;
@@ -99,4 +107,62 @@ TEST(FileSourceTest, RejectsDirectoryWithoutMatchingImages) {
 
 	ASSERT_FALSE(source);
 	EXPECT_EQ(source.status().code(), core::StatusCode::NotFound);
+}
+
+TEST(FileSourceTest, ReportsLoopingDirectoryAsUnbounded) {
+	using namespace visionRuntime;
+	TemporaryImageDirectory directory;
+	writePpm(directory.path() / "frame01.ppm");
+
+	camera::FileSourceOptions options;
+	options.directory = directory.path();
+	options.extensions = {"ppm"};
+	options.loop = true;
+	auto sourceResult = camera::FileSource::create(std::move(options));
+	ASSERT_TRUE(sourceResult) << sourceResult.status().toString();
+
+	const auto info = sourceResult->get()->info();
+	EXPECT_FALSE(info.isFinite);
+	EXPECT_FALSE(info.expectedFrameCount);
+}
+
+TEST(FileSourceTest, IsSingleUseAndHasIdempotentShutdown) {
+	using namespace std::chrono_literals;
+	using namespace visionRuntime;
+	TemporaryImageDirectory directory;
+	writePpm(directory.path() / "frame01.ppm");
+
+	camera::FileSourceOptions options;
+	options.directory = directory.path();
+	options.extensions = {"ppm"};
+	auto sourceResult = camera::FileSource::create(std::move(options));
+	ASSERT_TRUE(sourceResult) << sourceResult.status().toString();
+	auto source = std::move(sourceResult).value();
+
+	std::atomic_size_t callbackCount = 0;
+	ASSERT_TRUE(source->start([&](core::Result<vision::Frame>) {
+		++callbackCount;
+	}));
+	const auto deadline = std::chrono::steady_clock::now() + 5s;
+	while (source->isRunning() && std::chrono::steady_clock::now() < deadline) {
+		std::this_thread::yield();
+	}
+	ASSERT_FALSE(source->isRunning());
+
+	auto restarted = source->start([](core::Result<vision::Frame>) {});
+	ASSERT_FALSE(restarted);
+	EXPECT_EQ(restarted.status().code(), core::StatusCode::InvalidState);
+	auto restartedWithoutCallback = source->start({});
+	ASSERT_FALSE(restartedWithoutCallback);
+	EXPECT_EQ(restartedWithoutCallback.status().code(),
+		core::StatusCode::InvalidState);
+
+	source->requestStop();
+	source->requestStop();
+	source->wait();
+	source->wait();
+	const auto countAfterWait = callbackCount.load();
+	std::this_thread::sleep_for(20ms);
+	EXPECT_EQ(callbackCount.load(), countAfterWait);
+	EXPECT_EQ(countAfterWait, 1U);
 }

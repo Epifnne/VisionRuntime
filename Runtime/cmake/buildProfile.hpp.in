@@ -16,7 +16,8 @@ enum class InferencePlatform {
 
 struct CameraCapabilities {
 	bool supportsHardwareTrigger;
-	bool supportsExternalBuffers;
+	bool supportsSdkBufferLease;
+	bool supportsUserBuffers;
 };
 
 struct InferenceCapabilities {
@@ -40,7 +41,8 @@ struct BuildProfile {
 	static constexpr std::string_view inferencePlatformName = "@VISION_PLATFORM_NAME@";
 	static constexpr CameraCapabilities cameraCapabilities{
 		@VISION_CAMERA_SUPPORTS_HARDWARE_TRIGGER@,
-		@VISION_CAMERA_SUPPORTS_EXTERNAL_BUFFERS@
+		@VISION_CAMERA_SUPPORTS_SDK_BUFFER_LEASE@,
+		@VISION_CAMERA_SUPPORTS_USER_BUFFERS@
 	};
 	static constexpr InferenceCapabilities inferenceCapabilities{
 		@VISION_PLATFORM_SUPPORTS_CPU@,

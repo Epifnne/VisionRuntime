@@ -234,7 +234,7 @@ Executor 在 Pipeline 之上提供在线调度：
 - `TaskHandle` 持有 future、任务状态和 task ID。
 - `CompletionDispatcher` 在独立线程完成 future 并触发业务回调，业务回调不占用流水线阶段线程。
 - 单通道各阶段保持 FIFO，结果严格按提交顺序交付；首版不提供完成即交付模式。
-- `TimedPipeline` 当前记录 pre、infer、post、stage、wait 和端到端 latency，并在批次结束时输出 wall-clock 总耗时及 FPS；P50/P95/P99 聚合尚未实现。
+- `TimedPipeline` 记录 pre、infer、post、stage、wait 和端到端 latency，并在批次结束时输出 wall-clock 总耗时、FPS 及每帧 stage 总执行时间的 P50/P95/P99。
 - 平滑停止拒绝新任务并排空已接受任务；立即停止取消所有未开始任务，正在执行的阶段允许完成后停止向下游交付。
 - 未开始任务可以取消；执行中的任务只记录取消请求，不抢占后端调用，并在安全边界停止后续阶段或结果交付。
 - 阶段函数和业务回调产生的异常必须转换为失败状态，不能逃出线程入口。
@@ -261,7 +261,9 @@ Executor 在 Pipeline 之上提供在线调度：
 
 ### 3.9 camera
 
-`IFrameSource` 抽象开始、停止和 move-only 帧回调。图像源内部操作 `TensorBuffer`，但公共边界始终交付包含宽高、像素格式、row stride 和采集元数据的 `Frame`；前处理再把 `Frame` 转换为模型所需的 `Tensor`。
+`IFrameSource` 是 Runtime 唯一可见的帧输入抽象，统一开始、停止、等待、运行状态和 `FrameSourceInfo`。Source 为单次启动对象：首次成功 `start()` 后不允许再次启动；`requestStop()` 非阻塞、线程安全且幂等，`wait()` 幂等并保证返回后不再开始回调。图像源内部操作 `TensorBuffer`，但公共边界始终交付包含宽高、像素格式、row stride 和采集元数据的 `Frame`；前处理再把 `Frame` 转换为模型所需的 `Tensor`。
+
+`FrameSourceConfig` 是互斥的 `variant`，包含目录、连续相机和定时软件触发三种配置，避免 `type + optional` 形成非法参数组合。`FrameSourceFactory` 校验策略参数并组装实现，业务只接收 `unique_ptr<IFrameSource>`。默认 `NONE` Profile 对相机配置返回 `Unsupported`；`HIK_MVS` Profile 在 Factory 内创建海康设备。`<camera>` 聚合头只导出配置、Factory、相机值类型和 `IFrameSource`，具体 Source、`ICameraDevice`、Buffer Pool 与厂商适配器必须显式包含高级扩展头。
 
 `FileSource` 是基于文件夹的异步图像序列源：
 
@@ -274,9 +276,24 @@ Executor 在 Pipeline 之上提供在线调度：
 
 OpenCV 仅存在于 `FileSource` 的 `.cpp` 实现和私有链接依赖中，不泄漏到 `IFrameSource`、`Frame`、`TensorBuffer` 等公共 API。当前从源码最小构建 `core`、`imgproc` 和 `imgcodecs` 模块，并关闭 FileSource 不需要的 ADE、FFmpeg、GStreamer 和 IPP。
 
-`FrameBufferPool` 为实时相机采集提供固定容量槽位，并复用 `core::TensorBufferPool` 的 lease 归还机制。海康机器人 MVS 适配器后续负责断线重连、触发模式和厂商缓冲区释放；相机 SDK 只存在于适配器实现，不传入核心 API。视频文件源尚未实现，应与目录 `FileSource` 分开建模，避免混合有限图像序列和连续媒体流语义。
+`FrameBufferPool` 为需要 Runtime 自有内存的实时采集提供固定容量槽位，并复用 `core::TensorBufferPool` 的 lease 归还机制。厂商 SDK 自有 Buffer 不进入该池：适配器通过 `TensorBuffer::share()` 包装厂商 lease，最后一个 Frame/Buffer 视图释放时归还 SDK Buffer。视频文件源尚未实现，应与目录 `FileSource` 分开建模，避免混合有限图像序列和连续媒体流语义。
 
-相机 SDK 由 CMake 配置期选择，首个值为 `HIK_MVS`。生成的相机 Profile 暴露硬件触发、外部 Buffer、像素格式等编译期能力，供 Runtime 与 Pipeline 约束组合；具体型号和序列号保持运行时可配置，启动时验证设备能力是否满足 Profile 和业务要求。
+`ICameraDevice` 与 `IFrameSource` 相互独立，负责软件触发、设备信息、能力、输出规格和底层取流生命周期；曝光、增益、触发等相机语义不污染文件或视频帧源。公共相机配置只使用 Runtime 类型，厂商句柄、错误码、像素枚举和 GenICam 节点字符串只存在于适配器实现。
+
+`ContinuousCameraSource` 持有通用 `ICameraDevice`，以 Continuous 模式启动并把可选 `frameRate` 原子传给设备；该值是设备真实采集帧率。`TimedTriggerSource` 以 SoftwareTrigger 模式启动设备并由独立调度线程立即触发首帧。下一次触发不得早于上一成功帧到达时刻加 `triggerInterval`，回调耗时计入间隔，但调度仍等待回调返回；任意时刻最多一个 trigger 在途。`responseTimeout`、触发失败或设备错误只交付一次终止错误并停止，设备错误在响应等待、回调后及 interval 期间都不能丢弃。
+
+`HikrobotMvsCameraDevice` 是首个工业相机设备适配器，当前实现：
+
+- 枚举 GigE 与 USB 设备，单设备时允许自动选择，多设备时要求序列号。
+- 支持连续采集和软件触发；硬件触发、热插拔和断线重连尚未实现。
+- 专用取流线程使用有限超时调用 `MV_CC_GetImageBuffer`，停止请求不会永久阻塞在 SDK 内部。
+- 使用共享 `FrameLease` 持有完整 `MV_FRAME_OUT` 与设备状态，以只读 Host `TensorBuffer` 零拷贝构造 `Frame`；最后一个视图释放时调用 `MV_CC_FreeImageBuffer`。
+- Device、取流线程和所有 Frame lease 共享持有设备状态，确保所有 SDK Buffer 先归还，最后才执行 `MV_CC_CloseDevice` 与 `MV_CC_DestroyHandle`。
+- SDK image node 数量由 `maxFramesInFlight` 控制。节点被在途 Frame 占满时继续等待，不覆盖仍由 Pipeline 使用的图像。
+- 首版仅直接映射 Mono8、Mono16、RGB8、BGR8、RGBA8 和 BGRA8。Bayer、YUV、Packed 10/12 bit 等需要转换的格式明确返回 `Unsupported`。
+- `sequenceNumber` 将 MVS 32 位帧号按无符号差值扩展为 64 位；`capturedAt` 使用成功取帧时的主机 steady clock。设备时间戳在确认 tick frequency 前不写入 `hardwareTimestamp`。
+
+相机 SDK 由 CMake 配置期选择，首个值为 `HIK_MVS`。Profile 分别描述 SDK Buffer lease 与用户注册 Buffer 能力：MVS 当前支持前者，未发现采集方向的用户 Buffer 注册 API。具体型号、序列号和采集参数保持运行时配置，并在创建适配器时校验。终止后的重连不复用单次设备对象；后续重连策略应持有原始配置，通过 Factory 创建新的 Source 和 Device。
 
 ### 3.10 logs
 

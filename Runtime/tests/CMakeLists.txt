@@ -28,6 +28,34 @@ target_include_directories(frameBufferPoolTest PRIVATE ${PROJECT_SOURCE_DIR}/Run
 target_link_libraries(frameBufferPoolTest PRIVATE GTest::gtest_main)
 gtest_discover_tests(frameBufferPoolTest)
 
+add_executable(cameraSourceOptionsTest
+	camera/cameraSourceOptionsTest.cpp
+)
+target_include_directories(cameraSourceOptionsTest PRIVATE ${PROJECT_SOURCE_DIR}/Runtime/include)
+target_link_libraries(cameraSourceOptionsTest PRIVATE GTest::gtest_main)
+gtest_discover_tests(cameraSourceOptionsTest)
+
+add_executable(continuousCameraSourceTest
+	camera/continuousCameraSourceTest.cpp
+)
+target_include_directories(continuousCameraSourceTest PRIVATE ${PROJECT_SOURCE_DIR}/Runtime/include)
+target_link_libraries(continuousCameraSourceTest PRIVATE visionRuntime GTest::gtest_main)
+gtest_discover_tests(continuousCameraSourceTest)
+
+add_executable(frameSourceFactoryTest
+	camera/frameSourceFactoryTest.cpp
+)
+target_include_directories(frameSourceFactoryTest PRIVATE ${PROJECT_SOURCE_DIR}/Runtime/include)
+target_link_libraries(frameSourceFactoryTest PRIVATE visionRuntime GTest::gtest_main)
+gtest_discover_tests(frameSourceFactoryTest)
+
+add_executable(timedTriggerSourceTest
+	camera/timedTriggerSourceTest.cpp
+)
+target_include_directories(timedTriggerSourceTest PRIVATE ${PROJECT_SOURCE_DIR}/Runtime/include)
+target_link_libraries(timedTriggerSourceTest PRIVATE visionRuntime GTest::gtest_main)
+gtest_discover_tests(timedTriggerSourceTest)
+
 add_executable(fileSourceTest
 	camera/fileSourceTest.cpp
 )
