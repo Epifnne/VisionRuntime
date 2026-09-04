@@ -28,16 +28,27 @@ function(vision_add_hik_mvs_target)
 		PATH_SUFFIXES "${hikMvsPlatformDirectory}/lib" Development/Libraries/win64 lib/64 lib
 		NO_DEFAULT_PATH
 	)
-	if(NOT HIK_MVS_INCLUDE_DIRECTORY OR NOT HIK_MVS_LIBRARY)
+	set(hikMvsRuntimeDirectory "")
+	set(hikMvsRuntimeMissing FALSE)
+	if(WIN32)
+		set(hikMvsRuntimeDirectory
+			"${HIK_MVS_ROOT}/${hikMvsPlatformDirectory}/bin")
+		if(NOT EXISTS "${hikMvsRuntimeDirectory}/MvCameraControl.dll")
+			set(hikMvsRuntimeMissing TRUE)
+		endif()
+	endif()
+	if(NOT HIK_MVS_INCLUDE_DIRECTORY OR NOT HIK_MVS_LIBRARY OR
+		hikMvsRuntimeMissing)
 		message(FATAL_ERROR
 			"HIK_MVS profile requires Hikrobot MVS 4.8.1 development files for "
 			"${hikMvsPlatformDirectory}. Add include/MvCameraControl.h and the platform "
-			"import/shared library under '${HIK_MVS_ROOT}', or set HIK_MVS_ROOT.")
+			"import/shared library and runtime under '${HIK_MVS_ROOT}', or set HIK_MVS_ROOT.")
 	endif()
 	add_library(VisionHikMvs UNKNOWN IMPORTED)
 	set_target_properties(VisionHikMvs PROPERTIES
 		IMPORTED_LOCATION "${HIK_MVS_LIBRARY}"
 		INTERFACE_INCLUDE_DIRECTORIES "${HIK_MVS_INCLUDE_DIRECTORY}"
+		VISION_HIK_MVS_RUNTIME_DIRECTORY "${hikMvsRuntimeDirectory}"
 	)
 	add_library(Vision::HikMvs ALIAS VisionHikMvs)
 endfunction()
@@ -117,18 +128,49 @@ function(vision_add_tensorrt_target)
 	if(TARGET Vision::TensorRt)
 		return()
 	endif()
-	set(TENSORRT_ROOT "" CACHE PATH "TensorRT root")
+	if(WIN32 AND NOT MSVC)
+		message(FATAL_ERROR "TensorRT NVIDIA profile on Windows requires MSVC")
+	endif()
+	set(defaultTensorRtRoot "")
+	if(WIN32)
+		set(defaultTensorRtRoot
+			"${VISION_RUNTIME_REPOSITORY_DIRECTORY}/Thirdparty/tensorrt/10.16.1.11/windows-x86_64/TensorRT-10.16.1.11")
+	endif()
+	set(TENSORRT_ROOT "${defaultTensorRtRoot}" CACHE PATH "TensorRT root")
 	find_path(TENSORRT_INCLUDE_DIRECTORY NvInfer.h
 		HINTS "${TENSORRT_ROOT}" PATH_SUFFIXES include NO_DEFAULT_PATH)
-	find_library(TENSORRT_LIBRARY NAMES nvinfer
+	find_library(TENSORRT_LIBRARY NAMES nvinfer nvinfer_10
 		HINTS "${TENSORRT_ROOT}" PATH_SUFFIXES lib lib/x64 NO_DEFAULT_PATH)
-	if(NOT TENSORRT_INCLUDE_DIRECTORY OR NOT TENSORRT_LIBRARY)
+	find_library(TENSORRT_PLUGIN_LIBRARY NAMES nvinfer_plugin nvinfer_plugin_10
+		HINTS "${TENSORRT_ROOT}" PATH_SUFFIXES lib lib/x64 NO_DEFAULT_PATH)
+	find_package(CUDAToolkit REQUIRED)
+	if(NOT TENSORRT_INCLUDE_DIRECTORY OR NOT TENSORRT_LIBRARY OR
+		NOT TENSORRT_PLUGIN_LIBRARY)
 		message(FATAL_ERROR "Set TENSORRT_ROOT to a complete TensorRT distribution")
 	endif()
-	add_library(VisionTensorRt UNKNOWN IMPORTED)
+	add_library(VisionTensorRt INTERFACE IMPORTED GLOBAL)
 	set_target_properties(VisionTensorRt PROPERTIES
-		IMPORTED_LOCATION "${TENSORRT_LIBRARY}"
 		INTERFACE_INCLUDE_DIRECTORIES "${TENSORRT_INCLUDE_DIRECTORY}"
+		INTERFACE_LINK_LIBRARIES "${TENSORRT_LIBRARY};${TENSORRT_PLUGIN_LIBRARY};CUDA::cudart"
 	)
+	if(WIN32)
+		find_file(TENSORRT_RUNTIME_FILE NAMES nvinfer_10.dll
+			HINTS "${TENSORRT_ROOT}" PATH_SUFFIXES bin lib NO_DEFAULT_PATH)
+		find_file(TENSORRT_PLUGIN_RUNTIME_FILE NAMES nvinfer_plugin_10.dll
+			HINTS "${TENSORRT_ROOT}" PATH_SUFFIXES bin lib NO_DEFAULT_PATH)
+		file(GLOB cudaRuntimeFiles
+			"${CUDAToolkit_BIN_DIR}/cudart64_*.dll"
+			"${CUDAToolkit_BIN_DIR}/x64/cudart64_*.dll")
+		list(LENGTH cudaRuntimeFiles cudaRuntimeFileCount)
+		if(NOT TENSORRT_RUNTIME_FILE OR NOT TENSORRT_PLUGIN_RUNTIME_FILE OR
+			NOT cudaRuntimeFileCount EQUAL 1)
+			message(FATAL_ERROR
+				"TensorRT NVIDIA profile requires nvinfer, plugin, and CUDA runtime DLLs")
+		endif()
+		list(GET cudaRuntimeFiles 0 cudaRuntimeFile)
+		set_property(TARGET VisionTensorRt PROPERTY
+			VISION_TENSORRT_RUNTIME_FILES
+			"${TENSORRT_RUNTIME_FILE};${TENSORRT_PLUGIN_RUNTIME_FILE};${cudaRuntimeFile}")
+	endif()
 	add_library(Vision::TensorRt ALIAS VisionTensorRt)
 endfunction()

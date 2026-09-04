@@ -2,6 +2,7 @@
 
 #include "core/dataType.hpp"
 #include "core/tensor.hpp"
+#include "memory/cpuBufferPool.hpp"
 
 #include <openvino/c/openvino.h>
 
@@ -9,6 +10,7 @@
 #include <filesystem>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <utility>
 #include <vector>
@@ -58,6 +60,7 @@ public:
 	CorePtr core;
 	CompiledModelPtr compiledModel;
 	InferRequestPtr inferRequest;
+	std::optional<memory::CpuBufferPool> outputPool;
 	std::mutex inferMutex;
 };
 
@@ -71,6 +74,11 @@ core::Result<std::unique_ptr<OpenVinoBackend>> OpenVinoBackend::create(
 		return core::Result<std::unique_ptr<OpenVinoBackend>>::failure(error(
 			core::StatusCode::InvalidArgument,
 			"OpenVINO device and tensor map names must not be empty"));
+	}
+	if (options.outputBufferCount == 0) {
+		return core::Result<std::unique_ptr<OpenVinoBackend>>::failure(error(
+			core::StatusCode::InvalidArgument,
+			"OpenVINO output buffer count must be greater than zero"));
 	}
 
 	auto impl = std::make_unique<Impl>();
@@ -211,8 +219,28 @@ core::Result<preprocess::TensorMap> OpenVinoBackend::infer(
 	std::vector<std::int64_t> outputDimensions(
 		outputShape.dims, outputShape.dims + outputShape.rank);
 	ov_shape_free(&outputShape);
-	auto output = core::Tensor::allocate(
-		core::DataType::Float32, core::TensorShape(std::move(outputDimensions)));
+	core::TensorShape resolvedOutputShape(std::move(outputDimensions));
+	auto outputByteSize = core::Tensor::requiredByteSize(
+		core::DataType::Float32, resolvedOutputShape);
+	if (!outputByteSize) {
+		return core::Result<preprocess::TensorMap>::failure(outputByteSize.status());
+	}
+	if (!impl_->outputPool ||
+		impl_->outputPool->bufferCapacity() < outputByteSize.value()) {
+		auto pool = memory::CpuBufferPool::create(
+			options_.outputBufferCount, outputByteSize.value());
+		if (!pool) {
+			return core::Result<preprocess::TensorMap>::failure(pool.status());
+		}
+		impl_->outputPool = std::move(pool).value();
+	}
+	auto outputBuffer = impl_->outputPool->acquire();
+	if (!outputBuffer) {
+		return core::Result<preprocess::TensorMap>::failure(outputBuffer.status());
+	}
+	auto output = core::Tensor::wrap(
+		std::move(outputBuffer).value(), core::DataType::Float32,
+		std::move(resolvedOutputShape));
 	if (!output) {
 		return core::Result<preprocess::TensorMap>::failure(output.status());
 	}

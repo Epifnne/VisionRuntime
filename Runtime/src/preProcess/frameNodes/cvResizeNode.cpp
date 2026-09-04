@@ -1,6 +1,5 @@
 #include "preProcess/frameNodes/cvResizeNode.hpp"
 
-#include "core/tensorBuffer.hpp"
 #include "vision/frame.hpp"
 
 #include <opencv2/core.hpp>
@@ -10,7 +9,6 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
-#include <memory>
 #include <utility>
 
 namespace visionRuntime::preprocess {
@@ -44,7 +42,8 @@ namespace {
 
 core::Result<std::unique_ptr<IPreprocessNode>> CvResize::build(
 	PreprocessBuildContext& context) && {
-	if (options_.shortSide == 0 || options_.maxLongSide < options_.shortSide) {
+	if (options_.shortSide == 0 || options_.maxLongSide < options_.shortSide ||
+		options_.bufferCount == 0) {
 		return core::Result<std::unique_ptr<IPreprocessNode>>::failure(
 			invalidArgument("cv resize dimensions must be valid"));
 	}
@@ -85,7 +84,8 @@ core::Result<void> CvResizeNode::process(PreprocessContext& context) {
 	const cv::Mat source(
 		static_cast<int>(frame->height()), static_cast<int>(frame->width()), type,
 		const_cast<void*>(frame->data()), frame->rowStride());
-	cv::Mat filtered = source;
+	cv::Mat filtered;
+	const cv::Mat* resizeSource = &source;
 	if (options_.antialias) {
 		const auto sigmaX = antialiasSigma(
 			static_cast<double>(frame->width()), static_cast<double>(outputWidth));
@@ -94,21 +94,32 @@ core::Result<void> CvResizeNode::process(PreprocessContext& context) {
 		if (sigmaX > 0.0 || sigmaY > 0.0) {
 			cv::GaussianBlur(source, filtered, {}, sigmaX, sigmaY,
 				cv::BORDER_REPLICATE);
+			resizeSource = &filtered;
 		}
 	}
-	auto resized = std::make_shared<cv::Mat>();
-	cv::resize(filtered, *resized,
-		{static_cast<int>(outputWidth), static_cast<int>(outputHeight)},
-		0.0, 0.0, cv::INTER_LINEAR);
-	const auto rowStride = resized->step[0];
-	const auto byteSize = (outputHeight - 1) * rowStride +
-		outputWidth * resized->elemSize();
-	std::shared_ptr<void> owner = resized;
-	auto buffer = core::TensorBuffer::share(
-		std::move(owner), resized->data, byteSize);
+	const auto rowStride = outputWidth * static_cast<std::size_t>(channels);
+	if (outputHeight > std::numeric_limits<std::size_t>::max() / rowStride) {
+		return core::Result<void>::failure(
+			invalidArgument("cv resize output byte size exceeds limits"));
+	}
+	const auto byteSize = outputHeight * rowStride;
+	if (!outputPool_ || outputPool_->bufferCapacity() < byteSize) {
+		auto pool = memory::CpuBufferPool::create(options_.bufferCount, byteSize);
+		if (!pool) {
+			return core::Result<void>::failure(pool.status());
+		}
+		outputPool_ = std::move(pool).value();
+	}
+	auto buffer = outputPool_->acquire();
 	if (!buffer) {
 		return core::Result<void>::failure(buffer.status());
 	}
+	cv::Mat resized(
+		static_cast<int>(outputHeight), static_cast<int>(outputWidth), type,
+		buffer->data(), rowStride);
+	cv::resize(*resizeSource, resized,
+		{static_cast<int>(outputWidth), static_cast<int>(outputHeight)},
+		0.0, 0.0, cv::INTER_LINEAR);
 	auto outputFrame = vision::Frame::create(
 		std::move(buffer).value(), outputWidth, outputHeight,
 		frame->pixelFormat(), rowStride, frame->metadata());

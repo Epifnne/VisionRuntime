@@ -2,6 +2,7 @@
 
 #include "backends/iInferenceBackend.hpp"
 #include "backends/openVinoBackend.hpp"
+#include "backends/tensorRtBackend.hpp"
 #include "benchmark/anomalyCsvTimedPipeline.hpp"
 #include "camera/frameSourceFactory.hpp"
 #include "config/buildProfile.hpp"
@@ -43,11 +44,31 @@ namespace visionRuntime::runtime::presets {
 	};
 }
 
+[[nodiscard]] inline config::ModelManifest patchCoreAnomalyModelManifest() {
+	return {
+		.inputs = {{
+			.name = "images",
+			.elementType = config::TensorElementType::Float32,
+			.layout = config::TensorLayout::Nchw,
+			.shape = {1, 1, 224, 224},
+		}},
+		.outputs = {{
+			.name = "/Reshape_10_output_0",
+			.elementType = config::TensorElementType::Float32,
+			.layout = config::TensorLayout::Embedding,
+			.shape = {1, 784, 1024},
+		}},
+	};
+}
+
 struct AnomalyModelOptions {
 	std::filesystem::path path;
+	std::filesystem::path memoryBankPath;
 	config::ModelManifest manifest = anomalyModelManifest();
 	std::string device = "CPU";
 	std::size_t inferenceThreads = 0;
+	int cudaDeviceIndex = 0;
+	std::size_t optimizationProfile = 0;
 };
 
 struct AnomalyRuntimeOptions {
@@ -118,23 +139,44 @@ public:
 
 		auto backend = std::move(options.backend);
 		if (!backend) {
-			auto built = backends::OpenVinoBackend::create({
-				.modelPath = std::move(options.model.path),
-				.device = std::move(options.model.device),
-				.inputName = options.model.manifest.inputs.front().name,
-				.outputName = options.model.manifest.outputs.front().name,
-				.inferenceThreads = options.model.inferenceThreads,
-			});
-			if (!built) {
-				return core::Result<std::unique_ptr<Session>>::failure(built.status());
+			if constexpr (config::BuildProfile::inferencePlatform ==
+				config::InferencePlatform::OpenVinoIntel) {
+				auto built = backends::OpenVinoBackend::create({
+					.modelPath = std::move(options.model.path),
+					.device = std::move(options.model.device),
+					.inputName = options.model.manifest.inputs.front().name,
+					.outputName = options.model.manifest.outputs.front().name,
+					.inferenceThreads = options.model.inferenceThreads,
+				});
+				if (!built) {
+					return core::Result<std::unique_ptr<Session>>::failure(built.status());
+				}
+				backend = std::move(built).value();
+			} else if constexpr (config::BuildProfile::inferencePlatform ==
+				config::InferencePlatform::TensorRtNvidia) {
+				auto built = backends::TensorRtBackend::create({
+					.enginePath = std::move(options.model.path),
+					.inputName = options.model.manifest.inputs.front().name,
+					.outputName = options.model.manifest.outputs.front().name,
+					.deviceIndex = options.model.cudaDeviceIndex,
+					.optimizationProfile = options.model.optimizationProfile,
+				});
+				if (!built) {
+					return core::Result<std::unique_ptr<Session>>::failure(built.status());
+				}
+				backend = std::move(built).value();
+			} else {
+				return failure("no inference backend is compiled into this runtime");
 			}
-			backend = std::move(built).value();
 		}
 
 		auto postprocessor = std::move(options.postprocessor);
 		if (!postprocessor) {
 			auto score = postprocess::AnomalyPostprocessor::create({
 				.outputName = options.model.manifest.outputs.front().name,
+				.memoryBankPath = std::move(options.model.memoryBankPath),
+				.embeddingDimension =
+					options.model.manifest.outputs.front().shape.back(),
 			});
 			if (!score) {
 				return core::Result<std::unique_ptr<Session>>::failure(score.status());
@@ -190,12 +232,16 @@ private:
 				"anomaly preset input must be Float32 NCHW [1,1,224,224]");
 		}
 		const auto& output = manifest.outputs.front();
+		const auto scalarOutput = output.layout == config::TensorLayout::Scalar &&
+			output.shape == std::vector<std::size_t>{1};
+		const auto embeddingOutput = output.layout == config::TensorLayout::Embedding &&
+			output.shape.size() == 3 && output.shape[0] == 1 &&
+			output.shape[1] > 0 && output.shape[2] > 0;
 		if (output.name.empty() ||
 			output.elementType != config::TensorElementType::Float32 ||
-			output.layout != config::TensorLayout::Scalar ||
-			output.shape != std::vector<std::size_t>{1}) {
+			(!scalarOutput && !embeddingOutput)) {
 			return invalidManifest(
-				"anomaly preset output must be a Float32 scalar [1]");
+				"anomaly preset output must be a Float32 scalar [1] or embedding [1,N,D]");
 		}
 		return core::Result<void>::success();
 	}
@@ -213,18 +259,3 @@ private:
 };
 
 } // namespace visionRuntime::runtime::presets
-
-namespace visionRuntime::runtime {
-
-using AnomalyRuntimeOptions = presets::AnomalyRuntimeOptions;
-
-class AnomalyRuntimeFactory {
-public:
-	[[nodiscard]] static core::Result<std::unique_ptr<
-		RuntimeSession<vision::AnomalyResult>>> create(AnomalyRuntimeOptions options) {
-		return RuntimeFactory::createFromPreset<presets::AnomalyPreset>(
-			std::move(options));
-	}
-};
-
-} // namespace visionRuntime::runtime

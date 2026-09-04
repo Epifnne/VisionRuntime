@@ -7,6 +7,10 @@
 #include <executor>
 #include <gui>
 #include <logs>
+#include "memory/cpuAllocator.hpp"
+#include "memory/cpuBufferPool.hpp"
+#include "memory/gpuAllocator.hpp"
+#include "memory/gpuBufferPool.hpp"
 #include <pipeline>
 #include <postprocess>
 #include <preprocess>

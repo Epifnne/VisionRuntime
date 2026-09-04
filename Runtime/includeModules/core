@@ -7,6 +7,5 @@
 #include "core/status.hpp"
 #include "core/tensor.hpp"
 #include "core/tensorBuffer.hpp"
-#include "core/tensorBufferPool.hpp"
 #include "core/tensorShape.hpp"
 #include "core/tensorSpec.hpp"

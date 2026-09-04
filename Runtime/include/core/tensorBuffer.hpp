@@ -13,7 +13,6 @@
 #include <cstddef>
 #include <functional>
 #include <memory>
-#include <new>
 #include <string>
 #include <utility>
 
@@ -30,22 +29,6 @@ public:
 	using Deleter = std::function<void(void*)>;
 
 	TensorBuffer() = default;
-
-	[[nodiscard]] static Result<TensorBuffer> allocate(std::size_t capacity) {
-		if (capacity == 0) {
-			return invalidArgument("buffer capacity must be greater than zero");
-		}
-		try {
-			auto owner = std::shared_ptr<void>(
-				::operator new(capacity),
-				[](void* pointer) { ::operator delete(pointer); });
-			return Result<TensorBuffer>::success(TensorBuffer(
-				owner, owner.get(), capacity, Device::cpu(), MemoryKind::Host, true));
-		} catch (const std::bad_alloc&) {
-			return Result<TensorBuffer>::failure(Status::error(
-				StatusCode::ResourceExhausted, "failed to allocate tensor buffer"));
-		}
-	}
 
 	[[nodiscard]] static Result<TensorBuffer> share(
 		std::shared_ptr<void> owner,

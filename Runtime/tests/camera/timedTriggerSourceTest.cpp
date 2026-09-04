@@ -1,6 +1,7 @@
 #include "camera/timedTriggerSource.hpp"
 
 #include "core/tensorBuffer.hpp"
+#include "memory/cpuAllocator.hpp"
 
 #include <gtest/gtest.h>
 
@@ -99,7 +100,7 @@ public:
 			std::scoped_lock lock(mutex_);
 			callback = callback_;
 		}
-		auto buffer = visionRuntime::core::TensorBuffer::allocate(1);
+		auto buffer = visionRuntime::memory::CpuAllocator{}.allocate(1);
 		auto frame = visionRuntime::vision::Frame::create(
 			std::move(buffer).value(), 1, 1,
 			visionRuntime::vision::PixelFormat::Gray8);

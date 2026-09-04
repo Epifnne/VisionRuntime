@@ -2,6 +2,7 @@
 
 #include "core/status.hpp"
 #include "core/tensorBuffer.hpp"
+#include "memory/cpuAllocator.hpp"
 
 #include <gtest/gtest.h>
 
@@ -71,7 +72,7 @@ public:
 		if (!callback_) {
 			return;
 		}
-		auto buffer = visionRuntime::core::TensorBuffer::allocate(1);
+		auto buffer = visionRuntime::memory::CpuAllocator{}.allocate(1);
 		auto frame = visionRuntime::vision::Frame::create(
 			std::move(buffer).value(), 1, 1,
 			visionRuntime::vision::PixelFormat::Gray8);

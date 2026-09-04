@@ -15,6 +15,7 @@ struct OpenVinoBackendOptions {
 	std::string inputName = "image";
 	std::string outputName = "score";
 	std::size_t inferenceThreads = 0;
+	std::size_t outputBufferCount = 2;
 };
 
 class OpenVinoBackend final : public IInferenceBackend {

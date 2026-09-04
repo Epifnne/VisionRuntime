@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/tensorBufferPool.hpp"
+#include "memory/cpuBufferPool.hpp"
 #include "preProcess/preprocessNode.hpp"
 
 #include <cstddef>
@@ -41,12 +41,12 @@ private:
 	friend class ToTensor;
 	ToTensorNode(
 		ToTensorOptions options, vision::ImageSize inputSize,
-		core::TensorBufferPool pool)
+		memory::CpuBufferPool pool)
 		: options_(std::move(options)), inputSize_(inputSize), pool_(std::move(pool)) {}
 
 	ToTensorOptions options_;
 	vision::ImageSize inputSize_;
-	core::TensorBufferPool pool_;
+	memory::CpuBufferPool pool_;
 };
 
 } // namespace visionRuntime::preprocess

@@ -12,6 +12,7 @@ enum class TensorElementType {
 
 enum class TensorLayout {
 	Nchw,
+	Embedding,
 	Scalar
 };
 

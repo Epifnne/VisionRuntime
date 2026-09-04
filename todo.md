@@ -6,7 +6,7 @@
 
 - [x] 确定项目命名、C++ namespace 和公共头文件 include 路径。
 - [x] 编写根 CMake 和 Runtime 子项目 CMake，建立静态库、测试、示例和工具 target。
-- [x] 将 OpenCV、JSON、日志和测试框架下载到 `Thirdparty`，记录版本、来源和校验值。
+- [x] 将 OpenCV、JSON、日志、测试框架、FAISS 和 OpenBLAS 下载到 `Thirdparty`，记录版本、来源和固定提交。
 - [x] 实现 `vision_add_runtime(... CAMERA HIK_MVS PLATFORM OPENVINO_INTEL)`，在 CMake 配置期选择唯一相机 SDK 与推理平台族，并保留 `NONE/NONE` 核心测试 Profile。
 - [x] 为 OpenVINO、TensorRT、ONNX Runtime、海康 MVS 定义隔离的 imported targets，未选择的厂商实现不参与编译和链接。
 - [x] 由 CMake 生成 `config/buildProfile.hpp`，提供 `SelectedCamera`、`SelectedPlatform` 及编译期能力描述。
@@ -36,11 +36,13 @@
 - [x] 定义 `IPreprocessor`、`IInferenceBackend`、`IPostprocessor` 和线性 Pipeline 接口。
 - [x] 实现 resize、颜色转换、归一化和直接写入池化 NCHW 张量的前处理。
 - [x] 实现类型状态化 `PreprocessBuilder`，编译期校验节点顺序且每条链最多包含一个物化节点。
-- [ ] 实现 letterbox、裁剪、灰度化和二值化等可选前处理节点。
-- [ ] 完成 OpenVINO 后端（已增加单输入/单输出 Float32 CPU 同步推理初版，待端到端验证及模型准备契约）。
-- [ ] 将 OpenVINO 后端建模为 Intel 平台族，在同一契约下支持 CPU、GPU 和 NPU 设备选择且禁止静默回退。
-- [ ] 在 CPU 纵向功能通过后，使用 OpenVINO C++ Runtime 打通 Intel NPU 的 IR 加载、首次编译、缓存和同步推理。
-- [ ] 完成异常后处理（标量异常分数、阈值判断和 `AnomalyResult` 已实现；热力图还原与缺陷区域待实现）。
+- [x] 实现 letterbox、裁剪、灰度化和二值化等可选前处理节点。
+- [x] 完成 OpenVINO 后端（已增加单输入/单输出 Float32 CPU 同步推理初版，待端到端验证及模型准备契约）。
+- [x] 将 OpenVINO 后端建模为 Intel 平台族，在同一契约下支持 CPU、GPU 和 NPU 设备选择且禁止静默回退。
+- [x] 在 CPU 纵向功能通过后，使用 OpenVINO C++ Runtime 打通 Intel NPU 的 IR 加载、首次编译、缓存和同步推理。
+- [x] 完成标量异常分数、阈值判断和 `AnomalyResult` 后处理。
+- [x] 完成 PatchCore embedding memory bank 加载、FAISS L2 最近邻检索和图像级最大距离聚合。
+- [ ] 完成 patch 距离图、热力图还原、坐标反向映射与缺陷区域提取。
 - [x] 实现 `AnomalyResult` 示例程序：文件夹读取、OpenVINO CPU 推理及逐图 score/OK/NG 输出，并与参考 NG 图完成数值对比。
 - [x] 使用同一输入与 Python 参考实现对比数值误差（已知 NG 图相对误差约 0.52%，判定一致）。
 - [x] 记录 pre、infer、post、stage、wait、端到端 latency、批次总耗时和 FPS。
@@ -60,7 +62,7 @@
 - [ ] 明确 Runtime 发行包不包含 Python、`vision-modelc`、ONNX 转换器和 INT8 校准依赖。
 - [ ] 编写模型包检查、构建 Profile 不匹配和错误配置测试。
 
-验收：训练人员只需提供模型包和节点组合代码；部署配置可在 `OPENVINO_INTEL` 平台族内切换 CPU、GPU、NPU 和缓存策略，但不能切换到未编入程序的后端。
+验收：训练人员只需提供模型包和节点组合代码；部署配置可切换 CPU、GPU、NPU 和缓存策略，但不能切换到未编入程序的后端。
 
 ## M4：异步 Executor
 

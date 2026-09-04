@@ -1,5 +1,11 @@
 cmake_minimum_required(VERSION 3.25)
 
+if(POLICY CMP0091)
+	cmake_policy(SET CMP0091 NEW)
+endif()
+set(CMAKE_MSVC_RUNTIME_LIBRARY
+	"MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
 project(AnomalyDirectorySample LANGUAGES CXX)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -15,9 +21,9 @@ add_subdirectory("${VISION_RUNTIME_ROOT}" "${CMAKE_CURRENT_BINARY_DIR}/Thirdpart
 
 vision_target_runtime(anomalyDirectorySample
 	CAMERA NONE
-	PLATFORM OPENVINO_INTEL
-	DEVICE CPU
-	ARTIFACT ONNX
+	PLATFORM TENSORRT_NVIDIA
+	DEVICE GPU
+	ARTIFACT ENGINE
 )
 
 target_include_directories(anomalyDirectorySample PRIVATE

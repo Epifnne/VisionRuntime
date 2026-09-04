@@ -57,6 +57,7 @@ coverage.info
 *.log
 *.tmp
 *.csv
+*.log
 
 # Backend-compiled model caches (source models such as ONNX remain trackable)
 *.blob

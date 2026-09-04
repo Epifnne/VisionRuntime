@@ -13,7 +13,7 @@ VisionRuntime 是一个面向工业视觉模型部署的 C++20 SDK。模型训�
 - 在线运行采用单通道分阶段异步流水线，具备有界队列、异步回调、有序交付、错误传播和分阶段性能统计。
 - 公共接口保持清晰、强类型；当前提供 CPU 图像池化和阶段间零拷贝移交，并为后续动态批处理、设备内存及跨设备零拷贝保留扩展空间。
 
-首版约束：Windows、MinGW-w64、C++20、CMake、静态库优先、固定 NCHW、batch 1、CPU 前后处理。首个纵向功能先完成 OpenVINO CPU 异常检测，再沿用同一 OpenVINO 平台族打通 Intel NPU，模型输出异常分数和热力图。
+首版约束：Windows（MSVC 或 MinGW-w64）、x86_64 Linux、C++20、CMake、静态库优先、固定 NCHW、batch 1、CPU 前后处理。首个纵向功能先完成 OpenVINO CPU 异常检测，再沿用同一 OpenVINO 平台族打通 Intel NPU，模型输出异常分数和热力图。
 
 ## 2. 总体数据流
 
@@ -148,13 +148,15 @@ prepare(ModelArtifact, options) -> PreparedModel
 infer(PreparedModel, TensorMap) -> TensorMap
 ```
 
-`ModelArtifact` 是经过模型包校验后交给已编译后端的目标制品，不要求所有后端直接消费 ONNX：OpenVINO 首版接收 IR 或兼容的预编译制品，TensorRT 后续可接收 ONNX 或 Engine。
+`ModelArtifact` 是经过模型包校验后交给已编译后端的目标制品，不要求所有后端直接消费 ONNX：OpenVINO 首版接收 IR 或兼容制品，TensorRT 首版接收预构建 Engine。
 
 - ONNX Runtime 直接创建 Session。
 - OpenVINO 从模型包中的 IR 读取模型，并通过 C++ Runtime 编译到所选 Intel CPU、GPU 或 NPU；也可导入兼容环境预编译的制品。
-- TensorRT 解析 ONNX 并构建或加载 Engine。
+- TensorRT 首版加载 Engine；ONNX Parser、Builder 与缓存工具属于后续增量。
 
 当前 OpenVINO 纵向增量使用 C API 隔离 ABI，只在 `OPENVINO_INTEL` Profile 下编译。它接收单个连续 host Float32 Tensor，通过一个同步 `InferRequest` 执行单输入、单输出模型，并将 Float32 输出复制到框架 `TensorMap`。当前 sample 产物由 `VISION_OPENVINO_DEVICE` 固定打包 CPU、GPU 或 NPU 中的一个设备插件，由 `VISION_MODEL_ARTIFACT_TYPE` 固定打包 ONNX 或 IR frontend；运行时不能切换到未打包能力。多输入、多输出、非 Float32、请求池、缓存及模型包准备生命周期仍属于后续增量。
+
+TensorRT 纵向增量只在 `TENSORRT_NVIDIA` Profile 下编译。它通过 TensorRT 10 name-based API 加载 Engine，支持选择 optimization profile，并在每次推理时设置动态输入 shape、解析动态输出 shape、复用 CUDA device buffer，通过单一 stream 执行 H2D、`enqueueV3` 和 D2H。首版限制为单输入、单输出和 Float32；Engine 必须与目标 GPU、TensorRT 和 CUDA 环境兼容。
 
 后端专用对象只能出现在各自实现中，不进入 `core`、`vision` 或公共 Pipeline API。推理平台族由 CMake 在配置期唯一确定，部署配置不得切换到未编入程序的后端，也不进行静默回退。平台 Profile 声明支持的设备类型、精度、动态 shape 和内存能力，Pipeline 与模型清单据此尽早拒绝不兼容组合。
 
@@ -169,7 +171,9 @@ infer(PreparedModel, TensorMap) -> TensorMap
 
 ### 3.5 postprocess
 
-后处理模块把原始 `TensorMap` 转换为标准强类型结果。当前 `AnomalyPostprocessor` 读取指定 Float32 输出的首元素作为图像级 score，并按可配置阈值生成 `AnomalyResult`。热力图缩放和缺陷区域提取尚未实现，随后再增加分类和检测。
+后处理模块把原始 `TensorMap` 转换为标准强类型结果。当前 `AnomalyPostprocessor` 支持两种 Float32 输出契约：标量 `[1]` 直接读取首元素作为图像级 score；PatchCore embedding `[1,N,D]` 从原始 Float32 memory bank 构建 FAISS `IndexFlatL2` 索引，对每个 patch 查询一个最近邻，并取最大平方 L2 距离作为图像级 score。memory bank 文件必须非空、按 `D` 维完整对齐；模型清单中的 embedding 维度是加载和查询的共同契约。
+
+两种路径随后都按可配置阈值生成 `AnomalyResult`。当前 embedding 路径只聚合图像级分数，不保留 patch 距离图；热力图缩放、坐标反向映射和缺陷区域提取尚未实现，随后再增加分类和检测。
 
 自定义任务可以实现 `IPostprocessor<ResultType>`，也可以直接取得原始 `TensorMap`。
 
@@ -411,17 +415,19 @@ cache/
 ## 7. 工程和验证策略
 
 - 代码和文件命名遵循 [codingConventions.md](codingConventions.md)：C++ 类型使用 UpperCamelCase，函数、变量和项目文件名使用 lowerCamelCase。
-- C++20、CMake、MinGW-w64，静态库优先；项目 preset 固定编译器和构建目录。
+- C++20、CMake、MSVC/MinGW-w64，静态库优先；项目 preset 或独立构建目录固定编译器和构建配置。
+- MSVC 目标统一使用静态 CRT（`/MTd` 或 `/MT`），避免源码构建的静态 OpenCV 与业务目标混用 `/MT`、`/MD`。该选择不改变 OpenVINO、MVS 等厂商 SDK 的动态链接方式。
 - CMake 配置期选择唯一相机 SDK 与推理平台族，并生成构建 Profile；运行时配置不能绕过该边界。
 - 不使用 vcpkg；OpenCV、JSON、日志和测试框架等依赖直接下载到 `Thirdparty/<package>/<version>`。
 - OpenVINO、TensorRT、ONNX Runtime 和海康 MVS 通过 CMake imported target 隔离厂商 SDK。
+- PatchCore 最近邻检索使用 FAISS 1.12.0 CPU 索引；OpenBLAS 0.3.30 以单精度、单线程、无 LAPACKE 配置从源码构建并作为其 BLAS/LAPACK 实现。
 - 单元测试覆盖纯逻辑；所有后端运行同一套 contract tests。
 - 生命周期测试覆盖 Block 提交唤醒、回调线程请求停止、平滑排空、立即取消和按所有权顺序 join；`wait()` 返回后汇总数据不再变化。
 - 使用 Python 参考结果验证数值正确性，并为浮点误差设定明确容差。
 - benchmark 输出各阶段 P50/P95/P99、吞吐、峰值内存和缓存命中情况。
 - 稳定性测试覆盖队列满载、坏模型、错误 shape、回调异常、相机断线和长时间运行。
 
-当前 MinGW Debug 全量 76 项测试通过；MinGW Release 独立消费者 `anomalyDirectorySample` 使用 80 张目录图像（27 NG、53 OK）完成端到端运行，并在有限 Source 结束后平滑回收 Source、Executor stages 和 CompletionDispatcher 线程。
+当前 MinGW Debug 全量 76 项测试通过；MinGW Release 独立消费者 `anomalyDirectorySample` 使用 80 张目录图像（27 NG、53 OK）完成端到端运行，并在有限 Source 结束后平滑回收 Source、Executor stages 和 CompletionDispatcher 线程。MSVC 19.51 x64 Debug 独立消费者 `anomalyHikMvsSample` 已使用 GigE 相机完成采集、预处理、OpenVINO CPU 推理和异常后处理。
 
 ## 8. 暂不纳入首版
 

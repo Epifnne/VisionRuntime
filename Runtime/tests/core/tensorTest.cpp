@@ -1,4 +1,5 @@
 #include "core/tensor.hpp"
+#include "memory/cpuAllocator.hpp"
 
 #include <gtest/gtest.h>
 
@@ -6,10 +7,10 @@
 #include <memory>
 #include <vector>
 
-TEST(TensorTest, AllocatesContiguousCpuTensor) {
+TEST(TensorTest, WrapsContiguousCpuAllocatorBuffer) {
 	using namespace visionRuntime::core;
 
-	auto result = Tensor::allocate(
+	auto result = visionRuntime::memory::CpuAllocator().allocateTensor(
 		DataType::Float32, TensorShape{1, 3, 4, 5}, TensorLayout::Nchw);
 
 	ASSERT_TRUE(result);
@@ -18,7 +19,7 @@ TEST(TensorTest, AllocatesContiguousCpuTensor) {
 	EXPECT_EQ(result->byteStrides(), (Tensor::ByteStrides{240, 80, 20, 4}));
 	EXPECT_TRUE(result->isContiguous());
 	EXPECT_EQ(result->bytes().size(), 240U);
-	EXPECT_EQ(result->ownership(), TensorOwnership::Owned);
+	EXPECT_EQ(result->ownership(), TensorOwnership::Shared);
 	EXPECT_TRUE(result->spec().shape.has_value());
 }
 
@@ -75,7 +76,8 @@ TEST(TensorTest, HidesHostByteSpanForDeviceMemory) {
 TEST(TensorTest, CreatesSubviewWithoutCopyingBuffer) {
 	using namespace visionRuntime::core;
 
-	auto parent = Tensor::allocate(DataType::UInt8, TensorShape{16});
+	auto parent = visionRuntime::memory::CpuAllocator().allocateTensor(
+		DataType::UInt8, TensorShape{16});
 	ASSERT_TRUE(parent);
 	auto child = parent->subview(4, DataType::UInt8, TensorShape{8});
 

@@ -92,6 +92,8 @@
 
 ### Changed
 
+- Windows 构建新增 MSVC 支持；MSVC 目标和源码构建的静态 OpenCV 统一使用 `/MTd` 或 `/MT`，OpenCV 4.12 对 MSVC 19.51 显式沿用 `vc17` ABI 标识。
+- Windows HIK_MVS 业务目标部署仓库内匹配版本的 MVS 4.8.1 完整 runtime，避免优先加载系统中其他版本；OpenVINO 继续只部署平台公共库、所选设备插件和模型 frontend。
 - Runtime、FrameSource、Pipeline Executor 和 CompletionDispatcher 将非阻塞停止请求与同步线程回收拆分为 `requestStop()` 和 `wait()`；回调线程不再执行 join。
 - `FrameExecutor` 先请求 Source 与 Executor 停止以解除阻塞提交，再由外部 `wait()` 按所有权顺序回收线程，避免 Block 队列停止时形成等待环。
 - `FileSource` 使用独立 stop source，并允许停止请求唤醒帧间隔等待；框架不提供回收超时或进程终止语义。
@@ -110,12 +112,13 @@
 
 ### Pending Validation
 
-- 在已安装 MVS Runtime 和驱动的目标机运行 `hikMvsCaptureSmoke`，验证连续采集、软件触发、停止延迟和多帧在途 lease。
+- 使用 MinGW 验证 MVS 连续采集，以及使用 MSVC/MinGW 验证软件触发、停止延迟和多帧在途 lease。
 - 增加可注入 MVS C API 后的无硬件单元测试，覆盖错误映射、帧号回绕和 `Free -> Close -> Destroy` 顺序。
 - 增加基于 Factory 重建设备实例的自动重连策略，并完善结构化终止错误分类。
 
 ### Validation
 
+- MSVC 19.51 x64 Debug 独立构建 `anomalyHikMvsSample` 成功；GigE 相机 `169.254.239.231` 完成采集、灰度前处理、OpenVINO CPU 推理和异常后处理，首帧输出 `score=5.45422, threshold=2, decision=NG`。
 - MinGW Debug 默认 `NONE` Profile 下 `visionRuntime`、`buildProfileTest` 和 `frameBufferPoolTest` 目标构建通过；相关 7 项定向 CTest 全部通过。
 - MinGW Debug `pipelineExecutorTest` 构建及 RuntimeFactory、FrameExecutor、串行/并行 Executor 相关测试通过。
 - Source 与 Executor 生命周期相关 21 项定向测试全部通过，包含 Block 提交停止唤醒与回调线程请求停止场景。
@@ -123,3 +126,25 @@
 - 独立消费者 Release `anomalyDirectorySample` 使用新 `RuntimeSession` 生命周期 API 构建并运行通过；当前目录中的 80 张图（27 NG、53 OK）全部提交并在有限 Source 结束后平滑排空。
 - Factory 测试 3 项、相机 Source 相关测试 17 项通过；默认 `NONE` Profile 的 `<visionruntime>` 消费者可编译链接，并对相机配置返回 `Unsupported`。
 - `HIK_MVS/NONE` smoke 目标与独立 `hikMvsCaptureSample` 成功链接；显式厂商扩展头不泄漏到默认聚合 API。
+
+## Unreleased - 2026-09-01 ~ 2026-09-15
+
+### Added
+
+- 增加 `Embedding` 模型输出布局和 PatchCore `[1,N,D]` 模型清单 preset。
+- `AnomalyPostprocessor` 支持从原始 Float32 memory bank 构建 FAISS `IndexFlatL2` 索引，对每个 patch embedding 执行最近邻检索，并以最大平方 L2 距离作为图像级异常分数。
+- 固定引入 FAISS 1.12.0 与 OpenBLAS 0.3.30 源码依赖；OpenBLAS 使用单精度、单线程、无 LAPACKE 配置构建。
+- 增加 memory bank embedding 后处理单元测试，覆盖索引加载、最近邻检索和图像级最大距离聚合。
+
+### Changed
+
+- `AnomalyPreset` 同时接受标量 `[1]` 与 embedding `[1,N,D]` 输出；embedding 模式通过模型选项传入 memory bank 路径和维度。
+- 目录与海康异常检测 sample 统一通过 `RuntimeFactory::createFromPreset<AnomalyPreset>()` 创建会话，移除专用 `AnomalyRuntimeFactory` 包装。
+- `bootstrapDependencies` 增加 FAISS 和 OpenBLAS 的固定提交下载与核验。
+
+### Pending Validation
+
+- 使用 MinGW Debug 构建并运行新增 FAISS memory bank 后处理测试。
+- 使用真实 PatchCore embedding 模型与 memory bank 完成端到端分数对比。
+
+### Validation

@@ -18,7 +18,6 @@
 #include <functional>
 #include <limits>
 #include <memory>
-#include <new>
 #include <span>
 #include <string>
 #include <utility>
@@ -39,24 +38,15 @@ public:
 
 	Tensor() = default;
 
-	[[nodiscard]] static Result<Tensor> allocate(
+	[[nodiscard]] static Result<std::size_t> requiredByteSize(
 		DataType dataType,
 		TensorShape shape,
-		TensorLayout layout = TensorLayout::Any) {
-		auto metadata = validateMetadata(dataType, shape, {});
+		ByteStrides byteStrides = {}) {
+		auto metadata = validateMetadata(dataType, shape, std::move(byteStrides));
 		if (!metadata) {
-			return Result<Tensor>::failure(metadata.status());
+			return Result<std::size_t>::failure(metadata.status());
 		}
-
-		auto buffer = TensorBuffer::allocate(metadata->byteSize);
-		if (!buffer) {
-			return Result<Tensor>::failure(buffer.status());
-		}
-
-		return Result<Tensor>::success(Tensor(
-			std::move(buffer).value(), 0, metadata->byteSize, dataType, std::move(shape),
-			std::move(metadata->byteStrides), Device::cpu(), layout,
-			TensorOwnership::Owned));
+		return Result<std::size_t>::success(metadata->byteSize);
 	}
 
 	[[nodiscard]] static Result<Tensor> wrap(

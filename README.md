@@ -23,7 +23,7 @@ cmake --preset mingw-debug `
 	-DVISON_INFERENCE_PLATFORM=OPENVINO_INTEL
 ```
 
-CMake 会生成 `config/buildProfile.hpp`，其中包含 `SelectedCamera`、`SelectedPlatform`、稳定枚举、名称及硬件能力。默认值为 `NONE/NONE`，用于不安装厂商 SDK 的核心开发和测试。海康 MVS、OpenVINO、TensorRT 和 ONNX Runtime 均通过隔离的 imported target 接入，只有选中对应 Profile 或后端时才解析 SDK。具体适配器和 `SelectedRuntime` 仍属于后续实现，当前 Profile 选择不会虚构厂商对象。
+CMake 会生成 `config/buildProfile.hpp`，其中包含 `SelectedCamera`、`SelectedPlatform`、稳定枚举、名称及硬件能力。默认值为 `NONE/NONE`，用于不安装厂商 SDK 的核心开发和测试。海康 MVS、OpenVINO 和 TensorRT 均通过隔离的 imported target 接入，只有选中对应 Profile 时才解析 SDK。OpenVINO 与 TensorRT 已提供对应适配器；ONNX Runtime 仍为后续实现。
 
 模型转译由独立 Python CLI `vision-modelc` 完成。当前基础版本在开发或发布环境中转换 ONNX、校验可选端口名，并生成 OpenVINO IR 和可复现的构建记录，但不进入目标机运行时发行包；manifest 校验仍属于后续增量。目标机使用 OpenVINO C++ Runtime 将 IR 首次编译到实际的 Intel CPU、GPU 或 NPU。首版不执行 INT8 校准，只接受训练侧提供的量化 ONNX。
 
@@ -49,10 +49,33 @@ python Runtime/tools/vision-modelc.py model.onnx `
 - 类型状态化可组合前处理链，编译期校验节点顺序和唯一物化边界。
 - CMake 配置期相机 SDK/推理平台选择，以及生成的强类型 `BuildProfile` 和能力描述。
 - 池化 Float32 NCHW 张量直写与原地归一化，避免临时 Tensor 和处理后的整块复制。
-- OpenVINO 单输入/单输出 Float32 同步后端，以及标量异常分数阈值后处理。
+- OpenVINO 单输入/单输出 Float32 同步后端，以及标量或 PatchCore embedding 异常分数后处理。
+- TensorRT 10 单输入/单输出 Float32 同步后端，支持加载预构建 Engine、选择 optimization profile 和动态 shape。
 - `RuntimeFactory` 组装帧源、Pipeline 和执行策略并返回统一生命周期的 `RuntimeSession`。
 - `vision-modelc` ONNX 到 OpenVINO IR 转译工具，输出制品哈希和端口信息构建记录。
 - `anomalyDirectorySample` 文件夹异常检测示例，逐图输出 score 和 OK/NG。
+
+## TensorRT 后端
+
+Windows TensorRT Profile 使用 NVIDIA TensorRT 10.16.1.11 GA SDK 和 CUDA Toolkit，要求 MSVC。GitHub 的 `NVIDIA/TensorRT` 仓库只包含 OSS 组件，不能替代包含 `nvinfer.lib` 和运行时 DLL 的 GA SDK。默认 SDK 布局为：
+
+```text
+Thirdparty/tensorrt/10.16.1.11/windows-x86_64/TensorRT-10.16.1.11/
+├─ include/NvInfer.h
+├─ lib/nvinfer_10.lib
+└─ bin/nvinfer_10.dll
+```
+
+配置示例：
+
+```powershell
+cmake -S . -B Build/MSVC-TensorRT -G Ninja `
+	-DVISION_INFERENCE_PLATFORM=TENSORRT_NVIDIA `
+	-DVISION_MODEL_ARTIFACT_TYPE=ENGINE `
+	-DCUDAToolkit_ROOT=D:/cuda
+```
+
+首版直接加载与目标 GPU、TensorRT/CUDA 版本兼容的 `.engine` 或 `.plan`，不在运行时解析 ONNX。输入输出必须是连续 host Float32 Tensor；`TensorRtBackendOptions::deviceIndex` 选择 CUDA 设备，推理过程使用 CUDA stream 完成 H2D、`enqueueV3` 和 D2H，并把输出返回为 host `TensorMap`。
 
 ## 文件夹图像源
 
@@ -185,7 +208,7 @@ MyInspection/
 ├─ CMakeLists.txt
 ├─ main.cpp
 └─ Thirdparty/
-   └─ VisonRuntime/
+	└─ VisionRuntime/
 ```
 
 业务 `CMakeLists.txt` 的核心只有：
@@ -208,11 +231,11 @@ vison_target_runtime(myInspection
 #include <visionruntime>
 ```
 
-框架自动链接所需 Runtime、传播 C++20、解析 OpenVINO，并精准部署 CPU 与 ONNX 对应的运行库。初版约定模型只有一个 Float32 输入和一个 Float32 输出，输出首元素为图像级异常分数，`score >= threshold` 判定为 NG。
+框架自动链接所需 Runtime、传播 C++20、解析 OpenVINO，并精准部署 CPU 与 ONNX 对应的运行库。异常 preset 接受一个 Float32 输入和一个 Float32 输出。标量输出使用 `[1]` 和 `Scalar` 布局，首元素为图像级异常分数；PatchCore 输出使用 `[1,N,D]` 和 `Embedding` 布局，并同时提供由连续 Float32 `D` 维向量组成的 memory bank 文件。后处理使用 FAISS L2 最近邻检索，以所有 patch 的最大平方 L2 距离作为图像级分数；`score >= threshold` 判定为 NG。
 
 ```powershell
 cmake -S Samples/anomalyDirectory -B Build/SampleConsumer -G Ninja `
-	-DVISON_RUNTIME_ROOT=<path-to-VisonRuntime> `
+	-DVISION_RUNTIME_ROOT=<path-to-VisionRuntime> `
 	-DCMAKE_PREFIX_PATH=<openvino-package>
 cmake --build Build/SampleConsumer --target anomalyDirectorySample
 
@@ -220,7 +243,9 @@ Build/SampleConsumer/bin/anomalyDirectorySample.exe `
 	<benchmark.csv>
 ```
 
-`VISON_RUNTIME_ROOT` 只在当前仓库内验证 sample 时用于指向框架位置；复制成真实业务工程后，默认位置就是 `Thirdparty/VisonRuntime`。构建 sample 后，CMake 只复制公共 OpenVINO Runtime、所选设备插件、ONNX/IR frontend、TBB 和 MinGW 运行库。缺失必需 DLL 会在配置期报错；设备和模型类型不能通过命令行切换到未打包能力。
+`VISION_RUNTIME_ROOT` 只在当前仓库内验证 sample 时用于指向框架位置；复制成真实业务工程后，默认位置就是 `Thirdparty/VisionRuntime`。构建 sample 后，CMake 复制公共 OpenVINO Runtime、所选设备插件、ONNX/IR frontend 和 TBB；MinGW 目标额外复制 GCC runtime。HIK_MVS Windows 目标当前保守地复制 MVS 4.8.1 的完整 `bin` 目录，确保主 DLL、传输层、GenICam、图像转换及其厂商依赖版本一致。缺失必需 DLL 会在配置期报错；设备和模型类型不能通过命令行切换到未打包能力。
+
+MSVC 目标使用静态 CRT（Debug 为 `/MTd`，其他配置为 `/MT`）。这里的“静态 CRT”只表示本项目和源码构建的 OpenCV 不依赖 MSVC 的通用 C/C++ runtime DLL，不表示整个应用没有动态库。OpenVINO 和海康 MVS 本身仍是动态 SDK；海康包中的部分组件由旧版 MSVC 构建，也会携带自己的 `msvcr*.dll`、`msvcp*.dll` 等依赖。当前 `Build/MSVC-HikMvs/bin` 有 52 个顶层 DLL，其中 5 个是 OpenVINO/TBB，另外 47 个来自完整 MVS runtime。后者是可运行部署集合，不代表 sample 会在本次配置中直接加载每一个 DLL。
 
 示例通过 `PreprocessBuilder` 组合 `Resize`、`CenterCrop`、`ToTensor` 和 `Normalize`，实现 PatchCore 所需的短边缩放到 256、中心裁剪 224、RGB、Float32 NCHW 和 ImageNet mean/std 前处理。sample 将逐帧 benchmark 写入命令行指定的 CSV，并在批次结束时追加总耗时、完成/失败数、FPS 以及每帧 stage 总执行时间的 P50/P95/P99。`stage = pre + infer + post`，`wait = latency - stage`，因此并行队列中的等待不会被误认为阶段执行时间。
 
@@ -263,13 +288,14 @@ const auto summary = runtime->wait();
 ## 构建环境
 
 - Windows：Qt MinGW-w64 13.1 (`D:/Qt/Tools/mingw1310_64`)
+- Windows：MSVC 19.51 (`D:/Visual Studio`)，x64 静态 CRT
 - WSL Ubuntu：GCC，适用于 Linux 原生构建和 `perf`
 - CMake 3.25 或更高版本
 - Ninja
 
-项目支持 MinGW 和 x86_64 Linux，不使用 vcpkg。第三方依赖直接放入 `Thirdparty/<package>/<version>`，OpenVINO 按平台隔离，具体规则见 [Thirdparty/README.md](Thirdparty/README.md)。WSL 性能构建使用 `Samples/anomalyDirectory/CMakePresets.json` 中的 `linux-perf` preset。
+项目支持 MSVC、MinGW 和 x86_64 Linux，不使用 vcpkg。第三方依赖直接放入 `Thirdparty/<package>/<version>`，OpenVINO 按平台隔离，具体规则见 [Thirdparty/README.md](Thirdparty/README.md)。WSL 性能构建使用 `Samples/anomalyDirectory/CMakePresets.json` 中的 `linux-perf` preset。
 
-首次配置前可构建 `bootstrapDependencies` target，按固定提交下载或核验 OpenCV、GoogleTest、nlohmann/json 和 spdlog。项目源码启用 `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion`。
+首次配置前可构建 `bootstrapDependencies` target，按固定提交下载或核验 OpenCV、GoogleTest、nlohmann/json、spdlog、FAISS 和 OpenBLAS。FAISS 当前使用 CPU `IndexFlatL2`，OpenBLAS 按单精度、单线程、无 LAPACKE 配置从源码构建。MinGW/GCC 源码启用 `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion`，MSVC 源码启用 `/W4 /permissive-`。
 
 目录图像源从 `Thirdparty/opencv/4.12.0` 源码最小构建 `core`、`imgproc` 和 `imgcodecs`。首次构建会编译这些模块，耗时会明显高于后续增量构建。
 
@@ -282,5 +308,23 @@ ctest --preset mingw-debug
 ```
 
 所有构建产物写入 `Build`。
+
+海康异常检测 sample 已使用 MSVC x64 Debug 和相机 `169.254.239.231` 完成端到端验证。先在 `cmd.exe` 中加载开发环境并完成独立配置、构建：
+
+```bat
+call "D:\Visual Studio\Common7\Tools\VsDevCmd.bat" -arch=amd64 -host_arch=amd64
+"D:\Qt\Tools\CMake_64\bin\cmake.exe" -S "Samples\anomalyHikMvs" -B "Build\MSVC-HikMvs" -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_MAKE_PROGRAM="D:\Qt\Tools\Ninja\ninja.exe" -DVISION_RUNTIME_ROOT="E:\Work\VisionRuntime"
+"D:\Qt\Tools\CMake_64\bin\cmake.exe" --build "Build\MSVC-HikMvs" --target anomalyHikMvsSample
+```
+
+运行时工作目录必须保留在 sample 目录，以便解析相对模型路径：
+
+```powershell
+Push-Location Samples\anomalyHikMvs
+..\..\Build\MSVC-HikMvs\bin\anomalyHikMvsSample.exe
+Pop-Location
+```
+
+MVS 客户端必须先关闭，因为 Runtime 使用独占方式打开相机。实机首帧验证输出为 `score=5.45422, threshold=2, decision=NG`。
 
 当前 CTest 发现 77 项测试，覆盖构建 Profile、基础结果类型、Tensor 视图、缓冲池、SPSC 队列、串行/并行 Executor、背压与取消、Pipeline 生命周期、目录图像解码、前处理和异常后处理。Executor 相关 18 项测试全部通过；当前仍有一项既有单通道前处理链构建测试失败，详见 `PreprocessChainTest.MaterializesAndNormalizesSingleChannelFrame`。
