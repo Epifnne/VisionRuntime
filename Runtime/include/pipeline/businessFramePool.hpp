@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include "core/tensorBufferPool.hpp"
+#include "memory/cpuBufferPool.hpp"
 #include "vision/frame.hpp"
 
 #include <cstddef>
@@ -46,7 +46,7 @@ public:
 			return invalidArgument("business frame layout is invalid");
 		}
 		const auto capacity = height * rowStride;
-		auto pool = core::TensorBufferPool::create(bufferCount, capacity);
+		auto pool = memory::CpuBufferPool::create(bufferCount, capacity);
 		if (!pool) {
 			return core::Result<BusinessFramePool>::failure(pool.status());
 		}
@@ -74,7 +74,7 @@ public:
 
 private:
 	BusinessFramePool(
-		core::TensorBufferPool pool,
+		memory::CpuBufferPool pool,
 		std::size_t width,
 		std::size_t height,
 		std::size_t rowStride,
@@ -91,7 +91,7 @@ private:
 			core::StatusCode::InvalidArgument, std::move(message)));
 	}
 
-	core::TensorBufferPool pool_;
+	memory::CpuBufferPool pool_;
 	std::size_t width_ = 0;
 	std::size_t height_ = 0;
 	std::size_t rowStride_ = 0;

@@ -12,18 +12,43 @@ int main(int argc, char* argv[]) {
 	}
 
 	using namespace visionRuntime;
-	auto session = runtime::AnomalyRuntimeFactory::create({
-		.source = {
-			.directory = "image",
+	auto session = runtime::RuntimeFactory::createFromPreset<
+		runtime::presets::AnomalyPreset>({
+		.source = camera::FileFrameSourceConfig{
+			.source = {
+				.directory = "image",
+			},
 		},
 		.model = {
-			.path = "model/model-int8.onnx",
+			.path = "model/model-fp32.engine",
+			.manifest = {
+				.inputs = {{
+					.name = "images",
+					.elementType = config::TensorElementType::Float32,
+					.layout = config::TensorLayout::Nchw,
+					.shape = {1, 1, 224, 224},
+				}},
+				.outputs = {{
+					.name = "score",
+					.elementType = config::TensorElementType::Float32,
+					.layout = config::TensorLayout::Scalar,
+					.shape = {1},
+				}},
+			},
 			.inferenceThreads = 8,
 		},
 		.threshold = 2.0F,
 		.timed = true,
 		.timingOutput = benchmark::TimingOutputPath::file(
 			std::filesystem::path{argv[1]}),
+		.deployment = {
+			.executor = {
+				.performancePolicy = config::PerformancePolicy::Serial,
+				.queueFullPolicy = config::QueueFullPolicy::Block,
+				.queueCapacity = 16,
+				.stageQueueCapacity = 1,
+			},
+		},
 		.callback = [](executor::TaskId,
 			const core::Result<vision::AnomalyResult>&) {},
 	}).value();

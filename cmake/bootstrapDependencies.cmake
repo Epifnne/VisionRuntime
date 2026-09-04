@@ -55,3 +55,15 @@ cloneDependency(
 	"6fa36017cfd5731d617e1a934f0e5ea9c4445b13"
 	"${THIRDPARTY_DIRECTORY}/spdlog/1.15.3"
 )
+cloneDependency(
+	"FAISS 1.12.0"
+	"https://github.com/facebookresearch/faiss.git"
+	"e8234e563f1ecef5f036e83c3cfee366d3f1fbca"
+	"${THIRDPARTY_DIRECTORY}/faiss/1.12.0"
+)
+cloneDependency(
+	"OpenBLAS 0.3.30"
+	"https://github.com/OpenMathLib/OpenBLAS.git"
+	"993fad6aebbce34a97d3f8c34d6d79d35b64cc48"
+	"${THIRDPARTY_DIRECTORY}/openblas/0.3.30"
+)

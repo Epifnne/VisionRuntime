@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include "core/tensorBufferPool.hpp"
+#include "memory/cpuBufferPool.hpp"
 
 #include <cstddef>
 #include <stop_token>
@@ -32,7 +32,7 @@ public:
 
 	[[nodiscard]] static core::Result<FrameBufferPool> create(
 		FrameBufferPoolOptions options) {
-		auto pool = core::TensorBufferPool::create(
+		auto pool = memory::CpuBufferPool::create(
 			options.bufferCount, options.bufferCapacity);
 		if (!pool) {
 			return core::Result<FrameBufferPool>::failure(pool.status());
@@ -72,10 +72,10 @@ public:
 
 private:
 	explicit FrameBufferPool(
-		core::TensorBufferPool pool, BufferFullPolicy fullPolicy)
+		memory::CpuBufferPool pool, BufferFullPolicy fullPolicy)
 		: pool_(std::move(pool)), fullPolicy_(fullPolicy) {}
 
-	core::TensorBufferPool pool_;
+	memory::CpuBufferPool pool_;
 	BufferFullPolicy fullPolicy_ = BufferFullPolicy::Drop;
 };
 

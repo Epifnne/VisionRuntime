@@ -35,7 +35,7 @@ function(vision_target_runtime targetName)
 		set(VISION_CAMERA NONE)
 	endif()
 
-	set(supportedPlatforms NONE OPENVINO_INTEL)
+	set(supportedPlatforms NONE OPENVINO_INTEL TENSORRT_NVIDIA)
 	set(supportedCameras NONE HIK_MVS)
 	if(NOT VISION_PLATFORM IN_LIST supportedPlatforms)
 		message(FATAL_ERROR
@@ -55,9 +55,18 @@ function(vision_target_runtime targetName)
 			message(FATAL_ERROR
 				"vision_target_runtime(${targetName}): ARTIFACT must be ONNX or IR")
 		endif()
+	elseif(VISION_PLATFORM STREQUAL "TENSORRT_NVIDIA")
+		if(NOT VISION_DEVICE STREQUAL "GPU")
+			message(FATAL_ERROR
+				"vision_target_runtime(${targetName}): TensorRT DEVICE must be GPU")
+		endif()
+		if(NOT VISION_ARTIFACT STREQUAL "ENGINE")
+			message(FATAL_ERROR
+				"vision_target_runtime(${targetName}): TensorRT ARTIFACT must be ENGINE")
+		endif()
 	elseif(VISION_DEVICE OR VISION_ARTIFACT)
 		message(FATAL_ERROR
-			"vision_target_runtime(${targetName}): DEVICE and ARTIFACT require OPENVINO_INTEL")
+			"vision_target_runtime(${targetName}): DEVICE and ARTIFACT require an inference platform")
 	endif()
 
 	if(VISION_PLATFORM STREQUAL VISION_INFERENCE_PLATFORM AND
@@ -86,10 +95,47 @@ function(vision_target_runtime targetName)
 		if(WIN32)
 			_vision_deploy_openvino_runtime(${targetName} ${VISION_DEVICE} ${VISION_ARTIFACT})
 		endif()
+	elseif(WIN32 AND VISION_PLATFORM STREQUAL "TENSORRT_NVIDIA")
+		_vision_deploy_tensorrt_runtime(${targetName})
 	endif()
 	if(WIN32 AND VISION_CAMERA STREQUAL "HIK_MVS")
 		_vision_deploy_hik_mvs_runtime(${targetName})
 	endif()
+	if(MSVC)
+		_vision_deploy_openblas_runtime(${targetName})
+	endif()
+endfunction()
+
+function(_vision_deploy_openblas_runtime targetName)
+	get_target_property(runtimeFiles openblas VISION_OPENBLAS_RUNTIME_FILES)
+	if(NOT runtimeFiles)
+		message(FATAL_ERROR "OpenBLAS runtime files were not configured for MSVC")
+	endif()
+	foreach(runtimeFile IN LISTS runtimeFiles)
+		add_custom_command(TARGET ${targetName} POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy_if_different
+				"${runtimeFile}" "$<TARGET_FILE_DIR:${targetName}>"
+			VERBATIM
+		)
+	endforeach()
+endfunction()
+
+function(_vision_deploy_tensorrt_runtime targetName)
+	get_target_property(runtimeFiles
+		VisionTensorRt VISION_TENSORRT_RUNTIME_FILES)
+	if(NOT runtimeFiles)
+		message(FATAL_ERROR "TensorRT runtime files were not configured")
+	endif()
+	foreach(runtimeFile IN LISTS runtimeFiles)
+		if(NOT EXISTS "${runtimeFile}")
+			message(FATAL_ERROR "Required TensorRT runtime file was not found: ${runtimeFile}")
+		endif()
+		add_custom_command(TARGET ${targetName} POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy_if_different
+				"${runtimeFile}" "$<TARGET_FILE_DIR:${targetName}>"
+			VERBATIM
+		)
+	endforeach()
 endfunction()
 
 function(_vision_deploy_hik_mvs_runtime targetName)

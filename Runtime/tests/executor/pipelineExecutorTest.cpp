@@ -4,6 +4,7 @@
 #include "executor/frameExecutor.hpp"
 #include "executor/parallelPipelineExecutor.hpp"
 #include "executor/serialPipelineExecutor.hpp"
+#include "memory/cpuAllocator.hpp"
 #include "runtime/runtimeFactory.hpp"
 
 #include <gtest/gtest.h>
@@ -167,7 +168,7 @@ public:
 								visionRuntime::core::StatusCode::DataLoss, "test source failure")));
 						continue;
 					}
-					auto buffer = visionRuntime::core::TensorBuffer::allocate(1);
+					auto buffer = visionRuntime::memory::CpuAllocator{}.allocate(1);
 					auto frame = visionRuntime::vision::Frame::create(
 						std::move(buffer).value(), 1, 1,
 						visionRuntime::vision::PixelFormat::Gray8);

@@ -9,7 +9,8 @@
 int main() {
 	using namespace visionRuntime;
 	std::atomic_bool firstResultPrinted = false;
-	auto sessionResult = runtime::AnomalyRuntimeFactory::create({
+	auto sessionResult = runtime::RuntimeFactory::createFromPreset<
+		runtime::presets::AnomalyPreset>({
 		.source = camera::ContinuousCameraSourceConfig{
 			.device = {
 				.ipAddress = "169.254.239.231",

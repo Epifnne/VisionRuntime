@@ -47,7 +47,7 @@ core::Result<std::unique_ptr<IPreprocessNode>> ToTensor::build(
 		return core::Result<std::unique_ptr<IPreprocessNode>>::failure(
 			invalidArgument("to-tensor input size exceeds limits"));
 	}
-	auto pool = core::TensorBufferPool::create(
+	auto pool = memory::CpuBufferPool::create(
 		options_.bufferCount, width * height * options_.channels * sizeof(float));
 	if (!pool) {
 		return core::Result<std::unique_ptr<IPreprocessNode>>::failure(pool.status());

@@ -6,6 +6,24 @@ add_executable(buildProfileTest
 target_link_libraries(buildProfileTest PRIVATE visionRuntime GTest::gtest_main)
 gtest_discover_tests(buildProfileTest)
 
+if(VISION_INFERENCE_PLATFORM STREQUAL "TENSORRT_NVIDIA")
+	add_executable(tensorRtBackendTest
+		backends/tensorRtBackendTest.cpp
+	)
+	target_include_directories(tensorRtBackendTest PRIVATE
+		${PROJECT_SOURCE_DIR}/Runtime
+		${PROJECT_SOURCE_DIR}/Runtime/include)
+	target_link_libraries(tensorRtBackendTest PRIVATE
+		visionRuntime GTest::gtest_main)
+	if(WIN32)
+		_vision_deploy_tensorrt_runtime(tensorRtBackendTest)
+	endif()
+	if(MSVC)
+		_vision_deploy_openblas_runtime(tensorRtBackendTest)
+	endif()
+	gtest_discover_tests(tensorRtBackendTest)
+endif()
+
 add_executable(configLoaderTest
 	config/configLoaderTest.cpp
 )
@@ -27,6 +45,13 @@ add_executable(frameBufferPoolTest
 target_include_directories(frameBufferPoolTest PRIVATE ${PROJECT_SOURCE_DIR}/Runtime/include)
 target_link_libraries(frameBufferPoolTest PRIVATE GTest::gtest_main)
 gtest_discover_tests(frameBufferPoolTest)
+
+add_executable(cpuBufferPoolTest
+	memory/cpuBufferPoolTest.cpp
+)
+target_include_directories(cpuBufferPoolTest PRIVATE ${PROJECT_SOURCE_DIR}/Runtime/include)
+target_link_libraries(cpuBufferPoolTest PRIVATE GTest::gtest_main)
+gtest_discover_tests(cpuBufferPoolTest)
 
 add_executable(cameraSourceOptionsTest
 	camera/cameraSourceOptionsTest.cpp
@@ -99,6 +124,9 @@ add_executable(anomalyPostprocessorTest
 )
 target_include_directories(anomalyPostprocessorTest PRIVATE ${PROJECT_SOURCE_DIR}/Runtime/include)
 target_link_libraries(anomalyPostprocessorTest PRIVATE visionRuntime GTest::gtest_main)
+if(MSVC)
+	_vision_deploy_openblas_runtime(anomalyPostprocessorTest)
+endif()
 gtest_discover_tests(anomalyPostprocessorTest)
 
 add_executable(pipelineExecutorTest
