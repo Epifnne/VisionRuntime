@@ -4,7 +4,7 @@
 #include "core/status.hpp"
 #include "core/tensor.hpp"
 #include "core/tensorShape.hpp"
-#include "preProcess/preparedInput.hpp"
+#include "preprocess/preparedInput.hpp"
 
 #include <cstddef>
 #include <cstring>

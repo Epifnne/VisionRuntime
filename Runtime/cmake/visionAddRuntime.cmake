@@ -51,12 +51,12 @@ function(vision_add_runtime targetName)
 		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/camera/frameSourceFactory.cpp
 		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/camera/timedTriggerSource.cpp
 		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/logs/logger.cpp
-		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/postProcess/anomalyThresholdPostprocessor.cpp
-		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/preProcess/frameNodes/cvCenterCropNode.cpp
-		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/preProcess/frameNodes/cvResizeNode.cpp
-		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/preProcess/frameNodes/toTensorNode.cpp
-		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/preProcess/preprocessChain.cpp
-		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/preProcess/tensorNodes/normalizeNode.cpp
+		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/postprocess/anomalyThresholdPostprocessor.cpp
+		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/preprocess/frameNodes/cvCenterCropNode.cpp
+		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/preprocess/frameNodes/cvResizeNode.cpp
+		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/preprocess/frameNodes/toTensorNode.cpp
+		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/preprocess/preprocessChain.cpp
+		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/preprocess/tensorNodes/normalizeNode.cpp
 	)
 	target_compile_features(${targetName} PUBLIC cxx_std_20)
 	if(MSVC)

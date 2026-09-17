@@ -9,7 +9,7 @@
     {
       "name": "windows-msvc-debug",
       "displayName": "Windows MSVC Debug",
-      "generator": "Visual Studio 17 2022",
+      "generator": "Visual Studio 18 2026",
       "architecture": "x64",
       "binaryDir": "${sourceDir}/Build/Windows-MSVC",
       "condition": {
@@ -34,6 +34,23 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_CXX_COMPILER": "g++",
+        "VISION_CAMERA_SDK": "NONE"
+      }
+    },
+    {
+      "name": "windows-msvc-ci-debug",
+      "displayName": "Windows MSVC CI Debug (Ninja)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/Build/Windows-MSVC-CI",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_C_COMPILER": "cl",
+        "CMAKE_CXX_COMPILER": "cl",
         "VISION_CAMERA_SDK": "NONE"
       }
     },
@@ -110,6 +127,11 @@
       "jobs": 4
     },
     {
+      "name": "windows-msvc-ci-debug",
+      "configurePreset": "windows-msvc-ci-debug",
+      "jobs": 4
+    },
+    {
       "name": "linux-gnu-debug",
       "configurePreset": "linux-gnu-debug",
       "jobs": 4
@@ -135,6 +157,13 @@
       "name": "windows-msvc-debug",
       "configurePreset": "windows-msvc-debug",
       "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-msvc-ci-debug",
+      "configurePreset": "windows-msvc-ci-debug",
       "output": {
         "outputOnFailure": true
       }

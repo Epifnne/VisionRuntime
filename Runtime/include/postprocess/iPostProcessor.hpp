@@ -1,7 +1,7 @@
 #pragma once
 
 #include "core/result.hpp"
-#include "preProcess/preparedInput.hpp"
+#include "preprocess/preparedInput.hpp"
 #include "vision/transformContext.hpp"
 
 namespace visionRuntime::postprocess {

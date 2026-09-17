@@ -12,6 +12,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: seanmiddleditch/gha-setup-ninja@v5
+      - uses: ilammy/msvc-dev-cmd@v1
       - name: Bootstrap dependencies
         run: >-
           cmake
@@ -19,11 +21,11 @@ jobs:
           -DTHIRDPARTY_DIRECTORY="${{ github.workspace }}/Thirdparty"
           -P cmake/bootstrapDependencies.cmake
       - name: Configure
-        run: cmake --preset windows-msvc-debug
+        run: cmake --preset windows-msvc-ci-debug
       - name: Build
-        run: cmake --build --preset windows-msvc-debug
+        run: cmake --build --preset windows-msvc-ci-debug
       - name: Test
-        run: ctest --preset windows-msvc-debug
+        run: ctest --preset windows-msvc-ci-debug
 
   linux-gnu:
     runs-on: ubuntu-latest

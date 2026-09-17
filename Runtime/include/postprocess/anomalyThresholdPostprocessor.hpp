@@ -1,6 +1,6 @@
 #pragma once
 
-#include "postProcess/iPostProcessor.hpp"
+#include "postprocess/iPostProcessor.hpp"
 #include "vision/anomalyResult.hpp"
 
 #include <memory>

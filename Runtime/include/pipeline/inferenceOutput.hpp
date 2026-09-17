@@ -1,6 +1,6 @@
 #pragma once
 
-#include "preProcess/preparedInput.hpp"
+#include "preprocess/preparedInput.hpp"
 
 #include <utility>
 

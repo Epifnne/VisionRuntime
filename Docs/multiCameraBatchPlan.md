@@ -20,7 +20,7 @@
 - `RuntimeSession` = 1 source + 1 executor（Runtime/include/runtime/runtimeSession.hpp:15）。
 - `PipelinePacket` 仅含 cameraFrame_/businessFrame_/executionId_，无 source 标识（Runtime/include/pipeline/pipelinePacket.hpp:98）。
 - ABI `VisionRuntimeTensorView` 有 dimensions+rank，可表达 batch 维（Runtime/include/backends/backendPluginApi.h:55）；host 侧 `PluginInferenceBackend::infer` 直接透传 TensorMap（Runtime/src/backends/pluginInferenceBackend.cpp:283）。
-- anomaly preset manifest 校验硬编码 `input.shape == {1,1,224,224}`（Runtime/include/runtime/presets/anomalyPreset.hpp:164）；`ToTensor` 硬编码 batch=1（Runtime/src/preProcess/frameNodes/toTensorNode.cpp:85）。
+- anomaly preset manifest 校验硬编码 `input.shape == {1,1,224,224}`（Runtime/include/runtime/presets/anomalyPreset.hpp:164）；`ToTensor` 硬编码 batch=1（Runtime/src/preprocess/frameNodes/toTensorNode.cpp:85）。
 - OpenVINO 插件：create 时原样编译模型，单 InferRequest + mutex（Runtime/plugins/openvino/openVinoPlugin.cpp:94,102）。
 - TensorRT 插件：infer 时已调用 `setInputShape(dimensions)` + `enqueueV3`，动态 shape 通路已存在，瓶颈只在 engine optimization profile 的 maxBatch（Runtime/plugins/tensorrt/tensorRtPlugin.cpp:173）。
 - vendor 回归测试已验证动态 N 可传递（[2,1,4,5]，Runtime/tests/backends/vendorPluginTest.cpp:61）。

@@ -1,4 +1,4 @@
-#include "preProcess/frameNodes/cvResizeNode.hpp"
+#include "preprocess/frameNodes/cvResizeNode.hpp"
 
 #include "vision/frame.hpp"
 

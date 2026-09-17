@@ -1,4 +1,4 @@
-#include "preProcess/tensorNodes/normalizeNode.hpp"
+#include "preprocess/tensorNodes/normalizeNode.hpp"
 
 #include <cmath>
 #include <utility>

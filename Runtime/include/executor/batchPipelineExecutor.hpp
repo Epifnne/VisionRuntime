@@ -7,7 +7,7 @@
 #include "executor/executorTask.hpp"
 #include "executor/iPipelineExecutor.hpp"
 #include "pipeline/iStagedVisionPipeline.hpp"
-#include "preProcess/preparedInput.hpp"
+#include "preprocess/preparedInput.hpp"
 
 #include <atomic>
 #include <chrono>

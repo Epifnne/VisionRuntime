@@ -1,9 +1,9 @@
 #pragma once
 
 #include "logs/logger.hpp"
-#include "preProcess/iPreProcessor.hpp"
-#include "preProcess/preprocessNode.hpp"
-#include "preProcess/preprocessContext.hpp"
+#include "preprocess/iPreProcessor.hpp"
+#include "preprocess/preprocessNode.hpp"
+#include "preprocess/preprocessContext.hpp"
 #include "vision/frame.hpp"
 
 #include <concepts>

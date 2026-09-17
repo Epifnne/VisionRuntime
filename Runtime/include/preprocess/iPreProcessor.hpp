@@ -2,7 +2,7 @@
 
 #include "core/result.hpp"
 #include "pipeline/pipelinePacket.hpp"
-#include "preProcess/preparedInput.hpp"
+#include "preprocess/preparedInput.hpp"
 
 namespace visionRuntime::preprocess {
 
