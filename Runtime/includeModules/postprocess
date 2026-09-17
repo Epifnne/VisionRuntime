@@ -1,6 +1,5 @@
 #pragma once
 
-#include "postProcess/anomalyPostprocessor.hpp"
 #include "postProcess/anomalyThresholdPostprocessor.hpp"
 #include "postProcess/classificationPostprocessor.hpp"
 #include "postProcess/detectionPostprocessor.hpp"

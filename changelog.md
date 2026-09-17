@@ -1,5 +1,71 @@
 # Changelog
 
+## Unreleased - 2026-09-16（批推理计时与基准）
+
+### Changed
+
+- `IStagedVisionPipeline` 新增 `inferBatch()`：批推理收编进管线接口，`Pipeline::inferBatch` 接管 batch 维拼接/单次推理/切片（共享 helpers 移到新头文件 `pipeline/batchTensors.hpp`）；`BatchPipelineExecutor` 只保留凑批与超时 flush 调度，不再直调后端；`backend()` 访问器随之从接口、`Pipeline`、`TimedPipeline` 移除（原系批量执行器的旁路开口）。
+- `TimedPipeline::inferBatch` 将整批推理 wall time 全额记入每个成员的 `inferenceMilliseconds`（latency 口径），batch 模式下 stage p50/p95/p99 自此覆盖推理阶段；同时补上 batch 路径 preprocess 失败的记账（此前 `finishExecution` 不被调用，`timings_` 泄漏且失败不计数，`finishExecution` 按 executionId 幂等，`run()` 路径不受影响）。
+
+### Added
+
+- 运行中实时统计：`VisionService` 在 session.start 成功后拉起专用 metrics 线程，每 500ms 调用 `MetricsAggregator::publishLive()` 刷新 `session.summary`（经 `SessionController::liveCounters()` 从运行中的 `MultiCameraSession::currentSummary()` 直读）与 `metrics.performance`（经 `TimedPipeline::livePerformanceSnapshot()` 当前批快照）；批次结束时 `publishSummary()`/`batchObserver` 覆盖为最终值。此前两个端点运行中恒为零，GUI 的总 FPS/数量控件无数据。
+- `SessionController::completionCallback` 由 `VisionService` 接线：有限源自然结束时先停 metrics 线程再发布最终 summary/state，GUI 在目录源跑完后也能看到最终计数。
+- `MetricsAggregator` 的 payload 字符串（live/lastBatch）与 `VisionService::metricsThread_` 分别由新增 `payloadMutex_`/`metricsThreadMutex_` 保护（写：pipeline/控制/metrics 线程；读：任意线程的端点快照调用）。
+
+### Fixed
+
+- `VisionServiceDirectorySessionTest.RunsDirectorySessionEndToEnd`：订阅回调对同一 payload 多次发布不幂等（latch 重复 count_down 越过初始计数导致 try_wait 永假），改为原子标志只 count_down 一次。
+- 产品包 `products/rubberRingBatch4`：4 路目录源（共享 rubberRing 图像、不限流）+ `maxBatchSize: 4` 吞吐基准，UI 为 4 路 imageView + 统计数字；配套 `Tools/createBatchBenchModel.py` 生成原生动态 batch 维的基准 IR（`[-1,3,224,224] → [N,1]`）。
+- 基准结论（本机 MinGW Debug + OpenVINO CPU）：4 源不限流时 batch=4 与 batch=1 均 ~300 fps（预处理单线程饱和），batch 吞吐收益 <3% 而单帧 stage p50 从 5.7ms 升至 12.7ms——CPU 上单次推理调用开销占比极小，批量的收益场景在 GPU/TensorRT 等高 per-call 开销后端。
+- 模型注意：rubberRing 的 PatchCore IR 内部 Reshape pattern 写死 batch=1，插件 `dynamicBatch` 只 reshape 输入端口，推理时形状冲突失败；动态 batch 模型需在导出时生成（已记入 `Docs/architecture.md` 与 `Docs/backendPlugins.md`）。
+
+## Unreleased - 2026-09-16
+
+### Added
+
+- 新增 `Shell/visionShell`（GUI Shell 计划阶段 C，本仓库唯一链接 Qt 的 target）：`ServiceClient` 绑定层（端点注册表 → QML 属性/方法，订阅回调经队列连接回 GUI 线程）与 `FrameImageProvider`（`QQuickImageProvider`，`Frame`→`QImage` 零拷贝包装，自定义 deleter 持有共享 buffer）。
+- 通用控件集 `Shell/controls/`：`NodeView`（按 profile `ui` 节递归实例化控件树）、`ImageView`（流画面 + 实测 FPS）、`StateCard`（状态灯卡）、`CommandButton`、`ParameterForm`（按端点类型生成编辑器）、`StatNumber`、`ResultTable`；全部只绑定端点，不含领域语义。
+- `main.qml` 改为纯 profile 驱动：TabBar + StackLayout 按 `ui.pages` 生成页面，无任何产品硬编码。
+- `visionShell` 增加 `--smoke <seconds>` 验收模式：自动 start、按流统计帧数、stop 后等待 idle 输出 summary/performance 对照。
+- 新增 `publishShell` target：windeployqt 组装 exe + Qt/MinGW 运行时 + `plugins/` + 产品包为自包含发布根。
+- 产品包：`products/rubberRing`（单路目录源监控页）与 `products/rubberRingCompact`（纯 profile JSON 派生的第二布局，闭环验收用）。
+- 新增 `VISION_BUILD_SHELL` 选项（默认 OFF，依赖 `VISION_BUILD_SERVICE`）。
+- MSVC 构建验证通过：`Build/MSVC-2026` 树以 `VISION_BUILD_SHELL=ON` + `CMAKE_PREFIX_PATH=D:/Qt-OpenSource/6.10.1/msvc2022_64`（Qt 6.10.1 开源套件）配置，visionShell 与 publishShell 均构建通过，smoke EXIT=0、28/28 帧。
+
+### Fixed
+
+- `BatchPipelineExecutor::wait()` 收尾时补调 `pipeline_->finishBatch()`，与 serial/parallel 执行器一致；此前 batch 模式下 `TimedPipeline` 的 `BatchPerformanceObserver` 从不触发，`metrics.performance` 端点恒为零值。
+- `Shell/src/main.cpp` 的 image provider 原以栈对象传给 `QQmlEngine::addImageProvider`（该 API 取得 provider 所有权），引擎析构时 delete 栈地址导致堆损坏断言（MSVC debug 堆检出，MinGW 无检测此前静默存在）；改为堆分配交由引擎管理。
+- 全工程 MSVC 统一动态 CRT：根工程与 4 个 Samples 工程统一 `CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded$<$<CONFIG:Debug>:Debug>DLL`，OpenCV 子工程 `BUILD_WITH_STATIC_CRT=OFF`，gtest `gtest_force_shared_crt=ON`；消除静态 CRT（/MTd）exe 与 Qt（/MDd）双 CRT 堆导致的 ucrt debug_heap 断言弹窗（终端无输出、退出码 0x80000003）。
+
+## Unreleased - 2026-09-15
+
+### Added
+
+- 新增 `Service/visionService` 静态库（GUI Shell 计划阶段 B，纯 C++20、不依赖 Qt）：端点注册表（Parameter/Command/State/Stream）、专用分发线程串行投递订阅回调、Stream 端点只保留最新帧（旧帧计 dropped，不回压 pipeline）。
+- 新增 `SessionController`：会话生命周期状态机（Idle→Configuring→Running→Stopping），控制线程独占 `MultiCameraSession` 所有权并是唯一调用 `wait()` 的线程；完成监视线程在有限源自然结束时触发优雅收尾。
+- 新增 `ProfileLoader` 解析产品 profile JSON（`schemaVersion`、`sources[directory|camera]`、`model`、`pipeline`、`endpoints`、`ui` 透传）。
+- 新增 `SessionAssembler`：profile → 目录/相机源 + preprocess 链 + 插件 backend + 阈值后处理 + `TimedPipeline` + batch executor，并经 `MultiCameraSession` 的 `frameObserver` 把帧零拷贝分流到对应 Stream 端点。
+- 新增 `CameraService`（枚举包装、曝光/增益/软触发端点）与 `manifestExporter`（注册表序列化为 Designer manifest JSON）。
+- `MultiCameraSession` 增加可选 `frameObserver` 与 `sources()` 访问器（供 Service 帧分流，不改核心默认行为）。
+- 新增 `VISION_BUILD_SERVICE` 选项（默认 OFF）；Service gtest 套件（端点注册表、profile 解析、会话状态机、目录源端到端经 fake backend 插件）。
+
+## Unreleased - 2026-09-11
+
+### Added
+
+- `ICameraDevice` 增加运行时调参接口 `setExposureMicroseconds()`/`setGain()`：可在启动前或采集中调用，默认实现返回 `Unsupported`；`HikrobotMvsCameraDevice` 先关闭对应 Auto 模式再写 MVS 浮点节点，非法取值返回 `InvalidArgument`（GUI Shell 计划阶段 A）。
+- 增加 `CameraDeviceContractTest` 覆盖无相机 SDK 构建下的调参不支持路径；`hikMvsCaptureSmoke` 扩展负值拒绝契约检查与可选曝光/增益实机调参参数。
+- 增加 `BatchPipelineExecutor`：聚合多源预处理后帧为 batch tensor 一次推理，支持凑满 `maxBatchSize` 触发与 `flushTimeout` 超时强制 flush（动态 batch），输出按 batch 维切片逐样本后处理，batch 成员与提交任务按 FIFO 一一对应。
+- 增加 `MultiCameraSession`：统一管理多个 `IFrameSource`，按 source 下标烙印 `PipelinePacket::sourceId()`，提供 per-source 与全局运行统计，任一 source 启动失败回滚已启动 source。
+- `PipelinePacket` 增加可选 `sourceId`；`BoundedBlockingQueue` 增加定时等待 `popFor`；`IStagedVisionPipeline` 增加 `backend()` 访问器供批量执行器直接调用后端。
+- `RuntimeFactory` 增加 `createBatchExecutor()` 便捷入口。
+- anomaly preset manifest 校验放开 batch 维：接受 `[N,1,224,224]` 任意 N≥1。
+- OpenVINO 插件增加 `dynamicBatch` 选项：编译前将输入 batch 维 reshape 为动态，一个编译模型服务任意 N。
+- TensorRT 插件增加 `maxBatchSize` 选项：create 时校验 engine optimization profile 的 max batch 覆盖配置值。
+- 新增 `BatchPipelineExecutorTest`（凑满/超时/连续批次/平滑排空）与 `MultiCameraSessionTest`（多源归属统计/启动回滚）；计划见 `Docs/multiCameraBatchPlan.md`。
+
 ## Unreleased - 2026-08-01 ~ 2026-08-15
 
 ### Added

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "logs/logger.hpp"
 #include "pipeline/pipeline.hpp"
 
 #include <memory>
@@ -46,8 +47,9 @@ public:
 private:
 	[[nodiscard]] static core::Result<Pipeline<ResultType>> missingStage(
 		const char* message) {
-		return core::Result<Pipeline<ResultType>>::failure(core::Status::error(
-			core::StatusCode::InvalidState, message));
+		auto status = core::Status::error(core::StatusCode::InvalidState, message);
+		logs::report(status);
+		return core::Result<Pipeline<ResultType>>::failure(std::move(status));
 	}
 
 	std::unique_ptr<preprocess::IPreprocessor> preprocessor_;

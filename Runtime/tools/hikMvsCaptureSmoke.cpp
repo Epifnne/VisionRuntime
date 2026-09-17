@@ -1,5 +1,6 @@
 #include "camera/hikrobotMvsCameraDevice.hpp"
 #include "core/result.hpp"
+#include "core/status.hpp"
 #include "vision/frame.hpp"
 
 #include <chrono>
@@ -7,6 +8,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -47,6 +49,17 @@ int main(int argc, char** argv) {
 	}
 	auto source = std::move(sourceResult).value();
 
+	const auto negativeExposure = source->setExposureMicroseconds(-1.0);
+	if (negativeExposure ||
+		negativeExposure.status().code() != core::StatusCode::InvalidArgument) {
+		std::cerr << "negative exposure was not rejected with InvalidArgument\n";
+		return EXIT_FAILURE;
+	}
+	const std::optional<double> runtimeExposure =
+		argc > 3 ? std::optional<double>(std::stod(argv[3])) : std::nullopt;
+	const std::optional<double> runtimeGain =
+		argc > 4 ? std::optional<double>(std::stod(argv[4])) : std::nullopt;
+
 	std::mutex mutex;
 	std::condition_variable frameReady;
 	std::size_t frameCount = 0;
@@ -68,6 +81,25 @@ int main(int argc, char** argv) {
 	if (!started) {
 		std::cerr << started.status().toString() << '\n';
 		return EXIT_FAILURE;
+	}
+
+	if (runtimeExposure) {
+		const auto applied = source->setExposureMicroseconds(*runtimeExposure);
+		if (!applied) {
+			std::cerr << applied.status().toString() << '\n';
+			source->requestStop();
+			source->wait();
+			return EXIT_FAILURE;
+		}
+	}
+	if (runtimeGain) {
+		const auto applied = source->setGain(*runtimeGain);
+		if (!applied) {
+			std::cerr << applied.status().toString() << '\n';
+			source->requestStop();
+			source->wait();
+			return EXIT_FAILURE;
+		}
 	}
 
 	for (std::size_t index = 0; index < 10; ++index) {

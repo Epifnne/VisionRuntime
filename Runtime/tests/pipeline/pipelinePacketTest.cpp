@@ -126,6 +126,29 @@ TEST(PipelinePacketTest, TransfersPacketBetweenStagesByMove) {
 	EXPECT_EQ(businessPool.available(), 1U);
 }
 
+TEST(PipelinePacketTest, CarriesOptionalSourceIdThroughMoves) {
+	using namespace visionRuntime;
+
+	auto cameraPoolResult = camera::FrameBufferPool::create(1, 48);
+	ASSERT_TRUE(cameraPoolResult);
+	auto cameraPool = std::move(cameraPoolResult).value();
+
+	pipeline::PipelinePacket untagged(acquireFrame(cameraPool));
+	EXPECT_FALSE(untagged.sourceId().has_value());
+
+	pipeline::PipelinePacket tagged(
+		acquireFrame(cameraPool), {}, std::uint32_t{7});
+	ASSERT_TRUE(tagged.sourceId().has_value());
+	EXPECT_EQ(*tagged.sourceId(), 7U);
+
+	pipeline::PipelinePacket moved(std::move(tagged));
+	ASSERT_TRUE(moved.sourceId().has_value());
+	EXPECT_EQ(*moved.sourceId(), 7U);
+
+	moved.setSourceId(std::nullopt);
+	EXPECT_FALSE(moved.sourceId().has_value());
+}
+
 TEST(BusinessFramePoolTest, AcquiresFramesWithFixedPaddedLayout) {
 	using namespace visionRuntime;
 

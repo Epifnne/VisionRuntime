@@ -7,6 +7,7 @@
 #include "camera/timedTriggerSource.hpp"
 #include "config/buildProfile.hpp"
 #include "core/status.hpp"
+#include "logs/logger.hpp"
 
 #include <type_traits>
 #include <utility>
@@ -48,11 +49,13 @@ template<config::CameraSdk Sdk = config::BuildProfile::cameraSdk>
 	if (!config.source.isValid()) {
 		return core::Result<std::unique_ptr<IFrameSource>>::failure(
 			core::Status::error(core::StatusCode::InvalidArgument,
-				"invalid continuous camera source options"));
+				"invalid continuous camera source options")
+				.withContext("camera " + config.device.ipAddress));
 	}
 	auto device = createCameraDevice(config.device);
 	if (!device) {
-		return core::Result<std::unique_ptr<IFrameSource>>::failure(device.status());
+		return core::Result<std::unique_ptr<IFrameSource>>::failure(
+			device.status().withContext("camera " + config.device.ipAddress));
 	}
 	return upcast<IFrameSource>(ContinuousCameraSource::create(
 		std::move(device).value(), config.source));
@@ -63,11 +66,13 @@ template<config::CameraSdk Sdk = config::BuildProfile::cameraSdk>
 	if (!config.source.isValid()) {
 		return core::Result<std::unique_ptr<IFrameSource>>::failure(
 			core::Status::error(core::StatusCode::InvalidArgument,
-				"invalid timed trigger source options"));
+				"invalid timed trigger source options")
+				.withContext("camera " + config.device.ipAddress));
 	}
 	auto device = createCameraDevice(config.device);
 	if (!device) {
-		return core::Result<std::unique_ptr<IFrameSource>>::failure(device.status());
+		return core::Result<std::unique_ptr<IFrameSource>>::failure(
+			device.status().withContext("camera " + config.device.ipAddress));
 	}
 	return upcast<IFrameSource>(TimedTriggerSource::create(
 		std::move(device).value(), config.source));
@@ -77,9 +82,13 @@ template<config::CameraSdk Sdk = config::BuildProfile::cameraSdk>
 
 core::Result<std::unique_ptr<IFrameSource>> FrameSourceFactory::create(
 	const FrameSourceConfig& config) {
-	return std::visit([](const auto& sourceConfig) {
+	auto source = std::visit([](const auto& sourceConfig) {
 		return createSource(sourceConfig);
 	}, config);
+	if (!source) {
+		logs::report(source.status());
+	}
+	return source;
 }
 
 } // namespace visionRuntime::camera

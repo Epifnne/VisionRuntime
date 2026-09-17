@@ -3,7 +3,7 @@ include_guard(GLOBAL)
 include(CMakeParseArguments)
 
 function(vision_add_runtime targetName)
-	set(oneValueArgs CAMERA PLATFORM)
+	set(oneValueArgs CAMERA)
 	cmake_parse_arguments(VISION "" "${oneValueArgs}" "" ${ARGN})
 
 	if(VISION_UNPARSED_ARGUMENTS)
@@ -13,19 +13,11 @@ function(vision_add_runtime targetName)
 	if(NOT VISION_CAMERA)
 		message(FATAL_ERROR "vision_add_runtime(${targetName}): CAMERA is required")
 	endif()
-	if(NOT VISION_PLATFORM)
-		message(FATAL_ERROR "vision_add_runtime(${targetName}): PLATFORM is required")
-	endif()
 
 	set(supportedCameras NONE HIK_MVS)
 	if(NOT VISION_CAMERA IN_LIST supportedCameras)
 		message(FATAL_ERROR
 			"Unsupported camera SDK '${VISION_CAMERA}'. Expected one of: ${supportedCameras}")
-	endif()
-	set(supportedPlatforms NONE OPENVINO_INTEL TENSORRT_NVIDIA)
-	if(NOT VISION_PLATFORM IN_LIST supportedPlatforms)
-		message(FATAL_ERROR
-			"Unsupported inference platform '${VISION_PLATFORM}'. Expected one of: ${supportedPlatforms}")
 	endif()
 
 	set(VISION_CAMERA_ENUM "CameraSdk::None")
@@ -42,28 +34,6 @@ function(vision_add_runtime targetName)
 		set(VISION_CAMERA_SUPPORTS_SDK_BUFFER_LEASE true)
 	endif()
 
-	set(VISION_PLATFORM_ENUM "InferencePlatform::None")
-	set(VISION_PLATFORM_TYPE "NoInferencePlatform")
-	set(VISION_PLATFORM_NAME "none")
-	set(VISION_PLATFORM_SUPPORTS_CPU false)
-	set(VISION_PLATFORM_SUPPORTS_GPU false)
-	set(VISION_PLATFORM_SUPPORTS_NPU false)
-	if(VISION_PLATFORM STREQUAL "OPENVINO_INTEL")
-		vision_add_openvino_target()
-		set(VISION_PLATFORM_ENUM "InferencePlatform::OpenVinoIntel")
-		set(VISION_PLATFORM_TYPE "OpenVinoIntelPlatform")
-		set(VISION_PLATFORM_NAME "openvino-intel")
-		set(VISION_PLATFORM_SUPPORTS_CPU true)
-		set(VISION_PLATFORM_SUPPORTS_GPU true)
-		set(VISION_PLATFORM_SUPPORTS_NPU true)
-	elseif(VISION_PLATFORM STREQUAL "TENSORRT_NVIDIA")
-		vision_add_tensorrt_target()
-		set(VISION_PLATFORM_ENUM "InferencePlatform::TensorRtNvidia")
-		set(VISION_PLATFORM_TYPE "TensorRtNvidiaPlatform")
-		set(VISION_PLATFORM_NAME "tensorrt-nvidia")
-		set(VISION_PLATFORM_SUPPORTS_GPU true)
-	endif()
-
 	set(generatedIncludeDirectory
 		"${VISION_RUNTIME_BINARY_DIRECTORY}/generated/${targetName}/include")
 	configure_file(
@@ -73,12 +43,14 @@ function(vision_add_runtime targetName)
 	)
 
 	add_library(${targetName}
+		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/backends/pluginInferenceBackend.cpp
 		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/config/configLoader.cpp
+		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/config/modelPackageLoader.cpp
 		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/camera/continuousCameraSource.cpp
 		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/camera/fileSource.cpp
 		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/camera/frameSourceFactory.cpp
 		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/camera/timedTriggerSource.cpp
-		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/postProcess/anomalyPostprocessor.cpp
+		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/logs/logger.cpp
 		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/postProcess/anomalyThresholdPostprocessor.cpp
 		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/preProcess/frameNodes/cvCenterCropNode.cpp
 		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/preProcess/frameNodes/cvResizeNode.cpp
@@ -109,28 +81,18 @@ function(vision_add_runtime targetName)
 			${VISION_RUNTIME_REPOSITORY_DIRECTORY}/Thirdparty/opencv/4.12.0/modules/core/include
 			${VISION_RUNTIME_REPOSITORY_DIRECTORY}/Thirdparty/opencv/4.12.0/modules/imgcodecs/include
 			${VISION_RUNTIME_REPOSITORY_DIRECTORY}/Thirdparty/opencv/4.12.0/modules/imgproc/include
+			${VISION_RUNTIME_REPOSITORY_DIRECTORY}/Thirdparty/spdlog/1.15.3/include
 			${CMAKE_BINARY_DIR}
 	)
 
 	target_link_libraries(${targetName}
 		PRIVATE
-			faiss
+			${CMAKE_DL_LIBS}
 			nlohmann_json::nlohmann_json
 			opencv_imgcodecs
 			opencv_imgproc
+			spdlog::spdlog
 	)
-	if(VISION_PLATFORM STREQUAL "OPENVINO_INTEL")
-		target_sources(${targetName} PRIVATE
-			${VISION_RUNTIME_SOURCE_DIRECTORY}/src/backends/openVinoBackend.cpp
-		)
-		target_link_libraries(${targetName} PRIVATE Vision::OpenVino)
-	elseif(VISION_PLATFORM STREQUAL "TENSORRT_NVIDIA")
-		target_sources(${targetName} PRIVATE
-			${VISION_RUNTIME_SOURCE_DIRECTORY}/src/backends/tensorRtBackend.cpp
-			${VISION_RUNTIME_SOURCE_DIRECTORY}/src/memory/gpuAllocator.cpp
-		)
-		target_link_libraries(${targetName} PRIVATE Vision::TensorRt)
-	endif()
 	if(VISION_CAMERA STREQUAL "HIK_MVS")
 		target_sources(${targetName} PRIVATE
 			${VISION_RUNTIME_SOURCE_DIRECTORY}/src/camera/hikrobotMvsCameraDevice.cpp

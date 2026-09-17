@@ -3,8 +3,9 @@ cmake_minimum_required(VERSION 3.25)
 if(POLICY CMP0091)
 	cmake_policy(SET CMP0091 NEW)
 endif()
+# Must match the VisionRuntime static libs (dynamic CRT, see root CMakeLists).
 set(CMAKE_MSVC_RUNTIME_LIBRARY
-	"MultiThreaded$<$<CONFIG:Debug>:Debug>")
+	"MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 
 project(AnomalyHikMvsSample LANGUAGES CXX)
 
@@ -21,11 +22,5 @@ add_subdirectory("${VISION_RUNTIME_ROOT}" "${CMAKE_CURRENT_BINARY_DIR}/Thirdpart
 
 vision_target_runtime(anomalyHikMvsSample
 	CAMERA HIK_MVS
-	PLATFORM OPENVINO_INTEL
-	DEVICE CPU
-	ARTIFACT ONNX
-)
-
-target_include_directories(anomalyHikMvsSample PRIVATE
-	"${VISION_RUNTIME_ROOT}/Runtime"
+	BACKEND_PLUGINS OpenVino
 )

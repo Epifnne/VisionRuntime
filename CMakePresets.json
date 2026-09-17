@@ -7,9 +7,74 @@
   },
   "configurePresets": [
     {
+      "name": "windows-msvc-debug",
+      "displayName": "Windows MSVC Debug",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/Build/Windows-MSVC",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "cacheVariables": {
+        "VISION_CAMERA_SDK": "NONE"
+      }
+    },
+    {
+      "name": "linux-gnu-debug",
+      "displayName": "Linux GNU Debug",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/Build/Linux-GNU",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_COMPILER": "g++",
+        "VISION_CAMERA_SDK": "NONE"
+      }
+    },
+    {
+      "name": "windows-msvc-2026",
+      "displayName": "Windows MSVC 2026 Debug (Ninja)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/Build/MSVC-2026",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "environment": {
+        "INCLUDE": "D:/Visual Studio/VC/Tools/MSVC/14.51.36231/include;D:/Visual Studio/VC/Tools/MSVC/14.51.36231/ATLMFC/include;C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/ucrt;C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/um;C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/shared;C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/winrt;C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/cppwinrt",
+        "LIB": "D:/Visual Studio/VC/Tools/MSVC/14.51.36231/lib/x64;D:/Visual Studio/VC/Tools/MSVC/14.51.36231/ATLMFC/lib/x64;C:/Program Files (x86)/Windows Kits/10/Lib/10.0.26100.0/ucrt/x64;C:/Program Files (x86)/Windows Kits/10/Lib/10.0.26100.0/um/x64",
+        "LIBPATH": "D:/Visual Studio/VC/Tools/MSVC/14.51.36231/lib/x64;C:/Program Files (x86)/Windows Kits/10/Lib/10.0.26100.0/um/x64",
+        "PATH": "D:/Visual Studio/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64;C:/Program Files (x86)/Windows Kits/10/bin/10.0.26100.0/x64;$penv{PATH}"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_C_COMPILER": "D:/Visual Studio/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/cl.exe",
+        "CMAKE_CXX_COMPILER": "D:/Visual Studio/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/cl.exe",
+        "CMAKE_MAKE_PROGRAM": "D:/Visual Studio/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe",
+        "CMAKE_RC_COMPILER": "C:/Program Files (x86)/Windows Kits/10/bin/10.0.26100.0/x64/rc.exe",
+        "CMAKE_MT": "C:/Program Files (x86)/Windows Kits/10/bin/10.0.26100.0/x64/mt.exe",
+        "VISION_BUILD_TENSORRT_PLUGIN": "ON",
+        "VISION_BUILD_SERVICE": "ON",
+        "VISION_BUILD_SAMPLES": "ON",
+        "VISION_CAMERA_SDK": "NONE"
+      }
+    },
+    {
       "name": "mingw-base",
       "hidden": true,
       "generator": "Ninja",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
       "cacheVariables": {
         "CMAKE_CXX_COMPILER": "D:/Qt/Tools/mingw1310_64/bin/g++.exe",
         "CMAKE_MAKE_PROGRAM": "D:/Qt/Tools/Ninja/ninja.exe",
@@ -39,15 +104,48 @@
   ],
   "buildPresets": [
     {
+      "name": "windows-msvc-debug",
+      "configurePreset": "windows-msvc-debug",
+      "configuration": "Debug",
+      "jobs": 4
+    },
+    {
+      "name": "linux-gnu-debug",
+      "configurePreset": "linux-gnu-debug",
+      "jobs": 4
+    },
+    {
+      "name": "windows-msvc-2026",
+      "configurePreset": "windows-msvc-2026",
+      "jobs": 4
+    },
+    {
       "name": "mingw-debug",
-      "configurePreset": "mingw-debug"
+      "configurePreset": "mingw-debug",
+      "jobs": 4
     },
     {
       "name": "mingw-release",
-      "configurePreset": "mingw-release"
+      "configurePreset": "mingw-release",
+      "jobs": 4
     }
   ],
   "testPresets": [
+    {
+      "name": "windows-msvc-debug",
+      "configurePreset": "windows-msvc-debug",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-gnu-debug",
+      "configurePreset": "linux-gnu-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
     {
       "name": "mingw-debug",
       "configurePreset": "mingw-debug",

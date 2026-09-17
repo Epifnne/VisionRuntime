@@ -162,6 +162,28 @@ template<std::size_t Size>
 	}
 }
 
+[[nodiscard]] core::Result<void> setMvsFloatParameter(void* handle,
+	const char* autoNode, const char* valueNode, double value, bool allowZero) {
+	if (!std::isfinite(value) || value < 0.0 ||
+		(!allowZero && value == 0.0) ||
+		value > std::numeric_limits<float>::max()) {
+		return core::Result<void>::failure(error(
+			core::StatusCode::InvalidArgument,
+			"MVS floating setting is out of range"));
+	}
+	if (autoNode != nullptr) {
+		const auto autoStatus = MV_CC_SetEnumValue(handle, autoNode, 0);
+		if (autoStatus != MV_OK) {
+			return core::Result<void>::failure(mvsError(autoNode, autoStatus));
+		}
+	}
+	const auto status = MV_CC_SetFloatValue(
+		handle, valueNode, static_cast<float>(value));
+	return status == MV_OK
+		? core::Result<void>::success()
+		: core::Result<void>::failure(mvsError(valueNode, status));
+}
+
 class DeviceState {
 public:
 	explicit DeviceState(void* handle) noexcept : handle_(handle) {}
@@ -387,6 +409,17 @@ public:
 			: core::Result<void>::failure(mvsError("software trigger", status));
 	}
 
+	[[nodiscard]] core::Result<void> setExposureMicroseconds(
+		double exposureMicroseconds) {
+		return setMvsFloatParameter(device_->handle(), "ExposureAuto",
+			"ExposureTime", exposureMicroseconds, false);
+	}
+
+	[[nodiscard]] core::Result<void> setGain(double gain) {
+		return setMvsFloatParameter(
+			device_->handle(), "GainAuto", "Gain", gain, true);
+	}
+
 	[[nodiscard]] const CameraDeviceInfo& deviceInfo() const noexcept { return info_; }
 	[[nodiscard]] const CameraCapabilities& capabilities() const noexcept {
 		return capabilities_;
@@ -591,32 +624,14 @@ core::Result<std::unique_ptr<HikrobotMvsCameraDevice>> HikrobotMvsCameraDevice::
 			mvsError("configure MVS acquisition", status));
 	}
 
-	auto setFloat = [rawHandle](const char* autoNode, const char* valueNode,
-		const std::optional<double>& value, bool allowZero) -> core::Result<void> {
-		if (!value) {
-			return core::Result<void>::success();
-		}
-		if (!std::isfinite(*value) || *value < 0.0 ||
-			(!allowZero && *value == 0.0) ||
-			*value > std::numeric_limits<float>::max()) {
-			return core::Result<void>::failure(error(
-				core::StatusCode::InvalidArgument, "MVS floating setting is out of range"));
-		}
-		if (autoNode != nullptr) {
-			const auto autoStatus = MV_CC_SetEnumValue(rawHandle, autoNode, 0);
-			if (autoStatus != MV_OK) {
-				return core::Result<void>::failure(mvsError(autoNode, autoStatus));
-			}
-		}
-		const auto valueStatus = MV_CC_SetFloatValue(
-			rawHandle, valueNode, static_cast<float>(*value));
-		return valueStatus == MV_OK ? core::Result<void>::success()
-			: core::Result<void>::failure(mvsError(valueNode, valueStatus));
-	};
-	auto configured = setFloat(
-		"ExposureAuto", "ExposureTime", options.exposureMicroseconds, false);
-	if (configured) {
-		configured = setFloat("GainAuto", "Gain", options.gain, true);
+	auto configured = core::Result<void>::success();
+	if (options.exposureMicroseconds) {
+		configured = setMvsFloatParameter(rawHandle, "ExposureAuto",
+			"ExposureTime", *options.exposureMicroseconds, false);
+	}
+	if (configured && options.gain) {
+		configured = setMvsFloatParameter(
+			rawHandle, "GainAuto", "Gain", *options.gain, true);
 	}
 	if (!configured) {
 		return core::Result<std::unique_ptr<HikrobotMvsCameraDevice>>::failure(
@@ -646,6 +661,13 @@ bool HikrobotMvsCameraDevice::isAcquiring() const noexcept {
 }
 core::Result<void> HikrobotMvsCameraDevice::softwareTrigger() {
 	return impl_->softwareTrigger();
+}
+core::Result<void> HikrobotMvsCameraDevice::setExposureMicroseconds(
+	double exposureMicroseconds) {
+	return impl_->setExposureMicroseconds(exposureMicroseconds);
+}
+core::Result<void> HikrobotMvsCameraDevice::setGain(double gain) {
+	return impl_->setGain(gain);
 }
 const CameraDeviceInfo& HikrobotMvsCameraDevice::deviceInfo() const noexcept {
 	return impl_->deviceInfo();

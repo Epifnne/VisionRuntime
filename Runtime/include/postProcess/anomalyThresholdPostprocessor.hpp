@@ -4,10 +4,12 @@
 #include "vision/anomalyResult.hpp"
 
 #include <memory>
+#include <string>
 
 namespace visionRuntime::postprocess {
 
 struct AnomalyThresholdPostprocessorOptions {
+	std::string outputName = "score";
 	float threshold = 0.5F;
 };
 
@@ -15,7 +17,6 @@ class AnomalyThresholdPostprocessor final
 	: public IPostprocessor<vision::AnomalyResult> {
 public:
 	[[nodiscard]] static core::Result<std::unique_ptr<AnomalyThresholdPostprocessor>> create(
-		std::unique_ptr<IPostprocessor<vision::AnomalyResult>> scorePostprocessor,
 		AnomalyThresholdPostprocessorOptions options);
 
 	[[nodiscard]] core::Result<vision::AnomalyResult> process(
@@ -24,11 +25,8 @@ public:
 		const pipeline::PipelinePacket& packet) override;
 
 private:
-	AnomalyThresholdPostprocessor(
-		std::unique_ptr<IPostprocessor<vision::AnomalyResult>> scorePostprocessor,
-		AnomalyThresholdPostprocessorOptions options);
+	explicit AnomalyThresholdPostprocessor(AnomalyThresholdPostprocessorOptions options);
 
-	std::unique_ptr<IPostprocessor<vision::AnomalyResult>> scorePostprocessor_;
 	AnomalyThresholdPostprocessorOptions options_;
 };
 

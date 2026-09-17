@@ -6,13 +6,13 @@
 
 - [x] 确定项目命名、C++ namespace 和公共头文件 include 路径。
 - [x] 编写根 CMake 和 Runtime 子项目 CMake，建立静态库、测试、示例和工具 target。
-- [x] 将 OpenCV、JSON、日志、测试框架、FAISS 和 OpenBLAS 下载到 `Thirdparty`，记录版本、来源和固定提交。
-- [x] 实现 `vision_add_runtime(... CAMERA HIK_MVS PLATFORM OPENVINO_INTEL)`，在 CMake 配置期选择唯一相机 SDK 与推理平台族，并保留 `NONE/NONE` 核心测试 Profile。
-- [x] 为 OpenVINO、TensorRT、ONNX Runtime、海康 MVS 定义隔离的 imported targets，未选择的厂商实现不参与编译和链接。
-- [x] 由 CMake 生成 `config/buildProfile.hpp`，提供 `SelectedCamera`、`SelectedPlatform` 及编译期能力描述。
-- [ ] 在具体相机与后端适配器可构造后生成 `SelectedRuntime`，并按 Profile 选择厂商源文件和链接目标。
+- [x] 将 OpenCV、JSON、日志和测试框架下载到 `Thirdparty`，记录版本、来源和固定提交。
+- [x] 实现 `vision_add_runtime(... CAMERA HIK_MVS)`，在 CMake 配置期选择唯一相机 SDK，并保留 `NONE` 核心测试 Profile。
+- [x] 为 OpenVINO、TensorRT、ONNX Runtime、海康 MVS 定义隔离的 imported targets；推理后端作为独立 C ABI 插件按需构建。
+- [x] 由 CMake 生成 `config/buildProfile.hpp`，提供 `SelectedCamera` 及编译期相机能力描述。
+- [x] 后端通过 deployment 在运行时选择插件，不生成 `SelectedPlatform` 或 `SelectedRuntime`。
 - [x] 对未知选项、缺失 SDK 和不支持的相机/平台组合在 CMake 配置期给出明确错误。
-- [ ] 建立 MinGW 警告级别、格式化、静态分析和基础 CI（警告级别与基础 CI 已完成）。
+- [ ] 建立 MinGW 警告级别、格式化、静态分析和基础 CI（警告级别与基础 CI 已完成；CI 基线已切换为 Windows MSVC `windows-msvc-debug` 与 Linux GNU `linux-gnu-debug` preset，MinGW 不再是 CI 基线）。
 - [x] 将 `preprocess`、`postprocess` 作为单词统一目录、命名空间和公开 include 路径。
 
 验收：无任何推理 SDK 时 core target 和单元测试可以独立配置、编译并运行。
@@ -37,11 +37,11 @@
 - [x] 实现 resize、颜色转换、归一化和直接写入池化 NCHW 张量的前处理。
 - [x] 实现类型状态化 `PreprocessBuilder`，编译期校验节点顺序且每条链最多包含一个物化节点。
 - [x] 实现 letterbox、裁剪、灰度化和二值化等可选前处理节点。
-- [x] 完成 OpenVINO 后端（已增加单输入/单输出 Float32 CPU 同步推理初版，待端到端验证及模型准备契约）。
-- [x] 将 OpenVINO 后端建模为 Intel 平台族，在同一契约下支持 CPU、GPU 和 NPU 设备选择且禁止静默回退。
+- [x] 完成 OpenVINO 后端插件（单输入/单输出 Float32 同步推理，经 C ABI 加载）。
+- [x] 将 OpenVINO 设备选择放入 deployment，在同一契约下支持 CPU、GPU 和 NPU 且禁止静默回退。
 - [x] 在 CPU 纵向功能通过后，使用 OpenVINO C++ Runtime 打通 Intel NPU 的 IR 加载、首次编译、缓存和同步推理。
 - [x] 完成标量异常分数、阈值判断和 `AnomalyResult` 后处理。
-- [x] 完成 PatchCore embedding memory bank 加载、FAISS L2 最近邻检索和图像级最大距离聚合。
+- [x] 移除 PatchCore memory bank、FAISS 和 OpenBLAS 依赖；异常分数由模型直接输出。
 - [ ] 完成 patch 距离图、热力图还原、坐标反向映射与缺陷区域提取。
 - [x] 实现 `AnomalyResult` 示例程序：文件夹读取、OpenVINO CPU 推理及逐图 score/OK/NG 输出，并与参考 NG 图完成数值对比。
 - [x] 使用同一输入与 Python 参考实现对比数值误差（已知 NG 图相对误差约 0.52%，判定一致）。
@@ -52,17 +52,17 @@
 ## M3：模型包与配置
 
 - [ ] 定义 `manifest.json` 与 `deployment.json` 的版本化 JSON Schema。
-- [ ] 实现 `ModelManifest`、`DeploymentConfig` 和严格配置校验。
-- [ ] 实现模型包相对路径解析、资源文件加载和错误上下文。
-- [ ] 完成 `RuntimeFactory` 的模型包级组装和跨平台族校验（已完成按部署配置选择 Executor，并将 source、pipeline 组装为 `RuntimeSession`）。
+- [x] 实现 `ModelManifest`、`DeploymentConfig` 和核心配置校验。
+- [x] 实现模型包相对路径解析、`artifacts/` 边界和错误上下文。
+- [x] 完成 `RuntimeFactory` 的模型包级组装和部署配置选择（`AnomalyPreset` 经 deployment 选择唯一插件与 artifact，并将 source、pipeline 组装为 `RuntimeSession`）。
 - [ ] 实现模型制品 SHA-256、设备、驱动、精度、后端版本和构建参数组成的缓存键。
 - [ ] 支持 `BuildIfMissing` 与 `CacheOnly` 两种模型准备策略。
 - [ ] 完善独立 Python CLI `vision-modelc`（ONNX 到 IR、端口名校验和构建记录已实现；待增加 manifest 校验）。
 - [ ] 生成包含源模型哈希、工具版本、目标平台和制品哈希的 `build-lock.json`。
 - [ ] 明确 Runtime 发行包不包含 Python、`vision-modelc`、ONNX 转换器和 INT8 校准依赖。
-- [ ] 编写模型包检查、构建 Profile 不匹配和错误配置测试。
+- [x] 编写模型包检查、插件 ABI/ID 不匹配和错误配置测试。
 
-验收：训练人员只需提供模型包和节点组合代码；部署配置可切换 CPU、GPU、NPU 和缓存策略，但不能切换到未编入程序的后端。
+验收：训练人员只需提供模型包和节点组合代码；部署配置可切换已交付插件、设备和缓存策略，但不能选择未随应用交付的后端插件。
 
 ## M4：异步 Executor
 
@@ -97,7 +97,7 @@
 - [ ] 实现 ONNX Parser、Builder、Engine 序列化与加载。
 - [ ] 支持 FP32 和 FP16，暂不加入 INT8 校准。
 - [ ] 将 GPU 型号、CUDA/TensorRT 版本、精度和 profile 纳入缓存键。
-- [ ] 实现 CUDA buffer、stream、host/device 拷贝和 RAII 生命周期。
+- [x] 实现 CUDA buffer、stream、host/device 拷贝和 RAII 生命周期。
 - [ ] 实现离线模型预编译工具，并与运行时共用 prepare 逻辑。
 - [ ] 生产 `CacheOnly` 模式下禁止隐式构建 Engine。
 - [ ] 复用后端 contract tests，并与 ORT 输出比较。
@@ -152,12 +152,12 @@
 ## 后续候选能力
 
 - [ ] 多个 `RuntimeSession` 共享工作线程池和设备级配额的进程级调度器。
-- [ ] 动态 batch 与自动合批。
+- [x] 动态 batch 与自动合批（`BatchPipelineExecutor`：maxBatchSize 凑批 + flushTimeout 超时 flush；2026-09-16 起批推理收编进 `Pipeline::inferBatch`，见 `Docs/multiCameraBatchPlan.md`）。
 - [ ] 动态高宽和 TensorRT optimization profile 管理。
 - [ ] CUDA/OpenVINO 设备前后处理及零拷贝。
 - [ ] 多模型 DAG、并行分支和条件节点。
 - [ ] 稳定 DLL 插件 ABI 或 Python 扩展。
 - [ ] INT8 校准和量化模型验证。
-- [ ] 可视化流水线编辑与调试 GUI。
+- [ ] 可视化流水线编辑与调试 GUI（见 `Docs/guiShellPlan.md`：阶段 A–C 已完成，visionShell 纯 profile JSON 驱动、闭环验收通过；Designer 阶段 D 待实施）。
 
 这些项目必须由真实部署需求和 benchmark 数据驱动，不提前进入首版范围。

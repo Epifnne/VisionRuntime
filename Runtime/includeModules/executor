@@ -1,5 +1,6 @@
 #pragma once
 
+#include "executor/batchPipelineExecutor.hpp"
 #include "executor/executorOptions.hpp"
 #include "executor/executorTask.hpp"
 #include "executor/frameExecutor.hpp"

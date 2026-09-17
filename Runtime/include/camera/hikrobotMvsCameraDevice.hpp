@@ -27,6 +27,8 @@ public:
 	[[nodiscard]] bool isAcquiring() const noexcept override;
 
 	core::Result<void> softwareTrigger() override;
+	core::Result<void> setExposureMicroseconds(double exposureMicroseconds) override;
+	core::Result<void> setGain(double gain) override;
 	[[nodiscard]] const CameraDeviceInfo& deviceInfo() const noexcept override;
 	[[nodiscard]] const CameraCapabilities& capabilities() const noexcept override;
 	[[nodiscard]] vision::FrameSpec outputSpec() const override;

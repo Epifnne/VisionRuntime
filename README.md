@@ -1,31 +1,31 @@
 # VisionRuntime
 
-面向工业视觉模型部署的 C++20 SDK。
+A C++20 SDK for deploying industrial vision models.
 
-## 目标使用方式
+## Intended Usage
 
-VisionRuntime 计划在 CMake 配置期显式选择相机 SDK 和推理平台族，由构建系统只编译、链接对应适配器，并生成供业务代码使用的构建 Profile。首个组合为海康机器人 MVS 与 OpenVINO Intel 平台，推理设备覆盖 CPU、GPU 和 NPU；具体相机型号、序列号、曝光参数及模型路径仍在运行时配置和校验。
+VisionRuntime selects the camera SDK explicitly during CMake configuration and generates a build profile for application code. Inference backends are separate C ABI plugins: the core runtime stays vendor-neutral, while deployment configuration selects the plugin directory, backend ID, and device at runtime without fallback.
 
 ```cmake
-vision_add_runtime(inspectionRuntime
+vision_target_runtime(inspectionApp
 	CAMERA HIK_MVS
-	PLATFORM OPENVINO_INTEL
+	BACKEND_PLUGINS OpenVino
 )
 ```
 
-业务代码通过生成的 `SelectedRuntime` 组装强类型前后处理节点和模型，不包含 MVS 或 OpenVINO 的厂商类型。CMake 是硬件后端选择的唯一事实源，避免业务代码与构建脚本重复声明。
+Application code uses the aggregate header and presets without exposing vendor-specific MVS, OpenVINO, or TensorRT types. Camera capability selection remains compile-time through CMake; model artifacts and backend devices are runtime data supplied by the model package and deployment configuration.
 
-当前仓库已实现构建 Profile 的第一阶段。配置根项目时通过缓存参数显式选择：
+Camera profile support is implemented through `VISION_CAMERA_SDK`. Backend plugins are independent build options and can be enabled only when their SDK is available:
 
 ```powershell
 cmake --preset mingw-debug `
-	-DVISON_CAMERA_SDK=HIK_MVS `
-	-DVISON_INFERENCE_PLATFORM=OPENVINO_INTEL
+	-DVISION_CAMERA_SDK=HIK_MVS `
+	-DVISION_BUILD_OPENVINO_PLUGIN=ON
 ```
 
-CMake 会生成 `config/buildProfile.hpp`，其中包含 `SelectedCamera`、`SelectedPlatform`、稳定枚举、名称及硬件能力。默认值为 `NONE/NONE`，用于不安装厂商 SDK 的核心开发和测试。海康 MVS、OpenVINO 和 TensorRT 均通过隔离的 imported target 接入，只有选中对应 Profile 时才解析 SDK。OpenVINO 与 TensorRT 已提供对应适配器；ONNX Runtime 仍为后续实现。
+CMake generates `config/buildProfile.hpp` for the selected camera only. The default camera is `NONE` for core development and testing without vendor SDKs. Hikrobot MVS, OpenVINO, and TensorRT are integrated through isolated imported targets. OpenVINO and TensorRT are available as runtime plugins; ONNX Runtime remains planned work.
 
-模型转译由独立 Python CLI `vision-modelc` 完成。当前基础版本在开发或发布环境中转换 ONNX、校验可选端口名，并生成 OpenVINO IR 和可复现的构建记录，但不进入目标机运行时发行包；manifest 校验仍属于后续增量。目标机使用 OpenVINO C++ Runtime 将 IR 首次编译到实际的 Intel CPU、GPU 或 NPU。首版不执行 INT8 校准，只接受训练侧提供的量化 ONNX。
+Model translation is handled by the standalone Python CLI `vision-modelc`. The current base version converts ONNX in development or release environments, validates optional port names, and generates OpenVINO IR plus a reproducible build record. It is not included in the target runtime distribution; manifest validation remains planned work. On the target machine, the OpenVINO C++ Runtime compiles the IR for the actual Intel CPU, GPU, or NPU on first use. The initial version does not perform INT8 calibration and accepts only quantized ONNX supplied by training.
 
 ```powershell
 python -m pip install openvino
@@ -34,30 +34,34 @@ python Runtime/tools/vision-modelc.py model.onnx `
 	--input-name images --output-name score
 ```
 
-命令同时生成 `model.bin` 和 `model.build.json`。默认保留 FP32 权重；只有确认精度可接受时才使用 `--compress-to-fp16`。IR 可跳过 ONNX frontend 转换，但设备相关图编译仍由目标机 OpenVINO CPU/GPU/NPU 插件完成，因此主要稳定并缩短模型加载阶段，单帧推理提升需要在目标设备上实测。
+The command also generates `model.bin` and `model.build.json`. FP32 weights are preserved by default; use `--compress-to-fp16` only after confirming acceptable accuracy. IR skips ONNX frontend conversion, but device-specific graph compilation is still performed by the target machine's OpenVINO CPU/GPU/NPU plugin. It therefore mainly stabilizes and shortens model loading; single-frame inference improvements must be measured on the target device.
 
-## 当前基础能力
+## Current Core Capabilities
 
-- 后端无关的 `Status`、`Result<T>`、`Tensor`、shape、stride 和设备描述。
-- `TensorBuffer` 与固定容量 `TensorBufferPool`，支持共享 lease 和自动回池。
-- move-only `Frame`，避免流水线阶段间隐式复制图像。
-- 独立的相机 `FrameBufferPool` 与业务 `BusinessFramePool`。
-- 相机图像准备完成后释放相机 Buffer，业务图像保留到热力图等后处理完成。
-- 异步目录 `FileSource`，按顺序解码文件夹图像并以 move-only `Frame` 回调交付。
-- 海康 MVS GigE/USB 相机适配器，支持连续采集、软件触发和 SDK Buffer 到 `Frame` 的只读零拷贝 lease。
-- `FrameSourceConfig` 与 `FrameSourceFactory` 统一组装目录、连续相机和定时软件触发输入，上层只持有 `IFrameSource`。
-- 类型状态化可组合前处理链，编译期校验节点顺序和唯一物化边界。
-- CMake 配置期相机 SDK/推理平台选择，以及生成的强类型 `BuildProfile` 和能力描述。
-- 池化 Float32 NCHW 张量直写与原地归一化，避免临时 Tensor 和处理后的整块复制。
-- OpenVINO 单输入/单输出 Float32 同步后端，以及标量或 PatchCore embedding 异常分数后处理。
-- TensorRT 10 单输入/单输出 Float32 同步后端，支持加载预构建 Engine、选择 optimization profile 和动态 shape。
-- `RuntimeFactory` 组装帧源、Pipeline 和执行策略并返回统一生命周期的 `RuntimeSession`。
-- `vision-modelc` ONNX 到 OpenVINO IR 转译工具，输出制品哈希和端口信息构建记录。
-- `anomalyDirectorySample` 文件夹异常检测示例，逐图输出 score 和 OK/NG。
+- Backend-independent `Status`, `Result<T>`, `Tensor`, shape, stride, and device descriptions.
+- `TensorBuffer` and a fixed-capacity `TensorBufferPool` with shared leases and automatic return to the pool.
+- Move-only `Frame` to prevent implicit image copies between pipeline stages.
+- Separate camera `FrameBufferPool` and application `BusinessFramePool`.
+- Camera buffers are released after image preparation, while application images remain alive until postprocessing such as heatmap generation completes.
+- Asynchronous directory `FileSource` that decodes folder images in order and delivers them through move-only `Frame` callbacks.
+- Hikrobot MVS GigE/USB camera adapter with continuous acquisition, software triggering, and read-only zero-copy leases from SDK buffers to `Frame`.
+- `FrameSourceConfig` and `FrameSourceFactory` provide a unified way to assemble directory, continuous-camera, and timed software-trigger inputs while upper layers hold only `IFrameSource`.
+- Composable typestate preprocessing chains with compile-time validation of node order and a unique materialization boundary.
+- Camera SDK selection at CMake configuration time, with a generated strongly typed camera `BuildProfile` and capability descriptions.
+- Direct pooled writes to Float32 NCHW tensors and in-place normalization, avoiding temporary tensors and full processed-buffer copies.
+- Versioned C ABI backend plugins loaded from an explicit deployment plugin directory.
+- OpenVINO single-input/single-output Float32 synchronous plugin for IR or ONNX artifacts.
+- TensorRT 10 single-input/single-output Float32 synchronous plugin with prebuilt engine loading, optimization profile selection, and dynamic shapes.
+- `RuntimeFactory` assembles the frame source, pipeline, and execution policy and returns a unified-lifecycle `RuntimeSession`.
+- `vision-modelc` translates ONNX to OpenVINO IR and emits artifact hashes and port information in its build record.
+- `anomalyDirectorySample` folder anomaly detection example with per-image score and OK/NG output.
 
-## TensorRT 后端
+## TensorRT Plugin
 
-Windows TensorRT Profile 使用 NVIDIA TensorRT 10.16.1.11 GA SDK 和 CUDA Toolkit，要求 MSVC。GitHub 的 `NVIDIA/TensorRT` 仓库只包含 OSS 组件，不能替代包含 `nvinfer.lib` 和运行时 DLL 的 GA SDK。默认 SDK 布局为：
+OpenVINO and TensorRT are implemented as independent C ABI plugins and loaded through the model package plus deployment configuration.
+See [Backend Plugins](Docs/backendPlugins.md) for contracts, build options and tests.
+
+The Windows TensorRT plugin uses NVIDIA TensorRT 10.16.1.11 GA SDK and CUDA Toolkit and requires MSVC. The GitHub `NVIDIA/TensorRT` repository contains only OSS components and cannot replace the GA SDK, which includes `nvinfer.lib` and runtime DLLs. The default SDK layout is:
 
 ```text
 Thirdparty/tensorrt/10.16.1.11/windows-x86_64/TensorRT-10.16.1.11/
@@ -66,20 +70,19 @@ Thirdparty/tensorrt/10.16.1.11/windows-x86_64/TensorRT-10.16.1.11/
 └─ bin/nvinfer_10.dll
 ```
 
-配置示例：
+Example configuration:
 
 ```powershell
 cmake -S . -B Build/MSVC-TensorRT -G Ninja `
-	-DVISION_INFERENCE_PLATFORM=TENSORRT_NVIDIA `
-	-DVISION_MODEL_ARTIFACT_TYPE=ENGINE `
+	-DVISION_BUILD_TENSORRT_PLUGIN=ON `
 	-DCUDAToolkit_ROOT=D:/cuda
 ```
 
-首版直接加载与目标 GPU、TensorRT/CUDA 版本兼容的 `.engine` 或 `.plan`，不在运行时解析 ONNX。输入输出必须是连续 host Float32 Tensor；`TensorRtBackendOptions::deviceIndex` 选择 CUDA 设备，推理过程使用 CUDA stream 完成 H2D、`enqueueV3` 和 D2H，并把输出返回为 host `TensorMap`。
+The plugin directly loads a `.engine` or `.plan` compatible with the target GPU and TensorRT/CUDA versions; it does not parse ONNX at runtime. Inputs and outputs must be contiguous host Float32 tensors. The deployment `device` selects the CUDA device index. Inference uses a CUDA stream for H2D, `enqueueV3`, and D2H, then returns outputs as host `TensorMap` storage owned by the core.
 
-## 文件夹图像源
+## Directory Image Source
 
-目录输入在创建时扫描目录，在启动后由工作线程依次解码图像。内部使用 OpenCV，但公共接口只暴露配置、`IFrameSource`、`Frame`、`Result` 和标准库类型。
+The directory input scans its directory when created and decodes images sequentially on a worker thread after startup. It uses OpenCV internally, while the public interface exposes only configuration, `IFrameSource`, `Frame`, `Result`, and standard library types.
 
 ```cpp
 #include <visionruntime>
@@ -108,7 +111,7 @@ core::Result<std::unique_ptr<camera::IFrameSource>> startImageDirectory() {
 		if (!frame) {
 			return;
 		}
-		// 将 std::move(frame).value() 提交给 Pipeline。
+		// Submit std::move(frame).value() to the Pipeline.
 	});
 	if (!started) {
 		return core::Result<std::unique_ptr<camera::IFrameSource>>::failure(
@@ -118,25 +121,24 @@ core::Result<std::unique_ptr<camera::IFrameSource>> startImageDirectory() {
 		std::move(source));
 }
 
-// 退出时先调用 requestStop()，再调用 wait()。
+// Call requestStop() before wait() during shutdown.
 ```
 
-默认扩展名为 `.bmp`、`.jpeg`、`.jpg`、`.png`、`.tif` 和 `.tiff`，匹配不区分大小写。可配置递归扫描、循环播放、帧间隔，以及字典序或最后修改时间排序。当前支持 Gray8、Gray16、Float32Gray、BGR8 和 BGRA8 解码结果；无法解码或不支持的文件通过 callback 返回失败 `Result<Frame>`，不会阻止后续文件处理。
+The default extensions are `.bmp`, `.jpeg`, `.jpg`, `.png`, `.tif`, and `.tiff`, matched case-insensitively. Recursive scanning, looping, frame interval, and sorting by lexicographic order or last modification time are configurable. Gray8, Gray16, Float32Gray, BGR8, and BGRA8 decoded results are currently supported. Files that cannot be decoded or are unsupported return a failed `Result<Frame>` through the callback without preventing subsequent files from being processed.
 
-每个 `Frame` 的 `TensorBuffer` 共享持有 OpenCV 解码内存，因此 callback 返回后像素仍然有效，直到最后一个 Frame/Buffer 视图释放。文件源输出 `Frame`，不是裸 `TensorBuffer`；模型输入 `Tensor` 由前处理阶段生成。
+Each `Frame` owns the OpenCV decoding memory through its shared `TensorBuffer`, so pixels remain valid after the callback returns until the last Frame/Buffer view is released. The file source outputs `Frame`, not a raw `TensorBuffer`; the preprocessing stage generates the model input `Tensor`.
 
-## 海康 MVS 相机源
+## Hikrobot MVS Camera Source
 
-选择 `HIK_MVS` Profile 后，Runtime 条件编译 `HikrobotMvsCameraDevice`。SDK 开发包默认位于 `Thirdparty/hik-mvs/4.8.1`，并按 `windows-x86_64` 和 `linux-x86_64` 隔离平台文件；也可通过 `HIK_MVS_ROOT` 指向其他位置。本地 Thirdparty 包含运行库，但目标机仍须安装匹配版本的 MVS 驱动和系统服务。
+When the `HIK_MVS` profile is selected, Runtime conditionally compiles `HikrobotMvsCameraDevice`. By default, the SDK package is located at `Thirdparty/hik-mvs/4.8.1`, with platform files separated into `windows-x86_64` and `linux-x86_64`. `HIK_MVS_ROOT` can point to another location. The local Thirdparty package includes runtime libraries, but the target machine must still have matching MVS drivers and system services installed.
 
 ```powershell
 cmake --preset mingw-debug -B Build/HikMvsDebug `
-	-DVISION_CAMERA_SDK=HIK_MVS `
-	-DVISION_INFERENCE_PLATFORM=NONE
+	-DVISION_CAMERA_SDK=HIK_MVS
 cmake --build Build/HikMvsDebug --target hikMvsCaptureSmoke
 ```
 
-业务代码通过 Factory 选择连续采集；省略序列号只在当前恰好存在一台相机时有效：
+Application code selects continuous acquisition through the factory. Omitting the serial number is valid only when exactly one camera is currently present:
 
 ```cpp
 #include <visionruntime>
@@ -154,24 +156,24 @@ camera::FrameSourceConfig config = camera::ContinuousCameraSourceConfig{
 auto source = camera::FrameSourceFactory::create(config).value();
 source->start([](core::Result<vision::Frame> frame) {
 	if (frame) {
-		// 将 std::move(frame).value() 提交给 Pipeline。
+		// Submit std::move(frame).value() to the Pipeline.
 	}
 }).value();
 ```
 
-定时软件触发使用 `TimedCameraSourceConfig`。`triggerInterval` 是相邻成功输入帧的最小到达间隔：回调耗时计入间隔，但下一次触发仍须等待当前回调返回；始终最多一个 trigger 在途，不积压、不补发。`responseTimeout` 约束触发后的设备响应。连续模式的 `frameRate` 是下发给相机的真实采集帧率，不是回调节流。
+Timed software triggering uses `TimedCameraSourceConfig`. `triggerInterval` is the minimum arrival interval between consecutive successful input frames: callback time counts toward the interval, but the next trigger still waits for the current callback to return. At most one trigger is always in flight, with no backlog or catch-up triggers. `responseTimeout` limits the device response after a trigger. In continuous mode, `frameRate` is the actual acquisition rate sent to the camera, not callback throttling.
 
-`IFrameSource` 和 `ICameraDevice` 都是单次启动对象；首次成功启动后不能原地重启。`requestStop()` 非阻塞且幂等，`wait()` 回收线程并保证返回后不再开始回调。响应超时、触发失败和设备错误会作为终止错误交付；重新连接应销毁旧 Source/Device 后由 Factory 创建新实例。
+Both `IFrameSource` and `ICameraDevice` are single-start objects and cannot be restarted in place after the first successful start. `requestStop()` is non-blocking and idempotent; `wait()` joins the thread and guarantees that no callback begins after it returns. Response timeouts, trigger failures, and device errors are delivered as terminal errors. Reconnection should destroy the old Source/Device and create a new instance through the factory.
 
-取流采用 `MV_CC_GetImageBuffer`，`Frame` 以只读 `TensorBuffer` 共享 SDK Buffer；最后一个 Frame/Buffer 视图释放后自动调用 `MV_CC_FreeImageBuffer`。因此 `maxFramesInFlight` 必须覆盖 Pipeline 可能同时持有的相机帧数。具体 Source、`ICameraDevice` 和 `HikrobotMvsCameraDevice` 不由 `<visionruntime>` 或 `<camera>` 聚合头导出；诊断工具需要显式包含对应高级扩展头。
+Acquisition uses `MV_CC_GetImageBuffer`, and `Frame` shares the SDK buffer through a read-only `TensorBuffer`. `MV_CC_FreeImageBuffer` is called automatically after the final Frame/Buffer view is released. Therefore, `maxFramesInFlight` must cover the number of camera frames the Pipeline may hold concurrently. Concrete Source types, `ICameraDevice`, and `HikrobotMvsCameraDevice` are not exported by the `<visionruntime>` or `<camera>` aggregate headers; diagnostic tools must include the corresponding advanced extension header explicitly.
 
-首版直接支持 Gray8、Gray16、RGB8、BGR8、RGBA8 和 BGRA8。Bayer、YUV、Packed 10/12 bit 不进行隐式转换；硬件触发、设备时间戳校准和断线重连仍在后续计划中。实机检查工具用法为 `hikMvsCaptureSmoke [serial] [trigger]`。
+The initial version directly supports Gray8, Gray16, RGB8, BGR8, RGBA8, and BGRA8. Bayer, YUV, and packed 10/12-bit formats are not converted implicitly. Hardware triggering, device timestamp calibration, and reconnection remain planned work. The hardware smoke test tool is used as `hikMvsCaptureSmoke [serial] [trigger]`.
 
-## 可组合前处理
+## Composable Preprocessing
 
-`preprocess` 和 `postprocess` 在项目命名中各自视为一个单词：目录与命名空间使用全小写，类型使用 `Preprocess`、`Postprocess` 词形。
+In project naming, `preprocess` and `postprocess` are each treated as one word: directories and namespaces use lowercase, while types use the `Preprocess` and `Postprocess` forms.
 
-当前前处理链由独立 Frame 节点、Frame 到 Tensor 的物化节点和后续 Tensor 节点组成：
+The current preprocessing chain consists of independent Frame nodes, a Frame-to-Tensor materialization node, and subsequent Tensor nodes:
 
 ```cpp
 #include "preprocess/frameNodes/centerCropNode.hpp"
@@ -197,11 +199,11 @@ auto preprocessor = preprocess::PreprocessBuilder::start<vision::Frame>()
 	.build();
 ```
 
-`Resize` 将短边缩放到目标尺寸，并把保持原像素格式的 8-bit Frame 写入节点自己的 BufferPool；`CenterCrop` 在该 Frame 上建立零拷贝中心裁剪视图；`ToTensor` 只负责将当前 Gray8、Bgr8 或 Bgra8 Frame 转换为 Float32 NCHW Tensor。写入完成后释放工作 Frame；`Normalize` 随后自动读取当前 Tensor 并原地归一化。所有操作节点遵循统一的 `PreprocessNode` 协议，Builder 只提供一个泛型 `then()`；参数校验和 BufferPool 创建错误由 `build()` 统一返回。
+`Resize` scales the short side to the target size and writes an 8-bit Frame in the original pixel format into the node's own BufferPool. `CenterCrop` creates a zero-copy center-crop view on that Frame. `ToTensor` only converts the current Gray8, Bgr8, or Bgra8 Frame to a Float32 NCHW Tensor. The working Frame is released after writing, and `Normalize` then automatically reads the current Tensor and normalizes it in place. All operation nodes follow the common `PreprocessNode` protocol. The builder exposes only one generic `then()`, while `build()` reports parameter validation and BufferPool creation errors.
 
-## 文件夹异常检测示例
+## Directory Anomaly Detection Sample
 
-[`Samples/anomalyDirectory`](Samples/anomalyDirectory) 是独立业务工程，不属于框架内部构建。它模拟框架使用者将完整 VisionRuntime 源码包放在业务工程 `Thirdparty/VisionRuntime` 下，再通过 target 级 API 声明部署需求：
+[`Samples/anomalyDirectory`](Samples/anomalyDirectory) is a standalone application project and is not part of the framework's internal build. It simulates a framework consumer placing the complete VisionRuntime source package under `Thirdparty/VisionRuntime` in its application project, then declaring deployment requirements through a target-level API:
 
 ```text
 MyInspection/
@@ -211,60 +213,98 @@ MyInspection/
 	└─ VisionRuntime/
 ```
 
-业务 `CMakeLists.txt` 的核心只有：
+The core of the application's `CMakeLists.txt` is:
 
 ```cmake
 add_subdirectory(Thirdparty/VisionRuntime)
 
-vison_target_runtime(myInspection
-	PLATFORM OPENVINO_INTEL
-	DEVICE CPU
-	ARTIFACT ONNX
+vision_target_runtime(myInspection
+	CAMERA NONE
+	BACKEND_PLUGINS TensorRt
 )
 ```
 
-当目标尚未创建时，`vision_target_runtime` 会自动使用同目录下的
-`myInspection.cpp` 创建 executable；已有 target 也可直接绑定。业务源码只需引用
-聚合头，不需要了解后端、Pipeline 或前后处理节点的头文件位置：
+If the target does not yet exist, `vision_target_runtime` automatically creates an executable from `myInspection.cpp` in the same directory. It can also bind directly to an existing target. Application source code only needs the aggregate header and does not need to know the header locations of backends, the Pipeline, or preprocessing and postprocessing nodes:
 
 ```cpp
 #include <visionruntime>
 ```
 
-框架自动链接所需 Runtime、传播 C++20、解析 OpenVINO，并精准部署 CPU 与 ONNX 对应的运行库。异常 preset 接受一个 Float32 输入和一个 Float32 输出。标量输出使用 `[1]` 和 `Scalar` 布局，首元素为图像级异常分数；PatchCore 输出使用 `[1,N,D]` 和 `Embedding` 布局，并同时提供由连续 Float32 `D` 维向量组成的 memory bank 文件。后处理使用 FAISS L2 最近邻检索，以所有 patch 的最大平方 L2 距离作为图像级分数；`score >= threshold` 判定为 NG。
+The framework automatically links the required Runtime, propagates C++20, resolves the selected backend plugin, and deploys the plugin directory declared by the target. The anomaly preset accepts one Float32 NCHW input and one Float32 scalar output. The model produces the image-level anomaly score directly; postprocessing only compares the score with the configured threshold. `score >= threshold` is classified as NG.
 
 ```powershell
 cmake -S Samples/anomalyDirectory -B Build/SampleConsumer -G Ninja `
 	-DVISION_RUNTIME_ROOT=<path-to-VisionRuntime> `
-	-DCMAKE_PREFIX_PATH=<openvino-package>
+	-DVISION_BUILD_TENSORRT_PLUGIN=ON `
+	-DCUDAToolkit_ROOT=<cuda-toolkit>
 cmake --build Build/SampleConsumer --target anomalyDirectorySample
 
 Build/SampleConsumer/bin/anomalyDirectorySample.exe `
-	<benchmark.csv>
+	<benchmark.csv> <model-package> <deployment.json>
 ```
 
-`VISION_RUNTIME_ROOT` 只在当前仓库内验证 sample 时用于指向框架位置；复制成真实业务工程后，默认位置就是 `Thirdparty/VisionRuntime`。构建 sample 后，CMake 复制公共 OpenVINO Runtime、所选设备插件、ONNX/IR frontend 和 TBB；MinGW 目标额外复制 GCC runtime。HIK_MVS Windows 目标当前保守地复制 MVS 4.8.1 的完整 `bin` 目录，确保主 DLL、传输层、GenICam、图像转换及其厂商依赖版本一致。缺失必需 DLL 会在配置期报错；设备和模型类型不能通过命令行切换到未打包能力。
+`cmake --build Build/SampleConsumer --target publish` assembles a self-contained release directory whose root doubles as the model package (override the location with `-DANOMALY_DIRECTORY_PUBLISH_DIR=<path>`):
 
-MSVC 目标使用静态 CRT（Debug 为 `/MTd`，其他配置为 `/MT`）。这里的“静态 CRT”只表示本项目和源码构建的 OpenCV 不依赖 MSVC 的通用 C/C++ runtime DLL，不表示整个应用没有动态库。OpenVINO 和海康 MVS 本身仍是动态 SDK；海康包中的部分组件由旧版 MSVC 构建，也会携带自己的 `msvcr*.dll`、`msvcp*.dll` 等依赖。当前 `Build/MSVC-HikMvs/bin` 有 52 个顶层 DLL，其中 5 个是 OpenVINO/TBB，另外 47 个来自完整 MVS runtime。后者是可运行部署集合，不代表 sample 会在本次配置中直接加载每一个 DLL。
+```text
+release/
+├─ anomalyDirectorySample.exe
+├─ plugins/tensorrt/   # plugin DLL plus nvinfer, plugin and CUDA runtime DLLs
+├─ manifest.json       # model package manifest
+├─ artifacts/          # model-fp32.engine
+├─ image/              # sample input images
+└─ deployment.json
+```
 
-示例通过 `PreprocessBuilder` 组合 `Resize`、`CenterCrop`、`ToTensor` 和 `Normalize`，实现 PatchCore 所需的短边缩放到 256、中心裁剪 224、RGB、Float32 NCHW 和 ImageNet mean/std 前处理。sample 将逐帧 benchmark 写入命令行指定的 CSV，并在批次结束时追加总耗时、完成/失败数、FPS 以及每帧 stage 总执行时间的 P50/P95/P99。`stage = pre + infer + post`，`wait = latency - stage`，因此并行队列中的等待不会被误认为阶段执行时间。
+Run it from the release root, where the hardcoded `image/` directory, the model package (`.`), and the relative `pluginDirectory` resolve:
 
-## 图像所有权
+```powershell
+cd Publish/release
+./anomalyDirectorySample.exe benchmark.csv . deployment.json
+```
 
-当前定时拍照 Pipeline 采用两段缓冲生命周期：
+A deployment selects one delivered backend explicitly. A relative
+`pluginDirectory` is resolved against the deployment file, not the process
+working directory:
+
+```json
+{
+	"schemaVersion": {"major": 1, "minor": 0},
+	"backend": {
+		"pluginDirectory": "plugins",
+		"id": "tensorrt",
+		"device": "0"
+	},
+	"executor": {
+		"performancePolicy": "serial",
+		"queueFullPolicy": "block",
+		"queueCapacity": 16,
+		"stageQueueCapacity": 1
+	}
+}
+```
+
+`VISION_RUNTIME_ROOT` is used only when validating the sample within this repository to point to the framework location. After copying it into a real application project, the default location is `Thirdparty/VisionRuntime`. After building the sample, CMake copies the declared backend plugins and their vendor libraries into `plugins/<backend-id>`. HIK_MVS Windows targets currently copy the complete MVS 4.8.1 `bin` directory to keep the main DLL, transport layers, GenICam, image conversion, and vendor dependency versions consistent. Missing required SDKs or plugin files cause a configuration error. The deployment file selects only from plugin directories packaged with the application.
+
+MSVC targets use the static CRT (`/MTd` for Debug and `/MT` for other configurations). Here, "static CRT" means only that this project and the source-built OpenCV do not depend on the general MSVC C/C++ runtime DLLs; it does not mean the entire application has no dynamic libraries. OpenVINO and Hikrobot MVS remain dynamic SDKs. Some components in the Hikrobot package were built with older MSVC versions and include dependencies such as their own `msvcr*.dll` and `msvcp*.dll`. `Build/MSVC-HikMvs/bin` currently contains 52 top-level DLLs: 5 from OpenVINO/TBB and 47 from the complete MVS runtime. The latter form a runnable deployment set and do not imply that the sample directly loads every DLL in this configuration.
+
+The sample combines `Resize`, `CenterCrop`, `ToTensor`, and `Normalize` through `PreprocessBuilder` to implement the PatchCore preprocessing sequence: resize the short side to 256, center-crop to 224, convert to RGB Float32 NCHW, and apply ImageNet mean/std normalization. The sample writes per-frame benchmark data to the CSV specified on the command line, then appends total duration, completed/failed counts, FPS, and P50/P95/P99 total stage execution time after the batch. `stage = pre + infer + post` and `wait = latency - stage`, so waiting in a parallel queue is not incorrectly counted as stage execution time.
+
+## Image Ownership
+
+The current timed-capture Pipeline uses two buffer lifetimes:
 
 ```text
 Camera Frame -> crop/copy -> release camera buffer
 Business Frame -> infer -> postprocess/heatmap -> release business buffer
 ```
 
-`PipelinePacket` 只能移动，不能复制。默认配置在裁剪或复制完成后归还相机槽位，并将业务 Frame 的同一内存地址继续移交给推理和后处理。释放阶段可通过 `PipelineOwnershipOptions` 调整。
+`PipelinePacket` is move-only. By default, the camera slot is returned after cropping or copying, and the application Frame's same memory address is passed on to inference and postprocessing. Release stages can be adjusted through `PipelineOwnershipOptions`.
 
-零拷贝裁剪视图会继续持有相机 Buffer；若需要尽早归还相机槽位，应从 `BusinessFramePool` 获取目标 Frame，并在前处理阶段直接写入。
+A zero-copy crop view continues to hold the camera buffer. To return the camera slot early, obtain a destination Frame from `BusinessFramePool` and write directly into it during preprocessing.
 
-## 执行模型
+## Execution Model
 
-运行时同时提供同步 `run()` 和异步 `submit()`。推荐由 `RuntimeFactory::createRuntime()` 返回 `RuntimeSession<ResultType>`，业务代码只通过 `start()`、`requestStop()` 和 `wait()` 管理整次运行。`requestStop()` 可从任意线程非阻塞调用，负责关闭输入并唤醒等待者；`wait()` 只能由外部控制线程调用，负责等待并回收 Source、Executor 和完成线程。`RuntimeSession` 持有帧采集控制器；`FrameExecutor` 只处理帧源、停止条件、失败策略和运行统计。
+The runtime provides both synchronous `run()` and asynchronous `submit()`. The recommended API is `RuntimeFactory::createRuntime()`, which returns a `RuntimeSession<ResultType>` so application code manages the entire run only through `start()`, `requestStop()`, and `wait()`. `requestStop()` may be called from any thread and is non-blocking; it closes input and wakes waiters. `wait()` must be called only from an external control thread; it waits for and joins the Source, Executor, and completion thread. `RuntimeSession` owns the frame acquisition controller, while `FrameExecutor` handles only the frame source, stop conditions, failure policy, and runtime statistics.
 
 ```cpp
 auto runtime = runtime::RuntimeFactory::createRuntime(
@@ -275,31 +315,31 @@ runtime->start().value();
 const auto summary = runtime->wait();
 ```
 
-`IPipelineExecutor<ResultType>` 统一异步提交、停止请求和等待接口；`SerialPipelineExecutor` 使用单执行线程按 FIFO 调用整体 `run()`，`ParallelPipelineExecutor` 则让 preprocess、inference、postprocess 在三个专属线程上重叠执行不同任务。preprocess→inference、inference→postprocess、postprocess→completion 均使用固定容量 SPSC 环形队列，内部满载或 callback 变慢时阻塞上游并逐级形成背压。SPSC 队列通过原子索引和 `atomic::wait/notify` 工作，head/tail 分离到独立 64 字节缓存行以避免伪共享；并发 `submit()` 的入口仍使用支持多生产者的互斥队列。
+`IPipelineExecutor<ResultType>` provides a unified interface for asynchronous submission, stop requests, and waiting. `SerialPipelineExecutor` uses one execution thread to call the complete `run()` in FIFO order. `ParallelPipelineExecutor` overlaps preprocessing, inference, and postprocessing for different tasks on three dedicated threads. The preprocess-to-inference, inference-to-postprocess, and postprocess-to-completion paths each use a fixed-capacity SPSC ring queue. When an internal queue is full or a callback slows down, the upstream stage blocks and backpressure propagates through the stages. SPSC queues use atomic indices and `atomic::wait/notify`, with head and tail separated onto distinct 64-byte cache lines to prevent false sharing. The concurrent `submit()` entry point still uses a mutex-protected queue that supports multiple producers.
 
-`TaskHandle` 提供 task ID、状态、shared future 和取消请求。两种执行器都按提交顺序交付；平滑停止会排空已接受任务，立即停止会按顺序取消正在运行及排队任务，并拒绝新提交。执行中的阶段调用不被抢占，其结果会在安全边界替换为 `Cancelled`。
+`TaskHandle` provides a task ID, status, shared future, and cancellation request. Both executors deliver results in submission order. Graceful stop drains accepted tasks; immediate stop cancels running and queued tasks in order and rejects new submissions. A stage call already in progress is not preempted; its result is replaced with `Cancelled` at a safe boundary.
 
-框架只提供协作式停止，不设置回收超时，也不会强杀线程或终止进程。若第三方调用或用户 callback 永久阻塞，`wait()` 与析构也会持续阻塞；应用或操作系统负责最终的进程级强制退出。用户 callback 可以调用 `requestStop()`，不能调用 `wait()`。
+The framework provides cooperative stopping only. It does not impose a join timeout, kill threads, or terminate the process. If a third-party call or user callback blocks forever, `wait()` and destruction also remain blocked; the application or operating system is responsible for final process-level forced termination. A user callback may call `requestStop()` but must not call `wait()`.
 
-当前 MinGW Release 独立消费者 `anomalyDirectorySample` 已使用 `Samples/anomalyDirectory/image` 中的 80 张图（27 NG、53 OK）完成构建和端到端运行。Runtime 在有限 `FileSource` 结束后平滑排空已接受任务，`wait()` 返回前完成 Source、三阶段 Executor 和结果回调线程的回收。全量自动化测试为 76 项，全部通过。
+The standalone consumer `anomalyDirectorySample` has been validated end-to-end from its release directory with the TensorRT plugin on the 80 images in `Samples/anomalyDirectory/image` (28 NG and 52 OK; one borderline flip versus the earlier OpenVINO CPU reference of 27 NG and 53 OK). Runtime gracefully drains accepted tasks after the finite `FileSource` ends, and joins the Source, three-stage Executor, and result callback thread before `wait()` returns. All 122 automated tests pass on the MSVC build.
 
-模型 Pipeline 通过 `IStagedVisionPipeline` 暴露三个阶段；OpenCV 单阶段 Pipeline 仍只支持串行执行。`RuntimeFactory` 根据部署配置中的 `performancePolicy`、`queueFullPolicy`、入口容量和阶段容量选择执行器，并将其与帧源组装为 `RuntimeSession`。高级调用方仍可使用 `createExecutor()` 单独取得提交接口。详细边界见 [Docs/architecture.md](Docs/architecture.md#37-executor)。
+The model Pipeline exposes three stages through `IStagedVisionPipeline`; the OpenCV single-stage Pipeline still supports serial execution only. `RuntimeFactory` selects an executor from the deployment configuration's `performancePolicy`, `queueFullPolicy`, ingress capacity, and stage capacities, then assembles it with the frame source into a `RuntimeSession`. Advanced callers can still use `createExecutor()` to obtain the submission interface directly. See [Docs/architecture.md](Docs/architecture.md#37-executor) for detailed boundaries.
 
-## 构建环境
+## Build Environment
 
-- Windows：Qt MinGW-w64 13.1 (`D:/Qt/Tools/mingw1310_64`)
-- Windows：MSVC 19.51 (`D:/Visual Studio`)，x64 静态 CRT
-- WSL Ubuntu：GCC，适用于 Linux 原生构建和 `perf`
-- CMake 3.25 或更高版本
+- Windows: Qt MinGW-w64 13.1 (`D:/Qt/Tools/mingw1310_64`)
+- Windows: MSVC 19.51 (`D:/Visual Studio`), x64 static CRT
+- WSL Ubuntu: GCC for native Linux builds and `perf`
+- CMake 3.25 or later
 - Ninja
 
-项目支持 MSVC、MinGW 和 x86_64 Linux，不使用 vcpkg。第三方依赖直接放入 `Thirdparty/<package>/<version>`，OpenVINO 按平台隔离，具体规则见 [Thirdparty/README.md](Thirdparty/README.md)。WSL 性能构建使用 `Samples/anomalyDirectory/CMakePresets.json` 中的 `linux-perf` preset。
+The project supports MSVC, MinGW, and x86_64 Linux without vcpkg. Third-party dependencies are placed directly under `Thirdparty/<package>/<version>`. OpenVINO is separated by platform; see [Thirdparty/README.md](Thirdparty/README.md) for details. WSL performance builds use the `linux-perf` preset in `Samples/anomalyDirectory/CMakePresets.json`.
 
-首次配置前可构建 `bootstrapDependencies` target，按固定提交下载或核验 OpenCV、GoogleTest、nlohmann/json、spdlog、FAISS 和 OpenBLAS。FAISS 当前使用 CPU `IndexFlatL2`，OpenBLAS 按单精度、单线程、无 LAPACKE 配置从源码构建。MinGW/GCC 源码启用 `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion`，MSVC 源码启用 `/W4 /permissive-`。
+Before the first configuration, the `bootstrapDependencies` target can download or verify OpenCV, GoogleTest, nlohmann/json, and spdlog at pinned commits. MinGW/GCC sources enable `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion`, while MSVC sources enable `/W4 /permissive-`.
 
-目录图像源从 `Thirdparty/opencv/4.12.0` 源码最小构建 `core`、`imgproc` 和 `imgcodecs`。首次构建会编译这些模块，耗时会明显高于后续增量构建。
+The directory image source builds the minimal `core`, `imgproc`, and `imgcodecs` modules from the `Thirdparty/opencv/4.12.0` source. The first build compiles these modules and takes noticeably longer than subsequent incremental builds.
 
-## 构建与测试
+## Build and Test
 
 ```powershell
 cmake --preset mingw-debug
@@ -307,9 +347,9 @@ cmake --build --preset mingw-debug
 ctest --preset mingw-debug
 ```
 
-所有构建产物写入 `Build`。
+All build artifacts are written to `Build`.
 
-海康异常检测 sample 已使用 MSVC x64 Debug 和相机 `169.254.239.231` 完成端到端验证。先在 `cmd.exe` 中加载开发环境并完成独立配置、构建：
+The Hikrobot anomaly detection sample has been validated end-to-end with MSVC x64 Debug and camera `169.254.239.231`. First load the development environment in `cmd.exe`, then configure and build the standalone project:
 
 ```bat
 call "D:\Visual Studio\Common7\Tools\VsDevCmd.bat" -arch=amd64 -host_arch=amd64
@@ -317,14 +357,12 @@ call "D:\Visual Studio\Common7\Tools\VsDevCmd.bat" -arch=amd64 -host_arch=amd64
 "D:\Qt\Tools\CMake_64\bin\cmake.exe" --build "Build\MSVC-HikMvs" --target anomalyHikMvsSample
 ```
 
-运行时工作目录必须保留在 sample 目录，以便解析相对模型路径：
+The sample takes the model package directory and the deployment file as arguments; a relative `pluginDirectory` in the deployment resolves against the deployment file, not the process working directory:
 
 ```powershell
-Push-Location Samples\anomalyHikMvs
-..\..\Build\MSVC-HikMvs\bin\anomalyHikMvsSample.exe
-Pop-Location
+Build\MSVC-HikMvs\bin\anomalyHikMvsSample.exe <model-package> <deployment.json>
 ```
 
-MVS 客户端必须先关闭，因为 Runtime 使用独占方式打开相机。实机首帧验证输出为 `score=5.45422, threshold=2, decision=NG`。
+The MVS client must be closed first because Runtime opens the camera exclusively. The first-frame hardware validation output was `score=5.45422, threshold=2, decision=NG`.
 
-当前 CTest 发现 77 项测试，覆盖构建 Profile、基础结果类型、Tensor 视图、缓冲池、SPSC 队列、串行/并行 Executor、背压与取消、Pipeline 生命周期、目录图像解码、前处理和异常后处理。Executor 相关 18 项测试全部通过；当前仍有一项既有单通道前处理链构建测试失败，详见 `PreprocessChainTest.MaterializesAndNormalizesSingleChannelFrame`。
+CTest currently discovers 122 tests covering camera build profiles, core result types, Tensor views, buffer pools, SPSC queues, serial/parallel executors, backpressure and cancellation, Pipeline lifetimes, directory image decoding, preprocessing, anomaly postprocessing, backend plugin loading, model package loading, and deployment configuration. All tests pass on the MSVC build.

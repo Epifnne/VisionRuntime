@@ -117,6 +117,16 @@ public:
 		return postprocess(std::move(output).value());
 	}
 
+	visionRuntime::core::Result<
+		std::vector<visionRuntime::pipeline::InferenceOutput>> inferBatch(
+		std::vector<visionRuntime::preprocess::PreparedInput>) override {
+		return visionRuntime::core::Result<
+			std::vector<visionRuntime::pipeline::InferenceOutput>>::failure(
+				visionRuntime::core::Status::error(
+					visionRuntime::core::StatusCode::Unsupported,
+					"OverlapPipeline does not support batch inference"));
+	}
+
 	void waitUntilInferenceStarted() {
 		std::unique_lock lock(mutex_);
 		inferenceReady_.wait(lock, [this] { return inferenceStarted_; });

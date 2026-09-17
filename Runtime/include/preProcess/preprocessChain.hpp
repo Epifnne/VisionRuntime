@@ -1,5 +1,6 @@
 #pragma once
 
+#include "logs/logger.hpp"
 #include "preProcess/iPreProcessor.hpp"
 #include "preProcess/preprocessNode.hpp"
 #include "preProcess/preprocessContext.hpp"
@@ -48,6 +49,7 @@ public:
 	[[nodiscard]] core::Result<std::unique_ptr<IPreprocessor>> build() &&
 		requires (State == PreprocessDataState::Tensor && HasMaterialized) {
 		if (!status_.isOk()) {
+			logs::report(status_);
 			return core::Result<std::unique_ptr<IPreprocessor>>::failure(
 				std::move(status_));
 		}

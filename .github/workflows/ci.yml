@@ -1,4 +1,4 @@
-name: MinGW CI
+name: CI
 
 on:
   push:
@@ -8,14 +8,27 @@ permissions:
   contents: read
 
 jobs:
-  build-and-test:
+  windows-msvc:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: egor-tensin/setup-mingw@v3
-        with:
-          platform: x64
-          version: 13.2.0
+      - name: Bootstrap dependencies
+        run: >-
+          cmake
+          -DGIT_EXECUTABLE=git
+          -DTHIRDPARTY_DIRECTORY="${{ github.workspace }}/Thirdparty"
+          -P cmake/bootstrapDependencies.cmake
+      - name: Configure
+        run: cmake --preset windows-msvc-debug
+      - name: Build
+        run: cmake --build --preset windows-msvc-debug
+      - name: Test
+        run: ctest --preset windows-msvc-debug
+
+  linux-gnu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - uses: seanmiddleditch/gha-setup-ninja@v5
       - name: Bootstrap dependencies
         run: >-
@@ -24,13 +37,8 @@ jobs:
           -DTHIRDPARTY_DIRECTORY="${{ github.workspace }}/Thirdparty"
           -P cmake/bootstrapDependencies.cmake
       - name: Configure
-        run: >-
-          cmake -S . -B Build/CI -G Ninja
-          -DCMAKE_BUILD_TYPE=Debug
-          -DCMAKE_CXX_COMPILER=g++
-          -DVISION_CAMERA_SDK=NONE
-          -DVISION_INFERENCE_PLATFORM=NONE
+        run: cmake --preset linux-gnu-debug
       - name: Build
-        run: cmake --build Build/CI
+        run: cmake --build --preset linux-gnu-debug
       - name: Test
-        run: ctest --test-dir Build/CI --output-on-failure
+        run: ctest --preset linux-gnu-debug
