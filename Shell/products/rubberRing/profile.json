@@ -1,0 +1,89 @@
+{
+  "schemaVersion": {"major": 1, "minor": 0},
+  "id": "rubber-ring",
+  "name": "Rubber Ring Inspection",
+  "sources": [
+    {
+      "id": "ring-front",
+      "type": "directory",
+      "role": "offline replay",
+      "directory": "image",
+      "extensions": [".ppm"],
+      "loop": true,
+      "frameIntervalMilliseconds": 50
+    }
+  ],
+  "model": {
+    "packagePath": "model",
+    "backendId": "openvino",
+    "device": "CPU",
+    "pluginDirectory": "../../plugins"
+  },
+  "pipeline": {
+    "resizeShortSide": 224,
+    "cropWidth": 224,
+    "cropHeight": 224,
+    "mean": [0.449, 0.449, 0.449],
+    "standardDeviation": [0.226, 0.226, 0.226],
+    "threshold": 2.0,
+    "maxBatchSize": 1,
+    "flushTimeoutMilliseconds": 20,
+    "queueCapacity": 16,
+    "queueFullPolicy": "block"
+  },
+  "endpoints": [
+    {"name": "session.start"},
+    {"name": "session.stop"},
+    {"name": "session.state"},
+    {"name": "session.summary"},
+    {"name": "metrics.performance"},
+    {"name": "stream.ring-front"}
+  ],
+  "ui": {
+    "pages": [
+      {
+        "id": "monitor",
+        "title": "Monitor",
+        "layout": "row",
+        "children": [
+          {
+            "type": "imageView",
+            "endpoint": "stream.ring-front",
+            "width": 640,
+            "height": 480
+          },
+          {
+            "type": "column",
+            "children": [
+              {
+                "type": "stateCard",
+                "endpoint": "session.state",
+                "title": "Session State"
+              },
+              {
+                "type": "stateCard",
+                "endpoint": "session.summary",
+                "title": "Session Summary"
+              },
+              {
+                "type": "stateCard",
+                "endpoint": "metrics.performance",
+                "title": "Performance"
+              },
+              {
+                "type": "commandButton",
+                "endpoint": "session.start",
+                "label": "Start"
+              },
+              {
+                "type": "commandButton",
+                "endpoint": "session.stop",
+                "label": "Stop"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

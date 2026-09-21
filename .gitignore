@@ -1,5 +1,6 @@
 # CMake and build outputs
 /Build/
+/Publish/
 /CMakeFiles/
 /CMakeCache.txt
 /CTestTestfile.cmake
@@ -66,9 +67,12 @@ coverage.info
 
 # sample pictures and models
 model/
+model-source/
+image/
+*.bin
 *.onnx
 *.bmp
-*.jepg
+*.jpeg
 *.png
 
 # OS metadata

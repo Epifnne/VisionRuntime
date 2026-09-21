@@ -1,22 +1,21 @@
 #pragma once
 
 #include "backends/iInferenceBackend.hpp"
-#include "backends/openVinoBackend.hpp"
-#include "backends/tensorRtBackend.hpp"
+#include "backends/pluginInferenceBackend.hpp"
 #include "benchmark/anomalyCsvTimedPipeline.hpp"
 #include "camera/frameSourceFactory.hpp"
-#include "config/buildProfile.hpp"
 #include "config/deploymentConfig.hpp"
 #include "config/modelManifest.hpp"
+#include "config/modelPackageLoader.hpp"
+#include "logs/logger.hpp"
 #include "pipeline/pipelineBuilder.hpp"
-#include "postProcess/anomalyPostprocessor.hpp"
-#include "postProcess/anomalyThresholdPostprocessor.hpp"
-#include "preProcess/frameNodes/cvCenterCropNode.hpp"
-#include "preProcess/frameNodes/cvResizeNode.hpp"
-#include "preProcess/frameNodes/toTensorNode.hpp"
-#include "preProcess/iPreProcessor.hpp"
-#include "preProcess/preprocessChain.hpp"
-#include "preProcess/tensorNodes/normalizeNode.hpp"
+#include "postprocess/anomalyThresholdPostprocessor.hpp"
+#include "preprocess/frameNodes/cvCenterCropNode.hpp"
+#include "preprocess/frameNodes/cvResizeNode.hpp"
+#include "preprocess/frameNodes/toTensorNode.hpp"
+#include "preprocess/iPreProcessor.hpp"
+#include "preprocess/preprocessChain.hpp"
+#include "preprocess/tensorNodes/normalizeNode.hpp"
 #include "runtime/runtimeFactory.hpp"
 #include "vision/anomalyResult.hpp"
 
@@ -27,53 +26,13 @@
 
 namespace visionRuntime::runtime::presets {
 
-[[nodiscard]] inline config::ModelManifest anomalyModelManifest() {
-	return {
-		.inputs = {{
-			.name = "image",
-			.elementType = config::TensorElementType::Float32,
-			.layout = config::TensorLayout::Nchw,
-			.shape = {1, 1, 224, 224},
-		}},
-		.outputs = {{
-			.name = "score",
-			.elementType = config::TensorElementType::Float32,
-			.layout = config::TensorLayout::Scalar,
-			.shape = {1},
-		}},
-	};
-}
-
-[[nodiscard]] inline config::ModelManifest patchCoreAnomalyModelManifest() {
-	return {
-		.inputs = {{
-			.name = "images",
-			.elementType = config::TensorElementType::Float32,
-			.layout = config::TensorLayout::Nchw,
-			.shape = {1, 1, 224, 224},
-		}},
-		.outputs = {{
-			.name = "/Reshape_10_output_0",
-			.elementType = config::TensorElementType::Float32,
-			.layout = config::TensorLayout::Embedding,
-			.shape = {1, 784, 1024},
-		}},
-	};
-}
-
 struct AnomalyModelOptions {
-	std::filesystem::path path;
-	std::filesystem::path memoryBankPath;
-	config::ModelManifest manifest = anomalyModelManifest();
-	std::string device = "CPU";
-	std::size_t inferenceThreads = 0;
-	int cudaDeviceIndex = 0;
-	std::size_t optimizationProfile = 0;
+	std::filesystem::path packagePath;
 };
 
 struct AnomalyRuntimeOptions {
 	camera::FrameSourceConfig source = camera::FileFrameSourceConfig{};
-	AnomalyModelOptions model;
+	AnomalyModelOptions model{};
 	float threshold = 0.5F;
 	bool timed = false;
 	benchmark::TimingOutputPath timingOutput =
@@ -86,10 +45,7 @@ struct AnomalyRuntimeOptions {
 			.stageQueueCapacity = 2,
 		},
 	};
-	executor::CompletionCallback<vision::AnomalyResult> callback;
-	std::unique_ptr<preprocess::IPreprocessor> preprocessor;
-	std::unique_ptr<backends::IInferenceBackend> backend;
-	std::unique_ptr<postprocess::IPostprocessor<vision::AnomalyResult>> postprocessor;
+	executor::CompletionCallback<vision::AnomalyResult> callback{};
 };
 
 class AnomalyPreset {
@@ -98,13 +54,26 @@ public:
 	using Session = RuntimeSession<vision::AnomalyResult>;
 
 	[[nodiscard]] static core::Result<std::unique_ptr<Session>> create(Options options) {
-		auto manifestStatus = validateManifest(options.model.manifest);
+		if (!std::isfinite(options.threshold)) {
+			return failure("anomaly threshold must be finite");
+		}
+		if (options.deployment.backend.id.empty() ||
+			options.deployment.backend.device.empty() ||
+			options.deployment.backend.pluginDirectory.empty()) {
+			return failure("backend deployment requires pluginDirectory, id, and device");
+		}
+		auto package = config::ModelPackageLoader::load(options.model.packagePath);
+		if (!package) {
+			return core::Result<std::unique_ptr<Session>>::failure(package.status());
+		}
+		auto manifestStatus = validateManifest(package->manifest());
 		if (!manifestStatus) {
 			return core::Result<std::unique_ptr<Session>>::failure(
 				manifestStatus.status());
 		}
-		if (!std::isfinite(options.threshold)) {
-			return failure("anomaly threshold must be finite");
+		auto selected = package->selectArtifact(options.deployment.backend);
+		if (!selected) {
+			return core::Result<std::unique_ptr<Session>>::failure(selected.status());
 		}
 
 		auto sourceResult = camera::FrameSourceFactory::create(options.source);
@@ -113,81 +82,52 @@ public:
 		}
 		auto source = std::move(sourceResult).value();
 		const auto frameCount = source->info().expectedFrameCount;
+		const auto& manifest = package->manifest();
 
-		auto preprocessor = std::move(options.preprocessor);
-		if (!preprocessor) {
-			preprocess::ToTensorOptions toTensorOptions{
-				.tensorName = options.model.manifest.inputs.front().name,
-				.bufferCount = options.deployment.executor.stageQueueCapacity + 2,
-				.channels = 1,
-			};
-			preprocess::NormalizeOptions normalizeOptions{
-				.mean = {0.449F},
-				.standardDeviation = {0.226F},
-			};
-			auto built = preprocess::PreprocessBuilder::start<vision::Frame>()
-				.then(preprocess::CvResize::shortSide(256))
-				.then(preprocess::CvCenterCrop({224, 224}))
-				.then(preprocess::ToTensor(std::move(toTensorOptions)))
-				.then(preprocess::Normalize(std::move(normalizeOptions)))
-				.build();
-			if (!built) {
-				return core::Result<std::unique_ptr<Session>>::failure(built.status());
-			}
-			preprocessor = std::move(built).value();
+		preprocess::ToTensorOptions toTensorOptions{
+			.tensorName = manifest.inputs.front().name,
+			.bufferCount = options.deployment.executor.stageQueueCapacity + 2,
+			.channels = 1,
+		};
+		preprocess::NormalizeOptions normalizeOptions{
+			.mean = {0.449F},
+			.standardDeviation = {0.226F},
+		};
+		auto builtPreprocessor = preprocess::PreprocessBuilder::start<vision::Frame>()
+			.then(preprocess::CvResize::shortSide(256))
+			.then(preprocess::CvCenterCrop({224, 224}))
+			.then(preprocess::ToTensor(std::move(toTensorOptions)))
+			.then(preprocess::Normalize(std::move(normalizeOptions)))
+			.build();
+		if (!builtPreprocessor) {
+			return core::Result<std::unique_ptr<Session>>::failure(builtPreprocessor.status());
 		}
+		auto preprocessor = std::move(builtPreprocessor).value();
 
-		auto backend = std::move(options.backend);
-		if (!backend) {
-			if constexpr (config::BuildProfile::inferencePlatform ==
-				config::InferencePlatform::OpenVinoIntel) {
-				auto built = backends::OpenVinoBackend::create({
-					.modelPath = std::move(options.model.path),
-					.device = std::move(options.model.device),
-					.inputName = options.model.manifest.inputs.front().name,
-					.outputName = options.model.manifest.outputs.front().name,
-					.inferenceThreads = options.model.inferenceThreads,
-				});
-				if (!built) {
-					return core::Result<std::unique_ptr<Session>>::failure(built.status());
-				}
-				backend = std::move(built).value();
-			} else if constexpr (config::BuildProfile::inferencePlatform ==
-				config::InferencePlatform::TensorRtNvidia) {
-				auto built = backends::TensorRtBackend::create({
-					.enginePath = std::move(options.model.path),
-					.inputName = options.model.manifest.inputs.front().name,
-					.outputName = options.model.manifest.outputs.front().name,
-					.deviceIndex = options.model.cudaDeviceIndex,
-					.optimizationProfile = options.model.optimizationProfile,
-				});
-				if (!built) {
-					return core::Result<std::unique_ptr<Session>>::failure(built.status());
-				}
-				backend = std::move(built).value();
-			} else {
-				return failure("no inference backend is compiled into this runtime");
-			}
+		auto builtBackend = backends::PluginInferenceBackend::create({
+			.pluginPath = backends::backendPluginPath(
+				options.deployment.backend.pluginDirectory, options.deployment.backend.id),
+			.backendId = options.deployment.backend.id,
+			.artifactPath = selected->artifactPath,
+			.device = selected->device,
+			.optionsJson = selected->optionsJson,
+			.artifactKind = selected->artifactKind,
+			.inputName = manifest.inputs.front().name,
+			.outputName = manifest.outputs.front().name,
+		});
+		if (!builtBackend) {
+			return core::Result<std::unique_ptr<Session>>::failure(builtBackend.status());
 		}
+		auto backend = std::move(builtBackend).value();
 
-		auto postprocessor = std::move(options.postprocessor);
-		if (!postprocessor) {
-			auto score = postprocess::AnomalyPostprocessor::create({
-				.outputName = options.model.manifest.outputs.front().name,
-				.memoryBankPath = std::move(options.model.memoryBankPath),
-				.embeddingDimension =
-					options.model.manifest.outputs.front().shape.back(),
-			});
-			if (!score) {
-				return core::Result<std::unique_ptr<Session>>::failure(score.status());
-			}
-			auto threshold = postprocess::AnomalyThresholdPostprocessor::create(
-				std::move(score).value(), {.threshold = options.threshold});
-			if (!threshold) {
-				return core::Result<std::unique_ptr<Session>>::failure(threshold.status());
-			}
-			postprocessor = std::move(threshold).value();
+		auto builtPostprocessor = postprocess::AnomalyThresholdPostprocessor::create({
+			.outputName = manifest.outputs.front().name,
+			.threshold = options.threshold,
+		});
+		if (!builtPostprocessor) {
+			return core::Result<std::unique_ptr<Session>>::failure(builtPostprocessor.status());
 		}
+		auto postprocessor = std::move(builtPostprocessor).value();
 
 		pipeline::PipelineBuilder<vision::AnomalyResult> builder;
 		auto pipelineResult = builder
@@ -227,34 +167,33 @@ private:
 		const auto& input = manifest.inputs.front();
 		if (input.name.empty() || input.elementType != config::TensorElementType::Float32 ||
 			input.layout != config::TensorLayout::Nchw ||
-			input.shape != std::vector<std::size_t>{1, 1, 224, 224}) {
+			input.shape.size() != 4 || input.shape[0] == 0 ||
+			input.shape[1] != 1 || input.shape[2] != 224 || input.shape[3] != 224) {
 			return invalidManifest(
-				"anomaly preset input must be Float32 NCHW [1,1,224,224]");
+				"anomaly preset input must be Float32 NCHW [N,1,224,224]");
 		}
 		const auto& output = manifest.outputs.front();
-		const auto scalarOutput = output.layout == config::TensorLayout::Scalar &&
-			output.shape == std::vector<std::size_t>{1};
-		const auto embeddingOutput = output.layout == config::TensorLayout::Embedding &&
-			output.shape.size() == 3 && output.shape[0] == 1 &&
-			output.shape[1] > 0 && output.shape[2] > 0;
 		if (output.name.empty() ||
 			output.elementType != config::TensorElementType::Float32 ||
-			(!scalarOutput && !embeddingOutput)) {
+			output.layout != config::TensorLayout::Scalar ||
+			output.shape != std::vector<std::size_t>{1}) {
 			return invalidManifest(
-				"anomaly preset output must be a Float32 scalar [1] or embedding [1,N,D]");
+				"anomaly preset output must be a Float32 scalar [1]");
 		}
 		return core::Result<void>::success();
 	}
 
 	[[nodiscard]] static core::Result<void> invalidManifest(const char* message) {
-		return core::Result<void>::failure(
-			core::Status::error(core::StatusCode::InvalidArgument, message));
+		auto status = core::Status::error(core::StatusCode::InvalidArgument, message);
+		logs::report(status);
+		return core::Result<void>::failure(std::move(status));
 	}
 
 	[[nodiscard]] static core::Result<std::unique_ptr<Session>> failure(
 		const char* message) {
-		return core::Result<std::unique_ptr<Session>>::failure(
-			core::Status::error(core::StatusCode::InvalidArgument, message));
+		auto status = core::Status::error(core::StatusCode::InvalidArgument, message);
+		logs::report(status);
+		return core::Result<std::unique_ptr<Session>>::failure(std::move(status));
 	}
 };
 

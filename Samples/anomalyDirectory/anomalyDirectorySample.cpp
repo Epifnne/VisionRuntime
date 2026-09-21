@@ -1,18 +1,21 @@
 #include <visionruntime>
 
-#include "runtime/presets/anomalyPreset.hpp"
-
 #include <filesystem>
 #include <iostream>
 
 int main(int argc, char* argv[]) {
-	if (argc != 2) {
-		std::cerr << "usage: anomalyDirectorySample <benchmark.csv>\n";
+	if (argc != 4) {
+		std::cerr << "usage: anomalyDirectorySample <benchmark.csv> <model-package> "
+			"<deployment.json>\n";
 		return 1;
 	}
 
 	using namespace visionRuntime;
-	auto session = runtime::RuntimeFactory::createFromPreset<
+	auto deployment = config::ConfigLoader::loadDeployment(argv[3]);
+	if (!deployment) {
+		return 1;
+	}
+	auto sessionResult = runtime::RuntimeFactory::createFromPreset<
 		runtime::presets::AnomalyPreset>({
 		.source = camera::FileFrameSourceConfig{
 			.source = {
@@ -20,38 +23,23 @@ int main(int argc, char* argv[]) {
 			},
 		},
 		.model = {
-			.path = "model/model-fp32.engine",
-			.manifest = {
-				.inputs = {{
-					.name = "images",
-					.elementType = config::TensorElementType::Float32,
-					.layout = config::TensorLayout::Nchw,
-					.shape = {1, 1, 224, 224},
-				}},
-				.outputs = {{
-					.name = "score",
-					.elementType = config::TensorElementType::Float32,
-					.layout = config::TensorLayout::Scalar,
-					.shape = {1},
-				}},
-			},
-			.inferenceThreads = 8,
+			.packagePath = argv[2],
 		},
 		.threshold = 2.0F,
 		.timed = true,
 		.timingOutput = benchmark::TimingOutputPath::file(
 			std::filesystem::path{argv[1]}),
-		.deployment = {
-			.executor = {
-				.performancePolicy = config::PerformancePolicy::Serial,
-				.queueFullPolicy = config::QueueFullPolicy::Block,
-				.queueCapacity = 16,
-				.stageQueueCapacity = 1,
-			},
-		},
+		.deployment = std::move(deployment).value(),
 		.callback = [](executor::TaskId,
 			const core::Result<vision::AnomalyResult>&) {},
-	}).value();
-	session->start().value();
+	});
+	if (!sessionResult) {
+		return 1;
+	}
+	auto session = std::move(sessionResult).value();
+	auto startResult = session->start();
+	if (!startResult) {
+		return 1;
+	}
 	static_cast<void>(session->wait());
 }

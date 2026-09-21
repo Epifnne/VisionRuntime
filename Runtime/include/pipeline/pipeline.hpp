@@ -2,16 +2,18 @@
 
 #include "backends/iInferenceBackend.hpp"
 #include "core/result.hpp"
+#include "pipeline/batchTensors.hpp"
 #include "pipeline/inferenceOutput.hpp"
 #include "pipeline/iStagedVisionPipeline.hpp"
 #include "pipeline/iVisionPipeline.hpp"
-#include "postProcess/iPostProcessor.hpp"
-#include "preProcess/iPreProcessor.hpp"
+#include "postprocess/iPostProcessor.hpp"
+#include "preprocess/iPreProcessor.hpp"
 
 #include <exception>
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace visionRuntime::pipeline {
 
@@ -89,6 +91,44 @@ public:
 			return core::Result<ResultType>::failure(output.status());
 		}
 		return postprocess(std::move(output).value());
+	}
+
+	[[nodiscard]] core::Result<std::vector<InferenceOutput>> inferBatch(
+		std::vector<preprocess::PreparedInput> inputs) override {
+		try {
+			auto batch = concatBatchTensors(inputs);
+			if (!batch) {
+				return core::Result<std::vector<InferenceOutput>>::failure(
+					batch.status().withContext("inference"));
+			}
+			const auto batchSize = inputs.size();
+			auto outputs = backend_->infer(batch.value());
+			if (!outputs) {
+				return core::Result<std::vector<InferenceOutput>>::failure(
+					outputs.status().withContext("inference"));
+			}
+			auto perSample = splitBatchOutputs(outputs.value(), batchSize);
+			if (!perSample) {
+				return core::Result<std::vector<InferenceOutput>>::failure(
+					perSample.status().withContext("inference"));
+			}
+			std::vector<InferenceOutput> results;
+			results.reserve(batchSize);
+			for (std::size_t index = 0; index < batchSize; ++index) {
+				results.emplace_back(
+					std::move(inputs[index].packet()),
+					std::move(perSample.value()[index]),
+					inputs[index].transformContext());
+			}
+			return core::Result<std::vector<InferenceOutput>>::success(
+				std::move(results));
+		} catch (const std::exception& exception) {
+			return exceptionFailure<std::vector<InferenceOutput>>(
+				"inference", exception.what());
+		} catch (...) {
+			return exceptionFailure<std::vector<InferenceOutput>>(
+				"inference", "unknown exception");
+		}
 	}
 
 private:

@@ -21,10 +21,12 @@ class PipelinePacket {
 public:
 	explicit PipelinePacket(
 		vision::Frame cameraFrame,
-		PipelineOwnershipOptions ownershipOptions = {})
+		PipelineOwnershipOptions ownershipOptions = {},
+		std::optional<std::uint32_t> sourceId = std::nullopt)
 		: cameraFrame_(std::move(cameraFrame)),
 		  ownershipOptions_(ownershipOptions),
-		  executionId_(nextExecutionId_.fetch_add(1)) {}
+		  executionId_(nextExecutionId_.fetch_add(1)),
+		  sourceId_(sourceId) {}
 
 	PipelinePacket(const PipelinePacket&) = delete;
 	PipelinePacket& operator=(const PipelinePacket&) = delete;
@@ -32,7 +34,8 @@ public:
 		: cameraFrame_(std::exchange(other.cameraFrame_, std::nullopt)),
 		  businessFrame_(std::exchange(other.businessFrame_, std::nullopt)),
 		  ownershipOptions_(other.ownershipOptions_),
-		  executionId_(other.executionId_) {}
+		  executionId_(other.executionId_),
+		  sourceId_(other.sourceId_) {}
 
 	PipelinePacket& operator=(PipelinePacket&& other) noexcept {
 		if (this != &other) {
@@ -40,6 +43,7 @@ public:
 			businessFrame_ = std::exchange(other.businessFrame_, std::nullopt);
 			ownershipOptions_ = other.ownershipOptions_;
 			executionId_ = other.executionId_;
+			sourceId_ = other.sourceId_;
 		}
 		return *this;
 	}
@@ -50,6 +54,14 @@ public:
 
 	[[nodiscard]] std::uint64_t executionId() const noexcept {
 		return executionId_;
+	}
+
+	[[nodiscard]] std::optional<std::uint32_t> sourceId() const noexcept {
+		return sourceId_;
+	}
+
+	void setSourceId(std::optional<std::uint32_t> sourceId) noexcept {
+		sourceId_ = sourceId;
 	}
 
 	[[nodiscard]] bool hasCameraFrame() const noexcept {
@@ -99,6 +111,7 @@ private:
 	std::optional<vision::Frame> businessFrame_;
 	PipelineOwnershipOptions ownershipOptions_;
 	std::uint64_t executionId_ = 0;
+	std::optional<std::uint32_t> sourceId_;
 	inline static std::atomic_uint64_t nextExecutionId_{1};
 };
 

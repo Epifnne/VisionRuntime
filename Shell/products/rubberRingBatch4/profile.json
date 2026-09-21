@@ -1,0 +1,155 @@
+{
+  "schemaVersion": {"major": 1, "minor": 0},
+  "id": "rubber-ring-batch4",
+  "name": "Rubber Ring Inspection (4-source batch benchmark)",
+  "sources": [
+    {
+      "id": "ring-0",
+      "type": "directory",
+      "role": "simulated camera 0",
+      "directory": "../rubberRing/image",
+      "extensions": [".ppm"],
+      "loop": true,
+      "frameIntervalMilliseconds": 0
+    },
+    {
+      "id": "ring-1",
+      "type": "directory",
+      "role": "simulated camera 1",
+      "directory": "../rubberRing/image",
+      "extensions": [".ppm"],
+      "loop": true,
+      "frameIntervalMilliseconds": 0
+    },
+    {
+      "id": "ring-2",
+      "type": "directory",
+      "role": "simulated camera 2",
+      "directory": "../rubberRing/image",
+      "extensions": [".ppm"],
+      "loop": true,
+      "frameIntervalMilliseconds": 0
+    },
+    {
+      "id": "ring-3",
+      "type": "directory",
+      "role": "simulated camera 3",
+      "directory": "../rubberRing/image",
+      "extensions": [".ppm"],
+      "loop": true,
+      "frameIntervalMilliseconds": 0
+    }
+  ],
+  "model": {
+    "packagePath": "model",
+    "backendId": "openvino",
+    "device": "CPU",
+    "pluginDirectory": "../../plugins"
+  },
+  "pipeline": {
+    "resizeShortSide": 224,
+    "cropWidth": 224,
+    "cropHeight": 224,
+    "mean": [0.449, 0.449, 0.449],
+    "standardDeviation": [0.226, 0.226, 0.226],
+    "threshold": 2.0,
+    "maxBatchSize": 4,
+    "flushTimeoutMilliseconds": 30,
+    "queueCapacity": 64,
+    "stageQueueCapacity": 32,
+    "queueFullPolicy": "block"
+  },
+  "endpoints": [
+    {"name": "session.start"},
+    {"name": "session.stop"},
+    {"name": "session.state"},
+    {"name": "session.summary"},
+    {"name": "metrics.performance"},
+    {"name": "stream.ring-0"},
+    {"name": "stream.ring-1"},
+    {"name": "stream.ring-2"},
+    {"name": "stream.ring-3"}
+  ],
+  "ui": {
+    "pages": [
+      {
+        "id": "monitor",
+        "title": "Monitor",
+        "layout": "column",
+        "children": [
+          {
+            "type": "row",
+            "fillWidth": true,
+            "children": [
+              {
+                "type": "commandButton",
+                "endpoint": "session.start",
+                "label": "Start"
+              },
+              {
+                "type": "commandButton",
+                "endpoint": "session.stop",
+                "label": "Stop"
+              },
+              {
+                "type": "stateCard",
+                "endpoint": "session.state",
+                "title": "State",
+                "fillWidth": true
+              },
+              {
+                "type": "statNumber",
+                "endpoint": "session.summary",
+                "field": "completed",
+                "title": "Completed"
+              },
+              {
+                "type": "statNumber",
+                "endpoint": "metrics.performance",
+                "field": "framesPerSecond",
+                "title": "Pipeline FPS"
+              },
+              {
+                "type": "statNumber",
+                "endpoint": "metrics.performance",
+                "field": "stageP95Milliseconds",
+                "title": "Stage p95 ms"
+              }
+            ]
+          },
+          {
+            "type": "row",
+            "fillWidth": true,
+            "fillHeight": true,
+            "children": [
+              {
+                "type": "imageView",
+                "endpoint": "stream.ring-0",
+                "fillWidth": true,
+                "fillHeight": true
+              },
+              {
+                "type": "imageView",
+                "endpoint": "stream.ring-1",
+                "fillWidth": true,
+                "fillHeight": true
+              },
+              {
+                "type": "imageView",
+                "endpoint": "stream.ring-2",
+                "fillWidth": true,
+                "fillHeight": true
+              },
+              {
+                "type": "imageView",
+                "endpoint": "stream.ring-3",
+                "fillWidth": true,
+                "fillHeight": true
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

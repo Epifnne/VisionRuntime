@@ -3,6 +3,7 @@
 #include "camera/iFrameSource.hpp"
 #include "core/result.hpp"
 #include "executor/iPipelineExecutor.hpp"
+#include "logs/logger.hpp"
 
 #include <chrono>
 #include <condition_variable>
@@ -110,6 +111,7 @@ public:
 		if (!started) {
 			requestStop(StopMode::Immediate);
 			static_cast<void>(wait());
+			logs::report(started.status());
 			return started;
 		}
 		return core::Result<void>::success();
@@ -162,7 +164,9 @@ private:
 	[[nodiscard]] static core::Result<void> failure(
 		core::StatusCode code,
 		const char* message) {
-		return core::Result<void>::failure(core::Status::error(code, message));
+		auto status = core::Status::error(code, message);
+		logs::report(status);
+		return core::Result<void>::failure(std::move(status));
 	}
 
 	void onFrame(core::Result<vision::Frame> frame) noexcept {
@@ -176,9 +180,14 @@ private:
 
 		bool stopForFailure = false;
 		if (!frame) {
+			bool stopping;
 			{
 				std::lock_guard lock(stateMutex_);
 				++summary_.sourceFailures;
+				stopping = stopRequested_;
+			}
+			if (!stopping) {
+				logs::report(frame.status());
 			}
 			invokeStatusCallback(options_.sourceFailureCallback, frame.status());
 			stopForFailure = options_.sourceFailurePolicy == SourceFailurePolicy::Stop;
@@ -211,6 +220,7 @@ private:
 					stopForFailure = !stopRequested_;
 				}
 				if (stopForFailure) {
+					logs::report(submitted.status());
 					invokeStatusCallback(
 						options_.sourceFailureCallback, submitted.status());
 				}

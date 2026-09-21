@@ -141,24 +141,23 @@ Camera Frame
 
 ### 3.4 backends
 
-`IInferenceBackend` 只抽象模型执行引擎，统一以下生命周期：
+`IInferenceBackend` 只抽象已经由插件创建完成的模型执行：
 
 ```text
-prepare(ModelArtifact, options) -> PreparedModel
-infer(PreparedModel, TensorMap) -> TensorMap
+infer(TensorMap) -> TensorMap
 ```
 
-`ModelArtifact` 是经过模型包校验后交给已编译后端的目标制品，不要求所有后端直接消费 ONNX：OpenVINO 首版接收 IR 或兼容制品，TensorRT 首版接收预构建 Engine。
+`PluginInferenceBackend` 是核心侧唯一厂商无关实现：deployment 解析插件路径，模型包解析唯一 artifact，核心通过稳定 C ABI 创建 opaque backend handle。`ModelPackage` 和 deployment 完成模型制品、backend id、device 与端口名的校验；插件内部再按自身 contract 准备模型，不要求所有后端直接消费 ONNX：OpenVINO 接收 IR 或 ONNX，TensorRT 接收预构建 Engine。
 
 - ONNX Runtime 直接创建 Session。
 - OpenVINO 从模型包中的 IR 读取模型，并通过 C++ Runtime 编译到所选 Intel CPU、GPU 或 NPU；也可导入兼容环境预编译的制品。
 - TensorRT 首版加载 Engine；ONNX Parser、Builder 与缓存工具属于后续增量。
 
-当前 OpenVINO 纵向增量使用 C API 隔离 ABI，只在 `OPENVINO_INTEL` Profile 下编译。它接收单个连续 host Float32 Tensor，通过一个同步 `InferRequest` 执行单输入、单输出模型，并将 Float32 输出复制到框架 `TensorMap`。当前 sample 产物由 `VISION_OPENVINO_DEVICE` 固定打包 CPU、GPU 或 NPU 中的一个设备插件，由 `VISION_MODEL_ARTIFACT_TYPE` 固定打包 ONNX 或 IR frontend；运行时不能切换到未打包能力。多输入、多输出、非 Float32、请求池、缓存及模型包准备生命周期仍属于后续增量。
+当前 OpenVINO 插件使用厂商 C API 隔离其实现细节，并作为 `vision-backend-openvino` 独立 shared library 构建。它接收单个连续 host Float32 Tensor，通过一个同步 `InferRequest` 执行单输入、单输出模型，并将 Float32 输出写入核心分配的输出 Tensor。多输入、多输出、非 Float32、请求池和缓存生命周期仍属于后续增量。
 
-TensorRT 纵向增量只在 `TENSORRT_NVIDIA` Profile 下编译。它通过 TensorRT 10 name-based API 加载 Engine，支持选择 optimization profile，并在每次推理时设置动态输入 shape、解析动态输出 shape、复用 CUDA device buffer，通过单一 stream 执行 H2D、`enqueueV3` 和 D2H。首版限制为单输入、单输出和 Float32；Engine 必须与目标 GPU、TensorRT 和 CUDA 环境兼容。
+TensorRT 插件作为 `vision-backend-tensorrt` 独立 shared library 构建。它通过 TensorRT 10 name-based API 加载 Engine，支持选择 optimization profile，并在每次推理时设置动态输入 shape、解析动态输出 shape、复用 CUDA device buffer，通过单一 stream 执行 H2D、`enqueueV3` 和 D2H。首版限制为单输入、单输出和 Float32；Engine 必须与目标 GPU、TensorRT 和 CUDA 环境兼容。
 
-后端专用对象只能出现在各自实现中，不进入 `core`、`vision` 或公共 Pipeline API。推理平台族由 CMake 在配置期唯一确定，部署配置不得切换到未编入程序的后端，也不进行静默回退。平台 Profile 声明支持的设备类型、精度、动态 shape 和内存能力，Pipeline 与模型清单据此尽早拒绝不兼容组合。
+后端专用对象只能出现在各自插件实现中，不进入 `core`、`vision` 或公共 Pipeline API。推理后端由 deployment 中的插件目录、backend id 和 device 在运行时唯一确定；模型包声明候选制品，运行时只接受恰好一个匹配制品，不进行静默回退。平台描述文件声明支持的设备类型、精度、动态 shape 和内存能力，Pipeline 与模型清单据此尽早拒绝不兼容组合。
 
 纯 OpenCV 算法不实现 `IInferenceBackend`，避免把图像和强类型结果伪装成模型张量。它通过 `IOpenCvAlgorithm<ResultType>` 接入独立的 `OpenCvPipeline<ResultType>`。
 
@@ -171,9 +170,9 @@ TensorRT 纵向增量只在 `TENSORRT_NVIDIA` Profile 下编译。它通过 Tens
 
 ### 3.5 postprocess
 
-后处理模块把原始 `TensorMap` 转换为标准强类型结果。当前 `AnomalyPostprocessor` 支持两种 Float32 输出契约：标量 `[1]` 直接读取首元素作为图像级 score；PatchCore embedding `[1,N,D]` 从原始 Float32 memory bank 构建 FAISS `IndexFlatL2` 索引，对每个 patch 查询一个最近邻，并取最大平方 L2 距离作为图像级 score。memory bank 文件必须非空、按 `D` 维完整对齐；模型清单中的 embedding 维度是加载和查询的共同契约。
+后处理模块把原始 `TensorMap` 转换为标准强类型结果。异常 preset 要求模型直接输出 Float32 scalar `[1]` 图像级 score；`AnomalyThresholdPostprocessor` 读取该标量并按可配置阈值生成 `AnomalyResult`。
 
-两种路径随后都按可配置阈值生成 `AnomalyResult`。当前 embedding 路径只聚合图像级分数，不保留 patch 距离图；热力图缩放、坐标反向映射和缺陷区域提取尚未实现，随后再增加分类和检测。
+当前 preset 不执行 memory bank 最近邻检索，不保留 patch 距离图；热力图缩放、坐标反向映射和缺陷区域提取尚未实现，随后再增加分类和检测。
 
 自定义任务可以实现 `IPostprocessor<ResultType>`，也可以直接取得原始 `TensorMap`。
 
@@ -192,7 +191,7 @@ IVisionPipeline<ResultType>
 
 `ModelPipelineBuilder` 和 `OpenCvPipelineBuilder` 负责类型正确的组装。Executor 和 Runtime 只依赖 `IVisionPipeline<ResultType>`，无需判断任务由推理引擎还是 OpenCV 实现。模型路径使用 `TensorMap` 作为前处理、推理和后处理之间的数据契约；OpenCV 路径直接读取 `PipelinePacket` 并返回强类型结果。
 
-首版不实现 DAG、多模型串并联和运行时插件系统，避免过早引入图调度及稳定 ABI 问题。
+首版不实现 DAG、多模型串并联，也不提供后端热替换或自动择优；推理后端通过稳定 C ABI 插件加载，避免把图调度和厂商对象引入公共 Pipeline。
 
 Pipeline 使用 move-only `PipelinePacket` 在线性阶段间移交图像，不允许隐式复制 `Frame`。图像缓冲采用两段生命周期：
 
@@ -245,11 +244,22 @@ Executor 在 Pipeline 之上提供在线调度：
 - 所有工作线程和用户 callback 只能请求停止；只有外部控制线程调用 `wait()` 并按 Source、Executor 内部阶段、CompletionDispatcher、Timer 的所有权层级回收线程。
 - 框架不提供 shutdown timeout、线程强杀或进程终止。不可取消的第三方调用或永久阻塞 callback 会使 `wait()` 与析构持续阻塞，最终强制退出由应用或操作系统负责。
 
-`IVisionPipeline` 保留整体 `run()` contract；可阶段化的模型 Pipeline 额外实现 `IStagedVisionPipeline`。`RuntimeFactory` 在选择并行策略时验证该 contract，不识别具体 Pipeline 类型；OpenCV 单阶段 Pipeline 配置并行策略时返回配置错误。工厂通过 `createRuntime()` 组合 source、pipeline、部署策略和帧执行选项，通过 `createExecutor()` 保留只构造调度层的高级入口。
+`IVisionPipeline` 保留整体 `run()` contract；可阶段化的模型 Pipeline 额外实现 `IStagedVisionPipeline`。`RuntimeFactory` 在选择并行策略时验证该 contract，不识别具体 Pipeline 类型；OpenCV 单阶段 Pipeline 配置并行策略时返回配置错误。工厂通过 `createRuntime()` 组合 source、pipeline、部署策略和帧执行选项，通过 `createExecutor()` 保留只构造调度层的高级入口，通过 `createBatchExecutor()` 构造批量推理执行器。
+
+### 3.7.1 多相机批量推理
+
+同模型多相机场景由 `MultiCameraSession<ResultType>` 与 `BatchPipelineExecutor<ResultType>` 协作提供：
+
+- `MultiCameraSession` 统一管理 N 个 `IFrameSource`，统一 `start()/requestStop()/wait()`；每个 source 按下标获得稳定 `sourceId`，帧提交前被烙印到 `PipelinePacket::sourceId()`，汇总 received/submitted/completed/failed/dropped 及 per-source 统计；任一 source 启动失败回滚已启动 source。
+- `BatchPipelineExecutor` 复用 `IStagedVisionPipeline` 的 preprocess/postprocess 阶段逐帧执行，推理阶段通过 `IStagedVisionPipeline::inferBatch` 一次处理整批：拼接/单次后端推理/切片由管线实现（`Pipeline::inferBatch`，共享 helpers 在 `pipeline/batchTensors.hpp`），执行器只负责凑批与超时 flush，不直接接触后端；`TimedPipeline::inferBatch` 将整批 wall time 全额记入每个成员的 inference 耗时（latency 口径），吞吐由 `BatchPerformance` 报告。
+- batch 成员 i 恒对应提交任务 i（FIFO），`TaskHandle`/future/callback 语义与单帧执行器一致；业务侧用提交回调闭包携带相机标识。
+- 聚合触发策略：凑满 `BatchInferenceOptions::maxBatchSize` 立即推理；`flushTimeout` 超时强制按当前数量推理（动态 batch，无零填充）；平滑停止排空已接受帧。
+- 后端契约：OpenVINO 插件 options JSON 设 `"dynamicBatch": true` 时在编译前将输入 batch 维 reshape 为动态；TensorRT 插件要求 engine 的 optimization profile maxBatch 覆盖配置值，create 时以 `"maxBatchSize"` 校验。注意 `dynamicBatch` reshape 只改输入端口：模型内部若有写死 batch=1 的 Reshape pattern（如部分 PatchCore 导出），推理时会因形状冲突失败；此类模型需在导出时直接生成动态 batch 维的 IR（参考 `Tools/createBatchBenchModel.py`）。
+- 单模型仅加载一次；预处理仍为逐帧 CPU 链，batch 内推理串行（单 InferRequest/单 context），不提供 request pool。
 
 提交异步任务时通过 move-only `Frame` 明确移交图像。底层 `TensorBuffer` 使用 lease 保证异步阶段访问期间内存有效；最后一个 Frame/Tensor 视图释放时自动归还所属池。`PipelineOwnershipOptions` 可分别配置相机帧和业务帧的释放阶段。
 
-该设计以稳定、可预测的资源占用为首版目标。若性能数据证明单通道吞吐不足，后续可以复制完整的 `PipelineRunner` 形成多通道；每个通道仍保持 SPSC 和单后端实例所有权，由 Executor 在通道间分发任务。多通道引入任务越序后，再增加有序重排和完成即交付策略。
+该设计以稳定、可预测的资源占用为首版目标。多相机批量推理已实现后，若性能数据证明仍需扩展，后续方向是后端 request pool / 多 context 并发、以及有序重排与完成即交付策略。
 
 ### 3.8 config
 
@@ -282,7 +292,7 @@ OpenCV 仅存在于 `FileSource` 的 `.cpp` 实现和私有链接依赖中，不
 
 `FrameBufferPool` 为需要 Runtime 自有内存的实时采集提供固定容量槽位，并复用 `core::TensorBufferPool` 的 lease 归还机制。厂商 SDK 自有 Buffer 不进入该池：适配器通过 `TensorBuffer::share()` 包装厂商 lease，最后一个 Frame/Buffer 视图释放时归还 SDK Buffer。视频文件源尚未实现，应与目录 `FileSource` 分开建模，避免混合有限图像序列和连续媒体流语义。
 
-`ICameraDevice` 与 `IFrameSource` 相互独立，负责软件触发、设备信息、能力、输出规格和底层取流生命周期；曝光、增益、触发等相机语义不污染文件或视频帧源。公共相机配置只使用 Runtime 类型，厂商句柄、错误码、像素枚举和 GenICam 节点字符串只存在于适配器实现。
+`ICameraDevice` 与 `IFrameSource` 相互独立，负责软件触发、运行时曝光/增益调参、设备信息、能力、输出规格和底层取流生命周期；曝光、增益、触发等相机语义不污染文件或视频帧源。运行时调参可在启动前或采集中调用，不支持调参的设备继承默认 `Unsupported` 实现。公共相机配置只使用 Runtime 类型，厂商句柄、错误码、像素枚举和 GenICam 节点字符串只存在于适配器实现。
 
 `ContinuousCameraSource` 持有通用 `ICameraDevice`，以 Continuous 模式启动并把可选 `frameRate` 原子传给设备；该值是设备真实采集帧率。`TimedTriggerSource` 以 SoftwareTrigger 模式启动设备并由独立调度线程立即触发首帧。下一次触发不得早于上一成功帧到达时刻加 `triggerInterval`，回调耗时计入间隔，但调度仍等待回调返回；任意时刻最多一个 trigger 在途。`responseTimeout`、触发失败或设备错误只交付一次终止错误并停止，设备错误在响应等待、回调后及 interval 期间都不能丢弃。
 
@@ -290,6 +300,7 @@ OpenCV 仅存在于 `FileSource` 的 `.cpp` 实现和私有链接依赖中，不
 
 - 枚举 GigE 与 USB 设备，单设备时允许自动选择，多设备时要求序列号。
 - 支持连续采集和软件触发；硬件触发、热插拔和断线重连尚未实现。
+- 支持运行时调参：`setExposureMicroseconds()`/`setGain()` 先关闭对应 Auto 模式再写 MVS 浮点节点，可在启动前或采集中调用；非法取值返回 `InvalidArgument`。
 - 专用取流线程使用有限超时调用 `MV_CC_GetImageBuffer`，停止请求不会永久阻塞在 SDK 内部。
 - 使用共享 `FrameLease` 持有完整 `MV_FRAME_OUT` 与设备状态，以只读 Host `TensorBuffer` 零拷贝构造 `Frame`；最后一个视图释放时调用 `MV_CC_FreeImageBuffer`。
 - Device、取流线程和所有 Frame lease 共享持有设备状态，确保所有 SDK Buffer 先归还，最后才执行 `MV_CC_CloseDevice` 与 `MV_CC_DestroyHandle`。
@@ -342,7 +353,6 @@ core + vision + preprocess + backends + postprocess
 class IInferenceBackend {
 public:
     virtual ~IInferenceBackend() = default;
-    virtual Result<void> prepare(const ModelSource&, const PrepareOptions&) = 0;
     virtual Result<TensorMap> infer(const TensorMap&) = 0;
 };
 
@@ -358,37 +368,38 @@ public:
 
 ## 6. 构建 Profile、模型包与转译
 
-### 6.1 编译期硬件选择
+### 6.1 编译期相机选择与后端插件
 
-CMake 是相机 SDK 与推理平台族的唯一选择入口：
+CMake 仍是相机 SDK 的唯一选择入口：
 
 ```cmake
 vision_add_runtime(inspectionRuntime
 	CAMERA HIK_MVS
-	PLATFORM OPENVINO_INTEL
 )
 ```
 
-配置过程负责校验组合、选择源文件和 imported targets，并生成 `buildProfile.hpp`。生成头文件提供 `SelectedCamera`、`SelectedPlatform` 和 `SelectedRuntime` 等类型别名；业务代码不重复声明厂商，也不直接包含厂商 SDK。`OPENVINO_INTEL` 是平台族；当前 sample 在构建时进一步固定一个 CPU、GPU 或 NPU 部署设备并只携带对应插件。未来通用发布包若需要运行时设备切换，必须显式打包允许的插件集合并按 Profile 校验，不进行静默回退。
+配置过程校验相机组合、选择源文件和 imported targets，并生成只包含相机能力的 `buildProfile.hpp`。业务代码不重复声明相机厂商，也不直接包含相机 SDK。
 
-当前第一阶段已实现 `VISION_CAMERA_SDK`、`VISION_INFERENCE_PLATFORM` 缓存入口、`vision_add_runtime` 参数校验，以及 `config/buildProfile.hpp` 中的 `SelectedCamera`、`SelectedPlatform` 和能力描述。`NONE/NONE` 是无厂商 SDK 的核心测试 Profile。当前 `NONE`/`HIK_MVS` 与 `NONE`/`OPENVINO_INTEL` 的四种组合均受支持；选择厂商项时配置过程要求对应 SDK 完整可用。OpenVINO、TensorRT、ONNX Runtime 和海康 MVS 通过独立 imported target 隔离，未选择的厂商依赖不参与编译和链接。`SelectedRuntime` 和按 Profile 选择具体适配器源文件要在对应适配器可构造后接入，不能提前生成空壳厂商对象。
+推理后端不再通过推理平台 Profile 编进核心 Runtime。OpenVINO 和 TensorRT 分别由 `VISION_BUILD_OPENVINO_PLUGIN`、`VISION_BUILD_TENSORRT_PLUGIN` 独立构建为 C ABI 插件；`vision_target_runtime(... BACKEND_PLUGINS ...)` 只声明随应用交付的插件集合。运行时由 `deployment.json` 的 `pluginDirectory`、`backend.id` 和 `backend.device` 唯一选择插件，并由模型包选择唯一匹配制品，不进行静默回退。
 
-新增相机或推理平台时必须提供独立适配器、CMake 依赖目标、能力 Profile 和契约测试，不使用预处理宏把多家 SDK 分支散布到公共代码。
+新增相机时必须提供独立适配器、CMake 依赖目标、能力 Profile 和契约测试；新增后端时必须提供独立插件、ABI contract 测试和部署规则，不使用预处理宏把多家 SDK 分支散布到公共代码。
 
 ### 6.2 模型包与运行时缓存
 
 ```text
 model-package/
 ├─ manifest.json
-├─ model.xml
-├─ model.bin
+├─ artifacts/
+│  ├─ model.xml
+│  ├─ model.bin
+│  └─ model.engine
 ├─ build-lock.json
-└─ assets/
+└─ resources/
    ├─ labels.json
    └─ dictionary.txt
 ```
 
-`manifest.json` 定义模型语义、输入输出契约和兼容目标；`build-lock.json` 记录源 ONNX 哈希、转译工具及厂商工具版本。源 ONNX 可选择归档，但不是目标机运行的必需文件。
+`manifest.json` 定义模型语义、输入输出契约和兼容目标；模型制品必须位于 `artifacts/` 并使用包内相对路径；`build-lock.json` 记录源 ONNX 哈希、转译工具及厂商工具版本。源 ONNX 可选择归档，但不是目标机运行的必需文件。包内只保留发布物；源模型、中间 IR 和构建记录放在包外的 `model-source/` 之类开发目录。样例 `Samples/anomalyDirectory/model` 即按此布局提供 TensorRT Engine 制品。
 
 运行时编译产物不回写模型包，而写入机器本地缓存：
 
@@ -399,6 +410,8 @@ cache/
 ```
 
 `manifest.json` 跟随模型发布，定义模型语义；`deployment.json` 位于部署环境，定义运行策略。二者均携带 schema version，未知主版本必须拒绝加载。
+
+应用通过 `vision_target_runtime(... BACKEND_PLUGINS ...)` 声明交付的插件集合，再由样例的 `publish` 目标（如 `Samples/anomalyDirectory`）把可执行文件、`plugins/<backend-id>/`、模型包内容（`manifest.json` 与 `artifacts/`）、输入数据和 `deployment.json` 组装为扁平的 `release/` 发布目录，发布根本身即模型包。MSVC 下插件 PDB 输出到独立 `pdb/` 目录、关闭增量链接，发布树只包含运行所需 DLL。发布目录根即运行根：`deployment.json` 中的相对 `pluginDirectory` 按 deployment 文件位置解析，样例的输入目录 `image/` 随包交付。
 
 ### 6.3 `vision-modelc`
 
@@ -417,25 +430,24 @@ cache/
 - 代码和文件命名遵循 [codingConventions.md](codingConventions.md)：C++ 类型使用 UpperCamelCase，函数、变量和项目文件名使用 lowerCamelCase。
 - C++20、CMake、MSVC/MinGW-w64，静态库优先；项目 preset 或独立构建目录固定编译器和构建配置。
 - MSVC 目标统一使用静态 CRT（`/MTd` 或 `/MT`），避免源码构建的静态 OpenCV 与业务目标混用 `/MT`、`/MD`。该选择不改变 OpenVINO、MVS 等厂商 SDK 的动态链接方式。
-- CMake 配置期选择唯一相机 SDK 与推理平台族，并生成构建 Profile；运行时配置不能绕过该边界。
+- CMake 配置期选择唯一相机 SDK 并生成相机 BuildProfile；运行时后端只通过 deployment 选择已交付插件，不能绕过该边界。
 - 不使用 vcpkg；OpenCV、JSON、日志和测试框架等依赖直接下载到 `Thirdparty/<package>/<version>`。
 - OpenVINO、TensorRT、ONNX Runtime 和海康 MVS 通过 CMake imported target 隔离厂商 SDK。
-- PatchCore 最近邻检索使用 FAISS 1.12.0 CPU 索引；OpenBLAS 0.3.30 以单精度、单线程、无 LAPACKE 配置从源码构建并作为其 BLAS/LAPACK 实现。
+- 异常检测模型包直接提供图像级 score；运行时只保留阈值后处理，不依赖 FAISS/OpenBLAS。
 - 单元测试覆盖纯逻辑；所有后端运行同一套 contract tests。
 - 生命周期测试覆盖 Block 提交唤醒、回调线程请求停止、平滑排空、立即取消和按所有权顺序 join；`wait()` 返回后汇总数据不再变化。
 - 使用 Python 参考结果验证数值正确性，并为浮点误差设定明确容差。
 - benchmark 输出各阶段 P50/P95/P99、吞吐、峰值内存和缓存命中情况。
 - 稳定性测试覆盖队列满载、坏模型、错误 shape、回调异常、相机断线和长时间运行。
 
-当前 MinGW Debug 全量 76 项测试通过；MinGW Release 独立消费者 `anomalyDirectorySample` 使用 80 张目录图像（27 NG、53 OK）完成端到端运行，并在有限 Source 结束后平滑回收 Source、Executor stages 和 CompletionDispatcher 线程。MSVC 19.51 x64 Debug 独立消费者 `anomalyHikMvsSample` 已使用 GigE 相机完成采集、预处理、OpenVINO CPU 推理和异常后处理。
+当前 MSVC x64 Debug 全量 122 项测试通过。独立消费者 `anomalyDirectorySample` 使用 TensorRT 插件从发布目录完成 80 张目录图像端到端运行（28 NG、52 OK；与 OpenVINO CPU 参考 27 NG、53 OK 仅 1 张临界分数图判定翻转，属后端数值差异），并在有限 Source 结束后平滑回收 Source、Executor stages 和 CompletionDispatcher 线程。MSVC 19.51 x64 Debug 独立消费者 `anomalyHikMvsSample` 已使用 GigE 相机完成采集、预处理、OpenVINO CPU 推理和异常后处理。
 
 ## 8. 暂不纳入首版
 
-- 动态 batch、动态高宽和自动合批。
+- 动态高宽。
 - GPU 前后处理、跨后端零拷贝和 CUDA stream 编排。
-- 多通道 PipelineRunner、结果重排和完成即交付。
+- 后端 request pool / 多 execution context 并发、结果重排和完成即交付。
 - DAG、多模型串并联和条件分支。
-- 运行时 DLL/Python 插件及稳定插件 ABI。
 - 在 Runtime 发行包中携带 Python、模型转换器或 INT8 校准环境。
 - 自动后端回退和可视化流程编辑器。
 

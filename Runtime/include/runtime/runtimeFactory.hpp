@@ -2,10 +2,12 @@
 
 #include "config/deploymentConfig.hpp"
 #include "core/result.hpp"
+#include "executor/batchPipelineExecutor.hpp"
 #include "executor/frameExecutor.hpp"
 #include "executor/iPipelineExecutor.hpp"
 #include "executor/parallelPipelineExecutor.hpp"
 #include "executor/serialPipelineExecutor.hpp"
+#include "logs/logger.hpp"
 #include "pipeline/iStagedVisionPipeline.hpp"
 #include "pipeline/iVisionPipeline.hpp"
 #include "runtime/runtimeSession.hpp"
@@ -89,21 +91,54 @@ public:
 					stagedPipeline), options));
 	}
 
+	template<typename ResultType>
+	[[nodiscard]] static core::Result<std::unique_ptr<
+		executor::IPipelineExecutor<ResultType>>> createBatchExecutor(
+		std::unique_ptr<pipeline::IStagedVisionPipeline<ResultType>> pipeline,
+		const config::DeploymentConfig& config,
+		executor::BatchInferenceOptions batchOptions) {
+		if (!pipeline) {
+			return executorFailure<ResultType>(core::StatusCode::InvalidArgument,
+				"runtime factory requires a pipeline");
+		}
+		if (config.executor.queueCapacity == 0 ||
+			config.executor.stageQueueCapacity == 0) {
+			return executorFailure<ResultType>(core::StatusCode::InvalidArgument,
+				"executor queue capacities must be greater than zero");
+		}
+
+		executor::ExecutorOptions options;
+		options.queueCapacity = config.executor.queueCapacity;
+		options.stageQueueCapacity = config.executor.stageQueueCapacity;
+		options.queueFullPolicy = config.executor.queueFullPolicy ==
+			config::QueueFullPolicy::Block
+			? executor::QueueFullPolicy::Block
+			: executor::QueueFullPolicy::Drop;
+
+		return core::Result<std::unique_ptr<
+			executor::IPipelineExecutor<ResultType>>>::success(
+			std::make_unique<executor::BatchPipelineExecutor<ResultType>>(
+				std::move(pipeline), options, batchOptions));
+	}
+
 private:
 	template<typename ResultType>
 	[[nodiscard]] static core::Result<std::unique_ptr<RuntimeSession<ResultType>>>
 	runtimeFailure(core::StatusCode code, const char* message) {
+		auto status = core::Status::error(code, message);
+		logs::report(status);
 		return core::Result<std::unique_ptr<RuntimeSession<ResultType>>>::failure(
-			core::Status::error(code, message));
+			std::move(status));
 	}
 
 	template<typename ResultType>
 	[[nodiscard]] static core::Result<std::unique_ptr<
 		executor::IPipelineExecutor<ResultType>>> executorFailure(
 		core::StatusCode code, const char* message) {
+		auto status = core::Status::error(code, message);
+		logs::report(status);
 		return core::Result<std::unique_ptr<
-			executor::IPipelineExecutor<ResultType>>>::failure(
-				core::Status::error(code, message));
+			executor::IPipelineExecutor<ResultType>>>::failure(std::move(status));
 	}
 };
 

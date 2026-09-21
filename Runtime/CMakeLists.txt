@@ -14,5 +14,6 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/visionTargetRuntime.cmake)
 
 vision_add_runtime(visionRuntime
 	CAMERA ${VISION_CAMERA_SDK}
-	PLATFORM ${VISION_INFERENCE_PLATFORM}
 )
+
+add_subdirectory(plugins)

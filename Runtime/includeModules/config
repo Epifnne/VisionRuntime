@@ -5,3 +5,5 @@
 #include "config/deploymentConfig.hpp"
 #include "config/executorConfig.hpp"
 #include "config/modelManifest.hpp"
+#include "config/modelPackage.hpp"
+#include "config/modelPackageLoader.hpp"

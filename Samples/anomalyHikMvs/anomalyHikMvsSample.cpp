@@ -1,13 +1,21 @@
 #include <visionruntime>
 
-#include "runtime/presets/anomalyPreset.hpp"
-
 #include <atomic>
+#include <filesystem>
 #include <iostream>
 #include <utility>
 
-int main() {
+int main(int argc, char* argv[]) {
+	if (argc != 3) {
+		std::cerr << "usage: anomalyHikMvsSample <model-package> <deployment.json>\n";
+		return 1;
+	}
+
 	using namespace visionRuntime;
+	auto deployment = config::ConfigLoader::loadDeployment(argv[2]);
+	if (!deployment) {
+		return 1;
+	}
 	std::atomic_bool firstResultPrinted = false;
 	auto sessionResult = runtime::RuntimeFactory::createFromPreset<
 		runtime::presets::AnomalyPreset>({
@@ -18,17 +26,13 @@ int main() {
 			},
 		},
 		.model = {
-			.path = "../anomalyDirectory/model/model-int8.onnx",
-			.inferenceThreads = 8,
+			.packagePath = argv[1],
 		},
 		.threshold = 2.0F,
+		.deployment = std::move(deployment).value(),
 		.callback = [&firstResultPrinted](executor::TaskId,
 			const core::Result<vision::AnomalyResult>& result) {
-			if (firstResultPrinted.exchange(true)) {
-				return;
-			}
-			if (!result) {
-				std::cerr << result.status().toString() << '\n';
+			if (!result || firstResultPrinted.exchange(true)) {
 				return;
 			}
 			std::cerr << "score=" << result->score
@@ -38,13 +42,11 @@ int main() {
 		},
 	});
 	if (!sessionResult) {
-		std::cerr << sessionResult.status().toString() << '\n';
 		return 1;
 	}
 	auto session = std::move(sessionResult).value();
 	auto startResult = session->start();
 	if (!startResult) {
-		std::cerr << startResult.status().toString() << '\n';
 		return 1;
 	}
 	const auto summary = session->wait();

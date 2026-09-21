@@ -1,0 +1,20 @@
+{
+  "schemaVersion": {"major": 1, "minor": 0},
+  "id": "anomaly-tensorrt-multi",
+  "name": "Anomaly TensorRT Multi-Camera Batch Sample",
+  "channels": 1,
+  "backend": {
+    "streams": 2,
+    "dynamicBatch": true
+  },
+  "pipeline": {
+    "resizeShortSide": 224,
+    "cropWidth": 224,
+    "cropHeight": 224,
+    "mean": [0.449],
+    "standardDeviation": [0.226],
+    "threshold": 2.0,
+    "maxBatchSize": 4,
+    "flushTimeoutMilliseconds": 10
+  }
+}

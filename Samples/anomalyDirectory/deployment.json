@@ -1,0 +1,14 @@
+{
+	"schemaVersion": { "major": 1, "minor": 0 },
+	"backend": {
+		"pluginDirectory": "plugins",
+		"id": "tensorrt",
+		"device": "0"
+	},
+	"executor": {
+		"performancePolicy": "serial",
+		"queueFullPolicy": "block",
+		"queueCapacity": 16,
+		"stageQueueCapacity": 1
+	}
+}

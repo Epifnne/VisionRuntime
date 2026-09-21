@@ -1,8 +1,11 @@
 #pragma once
 
+#include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <optional>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -70,6 +73,28 @@ public:
 		spaceEpoch_.fetch_add(1, std::memory_order_release);
 		dataEpoch_.notify_all();
 		spaceEpoch_.notify_all();
+	}
+
+	// Like pop(), but gives up once the deadline passes. Returns nullopt when
+	// the queue is closed and drained, or when the timeout elapsed. Uses 1ms
+	// polling; intended for single-consumer batch aggregation.
+	[[nodiscard]] std::optional<T> popFor(std::chrono::milliseconds timeout) {
+		const auto deadline = std::chrono::steady_clock::now() + timeout;
+		for (;;) {
+			if (auto value = tryPop()) {
+				return value;
+			}
+			if (closed_.load(std::memory_order_acquire) && empty()) {
+				return std::nullopt;
+			}
+			const auto remaining = std::chrono::duration_cast<
+				std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
+			if (remaining.count() <= 0) {
+				return std::nullopt;
+			}
+			std::this_thread::sleep_for(
+				(std::min)(remaining, std::chrono::milliseconds(1)));
+		}
 	}
 
 	[[nodiscard]] bool isClosed() const noexcept {

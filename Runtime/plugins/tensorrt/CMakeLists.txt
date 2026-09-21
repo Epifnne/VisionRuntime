@@ -1,0 +1,18 @@
+if(VISION_BUILD_TENSORRT_PLUGIN)
+	vision_add_tensorrt_target()
+	add_library(visionBackendTensorRt SHARED tensorRtPlugin.cpp
+		"${VISION_RUNTIME_SOURCE_DIRECTORY}/src/memory/gpuAllocator.cpp")
+	vision_configure_backend_plugin(visionBackendTensorRt tensorrt)
+	target_link_libraries(visionBackendTensorRt PRIVATE Vision::TensorRt)
+	if(WIN32)
+		get_target_property(runtimeFiles VisionTensorRt VISION_TENSORRT_RUNTIME_FILES)
+		vision_deploy_backend_libraries(visionBackendTensorRt tensorrt ${runtimeFiles})
+	else()
+		get_filename_component(runtimeDirectory "${TENSORRT_LIBRARY}" DIRECTORY)
+		get_target_property(cudaRuntime CUDA::cudart IMPORTED_LOCATION)
+		get_filename_component(cudaDirectory "${cudaRuntime}" DIRECTORY)
+		file(GLOB runtimeFiles "${runtimeDirectory}/libnvinfer*.so*"
+			"${cudaDirectory}/libcudart.so*")
+		vision_deploy_backend_libraries(visionBackendTensorRt tensorrt ${runtimeFiles})
+	endif()
+endif()
