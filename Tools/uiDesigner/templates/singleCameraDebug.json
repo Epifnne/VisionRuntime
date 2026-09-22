@@ -1,0 +1,84 @@
+{
+  "schemaVersion": { "major": 1, "minor": 0 },
+  "id": "designer-camera-debug",
+  "name": "Designer Single Camera Debug",
+  "sources": [
+    {
+      "id": "cam0",
+      "type": "camera",
+      "role": "inspection",
+      "vendor": "hikrobot",
+      "serialNumber": "SIM000",
+      "ipAddress": "",
+      "pixelFormat": "Mono8",
+      "exposureMicroseconds": 10000.0,
+      "gain": 10.0,
+      "mode": "softwareTrigger"
+    }
+  ],
+  "model": {
+    "packagePath": "../rubberRing/model",
+    "backendId": "openvino",
+    "device": "CPU",
+    "pluginDirectory": "../../plugins"
+  },
+  "pipeline": {
+    "resizeShortSide": 224,
+    "cropWidth": 224,
+    "cropHeight": 224,
+    "mean": [0.449, 0.449, 0.449],
+    "standardDeviation": [0.226, 0.226, 0.226],
+    "threshold": 2.0,
+    "maxBatchSize": 1,
+    "flushTimeoutMilliseconds": 20,
+    "queueCapacity": 16,
+    "queueFullPolicy": "block"
+  },
+  "endpoints": [
+    { "name": "session.start" },
+    { "name": "session.stop" },
+    { "name": "session.state" },
+    { "name": "session.summary" },
+    { "name": "metrics.performance" },
+    { "name": "camera.cam0.exposureMicroseconds", "access": "engineer" },
+    { "name": "camera.cam0.gain", "access": "engineer" },
+    { "name": "camera.cam0.softwareTrigger" },
+    { "name": "stream.cam0" }
+  ],
+  "ui": {
+    "pages": [
+      {
+        "id": "debug",
+        "title": "Debug",
+        "layout": "column",
+        "children": [
+          {
+            "type": "row",
+            "children": [
+              { "type": "commandButton", "endpoint": "session.start", "label": "Start" },
+              { "type": "commandButton", "endpoint": "session.stop", "label": "Stop" },
+              { "type": "commandButton", "endpoint": "camera.cam0.softwareTrigger", "label": "Trigger" },
+              { "type": "stateCard", "endpoint": "session.state", "title": "State", "fillWidth": true },
+              { "type": "statNumber", "endpoint": "session.summary", "field": "completed", "title": "Completed" }
+            ]
+          },
+          {
+            "type": "row",
+            "children": [
+              { "type": "parameterForm", "endpoint": "camera.cam0.exposureMicroseconds", "title": "Exposure" },
+              { "type": "parameterForm", "endpoint": "camera.cam0.gain", "title": "Gain" },
+              { "type": "resultTable", "endpoint": "metrics.performance", "title": "Performance", "fillWidth": true }
+            ]
+          },
+          {
+            "type": "row",
+            "fillHeight": true,
+            "children": [
+              { "type": "imageView", "endpoint": "stream.cam0", "title": "Camera 0", "fillWidth": true, "fillHeight": true }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

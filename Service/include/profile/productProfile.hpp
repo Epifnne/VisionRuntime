@@ -31,6 +31,7 @@ struct DirectorySourceProfile {
 struct CameraSourceProfile {
 	std::string serialNumber;
 	std::string ipAddress;
+	std::string vendor;
 	std::string pixelFormat;
 	std::optional<double> exposureMicroseconds;
 	std::optional<double> gain;

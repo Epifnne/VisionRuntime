@@ -46,6 +46,11 @@ if(VISION_BUILD_SHELL)
 	endif()
 	add_subdirectory(Shell)
 endif()
+# visionDesigner is a standalone profile/manifest editor; it must not link
+# Runtime/Service (runs on machines without camera SDKs or inference stacks).
+if(VISION_BUILD_DESIGNER)
+	add_subdirectory(Tools/uiDesigner)
+endif()
 if(PROJECT_IS_TOP_LEVEL)
 	add_subdirectory(Runtime/tests)
 	if(VISION_BUILD_SERVICE)

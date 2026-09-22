@@ -1,0 +1,103 @@
+{
+  "schemaVersion": { "major": 1, "minor": 0 },
+  "id": "designer-dual",
+  "name": "Designer Dual Camera",
+  "sources": [
+    {
+      "id": "camA",
+      "type": "directory",
+      "role": "offline replay",
+      "directory": "../rubberRing/image",
+      "extensions": [".ppm"],
+      "loop": true,
+      "frameIntervalMilliseconds": 100
+    },
+    {
+      "id": "camB",
+      "type": "directory",
+      "role": "offline replay",
+      "directory": "../rubberRing/image",
+      "extensions": [".ppm"],
+      "loop": true,
+      "frameIntervalMilliseconds": 100
+    }
+  ],
+  "model": {
+    "packagePath": "../rubberRing/model",
+    "backendId": "openvino",
+    "device": "CPU",
+    "pluginDirectory": "../../plugins"
+  },
+  "pipeline": {
+    "resizeShortSide": 224,
+    "cropWidth": 224,
+    "cropHeight": 224,
+    "mean": [0.449, 0.449, 0.449],
+    "standardDeviation": [0.226, 0.226, 0.226],
+    "threshold": 2.0,
+    "maxBatchSize": 1,
+    "flushTimeoutMilliseconds": 20,
+    "queueCapacity": 16,
+    "queueFullPolicy": "block"
+  },
+  "endpoints": [
+    { "name": "session.start" },
+    { "name": "session.stop" },
+    { "name": "session.state" },
+    { "name": "session.summary" },
+    { "name": "metrics.performance" },
+    { "name": "camera.camA.exposureMicroseconds", "access": "engineer" },
+    { "name": "camera.camA.gain", "access": "engineer" },
+    { "name": "camera.camB.exposureMicroseconds", "access": "engineer" },
+    { "name": "camera.camB.gain", "access": "engineer" },
+    { "name": "stream.camA" },
+    { "name": "stream.camB" }
+  ],
+  "ui": {
+    "pages": [
+      {
+        "id": "production",
+        "title": "Production",
+        "layout": "column",
+        "children": [
+          {
+            "type": "row",
+            "children": [
+              { "type": "commandButton", "endpoint": "session.start", "label": "Start" },
+              { "type": "commandButton", "endpoint": "session.stop", "label": "Stop" },
+              { "type": "stateCard", "endpoint": "session.state", "title": "State", "fillWidth": true },
+              { "type": "statNumber", "endpoint": "session.summary", "field": "completed", "title": "Completed" },
+              { "type": "statNumber", "endpoint": "metrics.performance", "field": "framesPerSecond", "title": "Pipeline FPS" }
+            ]
+          },
+          {
+            "type": "row",
+            "fillHeight": true,
+            "children": [
+              { "type": "imageView", "endpoint": "stream.camA", "title": "Camera A", "fillWidth": true, "fillHeight": true },
+              { "type": "imageView", "endpoint": "stream.camB", "title": "Camera B", "fillWidth": true, "fillHeight": true },
+              { "type": "resultTable", "endpoint": "session.summary", "title": "Counters", "width": 320, "fillHeight": true }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "debug",
+        "title": "Device Debug",
+        "layout": "column",
+        "children": [
+          {
+            "type": "row",
+            "children": [
+              { "type": "parameterForm", "endpoint": "camera.camA.exposureMicroseconds", "title": "Cam A Exposure" },
+              { "type": "parameterForm", "endpoint": "camera.camA.gain", "title": "Cam A Gain" },
+              { "type": "parameterForm", "endpoint": "camera.camB.exposureMicroseconds", "title": "Cam B Exposure" },
+              { "type": "parameterForm", "endpoint": "camera.camB.gain", "title": "Cam B Gain" }
+            ]
+          },
+          { "type": "resultTable", "endpoint": "metrics.performance", "title": "Performance", "fillHeight": true }
+        ]
+      }
+    ]
+  }
+}

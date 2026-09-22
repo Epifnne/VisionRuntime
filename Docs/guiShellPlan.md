@@ -148,6 +148,20 @@ Service 层按 profile 完成组装并注册端点；manifest 导出接口把注
 
 ### 阶段 D — visionDesigner 搭建工具
 
+完成记录（2026-09-21）：
+
+- `Tools/uiDesigner/visionDesigner` 落地（Qt Quick，`VISION_BUILD_DESIGNER` 默认 OFF，不链接 Runtime/Service）：左栏控件面板/端点树/产品表单，中栏画布递归编辑控件树（拖拽插入/移动/删除、点击选中），右栏属性面板（端点绑定下拉按类型过滤 + 布局属性），底栏校验问题列表（点击定位到控件）。
+- 端点清单两路来源：`Service/tools/visionManifestDump`（加载 profile 后导出注册表 manifest JSON）或 Designer 按 Service 命名约定从 profile 推导（核心 5 端点 + 每源 stream + camera 参数/软触发）。
+- 预览模式直接按文件 URL 加载 `Shell/controls/NodeView.qml`（控件目录自动从 exe 向上探测，QSettings 持久化可覆盖），绑定到模拟 `serviceClient`（计数自增、正弦 FPS、目录图片轮播/无图时生成图案兜底），与生产渲染零漂移。
+- `--selftest` 无头验收 18 项全绿：模板解析/校验、编辑→保存→重载往返一致、publish 产出可回读、非法端点绑定被拒、预览四类端点数据通路（命令/状态/参数读写/流帧）。
+- 总闭环验收通过：Designer 发布双目录源产品 `products/designer-dual`（仅 profile JSON）→ visionShell `--smoke 8` 跑通 58/58 帧（29+29 双路）、0 丢失、exit 0。
+- 回归：MinGW 全量 157 项测试通过；MSVC-2026 树 visionManifestDump 构建通过；新选项默认 OFF 不影响既有构建。
+- 关键坑：(1) qmlcachegen 编译态 delegate 丢失 Repeater 上下文属性（`index` 恒为 0）且数组模型 required-property delegate 渲染空白——Designer 模块整体 `NO_CACHEGEN`（该工具本来就全靠运行时动态加载）；(2) Repeater delegate 是 Loader 时必须在其上带齐 `Layout.preferredWidth/Height/fill*` 附加属性（同 Shell NodeView.NodeChild），否则异步加载的子节点拿到尺寸后外围布局永不重排；(3) 校验用的推导端点全集是 profile 相关的，不能跨 profile 泄漏复用（manifestLoaded_ 标志区分显式 manifest）。
+- 交互修复（2026-09-21 第二轮，经模拟鼠标实测驱动）：(4) **预览的 NodeView 必须在创建时传入 node**（同 Shell NodeChild 的 setSource 带初始属性）——Shell 控件在 Component.onCompleted 里做端点解析（ImageView.streamSourceId / StateCard.refresh），加载完成后再赋 node 会永久停留在未解析状态（stream not found）且各控件读到不一致的快照；(5) 预览模式隐藏左右面板使预览区全宽 + `clip: true`，否则控件树按隐式宽度溢出被属性面板遮挡（“错排到右侧且不完整”）；(6) 调色板芯片支持点击追加到选中容器（拖拽仅插入方式时用户点击无反应）。
+- 交互修复（2026-09-22 第三轮，Designer 拖拽链路重写）。(7) **Qt 6 内部拖拽（默认 `Drag.Internal`）不传递 `Drag.mimeData`**——DropEvent 的 `formats` 为空、`getDataAsString` 恒返回空；载荷改由 drag 源 Item（拖拽虚影）上的自定义属性携带，DropArea 经 `dropArea.drag.source` 读取（DragEvent 自身没有 `drag` 属性）。注意 `(7)` 取代第二轮关于 `keys`/`hasData` 的结论：那只是表象，根因是 internal drag 的 mimeData 根本不到达。(8) **悬停高亮用 `onContainsDragChanged` 驱动**，不要在 `onEntered` 里检查 `drag.formats`（internal drag 下不可靠且阻断路由）。(9) **嵌套容器的 DropArea 命中**：每个容器 box 的 DropArea 是 box 内最后声明的子项（z 最高），会覆盖其 flowLoader 里的子容器并吞掉子容器的 drop——所有容器 DropArea 统一 `z: -1` 置于自身 flowLoader 之下，最深的子容器恒优先，任意嵌套深度均生效；页面根 box 填满整页（`width/height: parent 尺寸`）使空白处也可落入页面根。(10) 拖拽用"原控件留位 + 半透明虚影作 drag.target"，虚影 `opacity` 控制显隐（不能用 `visible`，否则 release 瞬间场景矩形失效导致 `Drag.drop()` 丢失落点），release 后 `x/y` 归位。(11) 面板文本框用 `onTextChanged` + 防抖 Timer 实时保存，正在输入的框由自身持有 text 绑定，commit 不打断输入、不需回车；并移除 Canvas 页签栏在 commit 后重置 `selectedPath` 的 handler（输入时画布弹回根 page 的根因）。
+- 功能补充（2026-09-22）：相机源支持**厂商选择**（海康/大华/Basler/其他，写入 profile `vendor` 字段并经 `CameraDeviceOptions.vendor` 传到设备匹配）与 **IP 接入**（`ipAddress`，GigE 相机除序列号外可按 IP 接入）；源条目、模型区、管线区均可折叠（`CollapseHeader` 组件）；端点暴露列表按类型分组（视频流/状态/参数/命令）；相机源支持**采集模式**（`continuous` 自由采集可选帧率 / `timedTrigger` 定时采集带触发间隔 / `softwareTrigger` 软触发），对应 profile `mode`/`triggerIntervalMilliseconds`/`frameRate`；控件宽/高支持像素数字或 CSS 风格百分比字符串（如 `"50%"`），百分比作为布局权重并自动启用 `fillWidth/fillHeight`，同级按比例均分（修复了数字被误作像素导致同样拉伸却大小不一致的问题）；端点绑定按控件类型约束（commandButton→command、imageView→stream、stateCard/statNumber/resultTable→state、parameterForm→parameter）；移除画布侧端点树页签，端点统一由右侧属性面板按类型过滤后下拉绑定。
+- 偏差与遗留：布局树天然行列对齐，画布仅提供 16px 点阵背景作视觉参考，不做绝对定位网格吸附；预览只接模拟数据源，真实 service 联调预览未做；撤销/重做按第 7 节排除。
+
 独立 Qt Quick 可执行程序，位于 `Tools/uiDesigner/`。只读写 profile JSON 与控件模板，不链接 Runtime/Service，因此可在无相机、无推理环境的开发机上运行。
 
 工作内容：

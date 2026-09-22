@@ -121,6 +121,7 @@ struct SourceBuild {
 	camera::CameraDeviceOptions deviceOptions;
 	deviceOptions.serialNumber = cameraProfile.serialNumber;
 	deviceOptions.ipAddress = cameraProfile.ipAddress;
+	deviceOptions.vendor = cameraProfile.vendor;
 	deviceOptions.pixelFormat = pixelFormat.value();
 	deviceOptions.exposureMicroseconds = cameraProfile.exposureMicroseconds;
 	deviceOptions.gain = cameraProfile.gain;

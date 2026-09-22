@@ -54,6 +54,8 @@ struct CameraDeviceInfo {
 struct CameraDeviceOptions {
 	std::string serialNumber;
 	std::string ipAddress;
+	// Vendor identifier selecting the camera SDK backend.
+	std::string vendor;
 	vision::PixelFormat pixelFormat = vision::PixelFormat::Gray8;
 	std::optional<double> exposureMicroseconds;
 	std::optional<double> gain;

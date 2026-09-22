@@ -52,7 +52,9 @@ TEST(ProfileLoaderTest, ParsesDirectoryAndCameraSources) {
 				"id": "cam0",
 				"type": "camera",
 				"role": "top view",
+				"vendor": "hikrobot",
 				"serialNumber": "SN001",
+				"ipAddress": "192.168.1.100",
 				"pixelFormat": "gray8",
 				"exposureMicroseconds": 12000.0,
 				"gain": 6.0,
@@ -99,7 +101,9 @@ TEST(ProfileLoaderTest, ParsesDirectoryAndCameraSources) {
 
 	const auto& camera = profile->sources[0];
 	EXPECT_EQ(camera.type, "camera");
+	EXPECT_EQ(camera.camera.vendor, "hikrobot");
 	EXPECT_EQ(camera.camera.serialNumber, "SN001");
+	EXPECT_EQ(camera.camera.ipAddress, "192.168.1.100");
 	EXPECT_EQ(camera.camera.pixelFormat, "gray8");
 	ASSERT_TRUE(camera.camera.exposureMicroseconds.has_value());
 	EXPECT_DOUBLE_EQ(*camera.camera.exposureMicroseconds, 12000.0);

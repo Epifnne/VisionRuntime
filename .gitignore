@@ -15,6 +15,9 @@
 # Local CMake presets may contain machine-specific paths
 /CMakeUserPresets.json
 
+# Local working notes / debugging logs (not for the repo)
+*.local.md
+
 # Compiler and linker outputs
 *.a
 *.dll

@@ -1,0 +1,55 @@
+{
+  "schemaVersion": { "major": 1, "minor": 0 },
+  "id": "new-product",
+  "name": "New Product",
+  "sources": [
+    {
+      "id": "cam0",
+      "type": "directory",
+      "role": "offline replay",
+      "directory": "",
+      "extensions": [".bmp"],
+      "loop": true,
+      "frameIntervalMilliseconds": 100
+    }
+  ],
+  "model": {
+    "packagePath": "",
+    "backendId": "openvino",
+    "device": "CPU",
+    "pluginDirectory": "../../plugins"
+  },
+  "pipeline": {
+    "resizeShortSide": 224,
+    "cropWidth": 224,
+    "cropHeight": 224,
+    "mean": [0.449, 0.449, 0.449],
+    "standardDeviation": [0.226, 0.226, 0.226],
+    "threshold": 2.0,
+    "maxBatchSize": 1,
+    "flushTimeoutMilliseconds": 20,
+    "queueCapacity": 16,
+    "queueFullPolicy": "block"
+  },
+  "endpoints": [
+    { "name": "session.start" },
+    { "name": "session.stop" },
+    { "name": "session.state" },
+    { "name": "session.summary" },
+    { "name": "metrics.performance" },
+    { "name": "camera.cam0.exposureMicroseconds", "access": "engineer" },
+    { "name": "camera.cam0.gain", "access": "engineer" },
+    { "name": "camera.cam0.softwareTrigger" },
+    { "name": "stream.cam0" }
+  ],
+  "ui": {
+    "pages": [
+      {
+        "id": "production",
+        "title": "Production",
+        "layout": "column",
+        "children": []
+      }
+    ]
+  }
+}

@@ -35,3 +35,14 @@ target_link_libraries(visionService
 	PRIVATE
 		nlohmann_json::nlohmann_json
 )
+
+# Manifest dump utility: prints the endpoint registry manifest JSON for a
+# product profile. visionDesigner consumes this file as its endpoint universe.
+add_executable(visionManifestDump
+	tools/manifestDump.cpp
+)
+
+target_link_libraries(visionManifestDump
+	PRIVATE
+		visionService
+)

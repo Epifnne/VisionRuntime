@@ -92,6 +92,7 @@ void parseSource(
 		source.camera.serialNumber =
 			document.value("serialNumber", std::string{});
 		source.camera.ipAddress = document.value("ipAddress", std::string{});
+		source.camera.vendor = document.value("vendor", std::string{});
 		source.camera.pixelFormat =
 			document.value("pixelFormat", std::string("gray8"));
 		source.camera.maxFramesInFlight =

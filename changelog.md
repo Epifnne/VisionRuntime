@@ -1,6 +1,21 @@
 # Changelog
 
-## Unreleased - 2026-09-16（批推理计时与基准）
+## Unreleased - 2026-09-21（visionDesigner 搭建工具）
+
+### Added
+
+- 新增 `Tools/uiDesigner/visionDesigner`（GUI Shell 计划阶段 D，Qt Quick，不链接 Runtime/Service）：产品 profile 与界面控件树的可视化搭建——控件面板拖入、端点树拖拽绑定、画布递归编辑（插入/移动/删除/页面管理）、属性面板（端点下拉按 Parameter/Command/State/Stream 类型过滤）、产品表单（sources/model/pipeline/端点暴露）、保存时 schema 校验（端点引用存在、类型匹配、授权级别合法、必填绑定完整，错误定位到控件）、publish 输出产品包目录。
+- 预览模式：按文件 URL 直接加载 `Shell/controls/NodeView.qml` 控件集（控件目录自动探测 + QSettings 持久化），绑定模拟 `serviceClient`（`PreviewClient`：计数自增、正弦 FPS、目录图片轮播/生成图案兜底；`PreviewImageProvider` 供 `image://frames/`），与生产渲染共用同一套控件实现。
+- 新增 `Service/tools/visionManifestDump`：加载产品 profile 后导出端点注册表 manifest JSON，作为 Designer 的端点清单来源（Designer 亦可按 Service 命名约定从 profile 推导）。
+- 内置产品模板：emptyProduct / twoCameraDirectory / singleCameraDebug；`visionDesigner --selftest` 无头验收（模板校验、编辑往返、publish 回读、非法绑定拒绝、预览四类端点数据通路）与 `--preview <profile>` 直接预览模式。
+- 新增 `VISION_BUILD_DESIGNER` 选项（默认 OFF）；总闭环验收：Designer 模板发布双目录源产品 `products/designer-dual`，visionShell smoke 58/58 帧零丢失跑通，全程未改任何 C++/QML 源码。
+
+### Fixed
+
+- Designer QML 模块整体禁用 qmlcachegen（`NO_CACHEGEN`）：编译态 delegate 会丢失 Repeater 上下文属性（内联组件 delegate 中 `index` 恒解析为 0）且数组模型的 required-property delegate 渲染空白；该工具全部依赖运行时动态加载，不依赖缓存编译。
+- visionDesigner 预览模式：Shell 控件（ImageView/StateCard 等）在 `Component.onCompleted` 中解析端点绑定，PreviewPane 原先在 Loader 加载完成后才赋 `node`，导致流地址永久未解析（stream not found）且各控件快照不一致；改为与 Shell NodeChild 一致在创建时经 `setSource` 传入初始属性。
+- visionDesigner 预览布局：预览模式隐藏控件面板与属性面板、预览区全宽并 `clip`，修复控件树按隐式宽度溢出被属性面板遮挡的问题；调色板控件芯片支持点击追加到选中容器（此前仅拖拽一种插入方式）。
+- visionDesigner 拖放失效：`DropArea.keys` 对 `Drag.mimeData` 自定义类型不生效（QTBUG-107088），导致画布/控件上的 DropArea 完全不接收拖放；改为不设 keys，`onEntered` 用 `drag.hasData` 判断并高亮目标，`onDropped` 用 `getDataAsString` 取载荷。
 
 ### Changed
 
