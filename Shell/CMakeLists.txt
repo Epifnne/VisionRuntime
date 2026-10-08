@@ -28,11 +28,42 @@ qt_add_qml_module(visionShell
 
 target_include_directories(visionShell PRIVATE
 	${CMAKE_CURRENT_SOURCE_DIR}/include
+	${PROJECT_SOURCE_DIR}/Tools/packageSupport
 )
 
 target_link_libraries(visionShell PRIVATE
 	visionService
 	Qt6::Quick
+)
+target_compile_definitions(visionShell PRIVATE
+	VISION_RUNTIME_VERSION="${PROJECT_VERSION}"
+)
+if(BUILD_TESTING)
+	add_executable(serviceClientRuntimeTest
+		tests/serviceClientRuntimeTest.cpp src/serviceClient.cpp include/serviceClient.hpp)
+	target_include_directories(serviceClientRuntimeTest PRIVATE include)
+	target_link_libraries(serviceClientRuntimeTest PRIVATE
+		visionService Qt6::Quick GTest::gtest nlohmann_json::nlohmann_json)
+	include(GoogleTest)
+	gtest_discover_tests(serviceClientRuntimeTest DISCOVERY_MODE PRE_TEST)
+endif()
+if(VISION_PRODUCT_SAMPLE)
+	target_link_libraries(visionShell PRIVATE nlohmann_json::nlohmann_json)
+	target_sources(visionShell PRIVATE
+		"${PROJECT_SOURCE_DIR}/Samples/common/productShell.cpp"
+		"${VISION_SAMPLE_DIRECTORY}/${VISION_PRODUCT_SAMPLE}Sample.cpp")
+	target_include_directories(visionShell PRIVATE
+		"${PROJECT_SOURCE_DIR}/Samples/common" "${VISION_SAMPLE_DIRECTORY}")
+	target_compile_definitions(visionShell PRIVATE
+		VISION_SAMPLE_SHELL=1 VISION_PRODUCT_ID="${VISION_PRODUCT_SAMPLE}")
+	include("${PROJECT_SOURCE_DIR}/Samples/common/productPublish.cmake")
+endif()
+if(WIN32 AND VISION_CAMERA_SDK STREQUAL "HIK_MVS")
+	_vision_deploy_hik_mvs_runtime(visionShell)
+endif()
+file(GENERATE
+	OUTPUT "$<TARGET_FILE_DIR:visionShell>/runtime-version.json"
+	CONTENT "{\n  \"runtimeVersion\": \"${PROJECT_VERSION}\",\n  \"productRuntime\": \"${VISION_PRODUCT_SAMPLE}\",\n  \"platform\": \"${CMAKE_SYSTEM_NAME}\",\n  \"architecture\": \"${CMAKE_SYSTEM_PROCESSOR}\",\n  \"compiler\": \"${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}\",\n  \"configuration\": \"$<CONFIG>\",\n  \"cameraSdk\": \"${VISION_CAMERA_SDK}\"\n}\n"
 )
 
 # Ensure OpenVINO plugin is built if requested
@@ -43,6 +74,15 @@ if(VISION_BUILD_OPENVINO_PLUGIN)
 		COMMAND ${CMAKE_COMMAND} -E copy_directory
 			"$<TARGET_FILE_DIR:visionBackendOpenVino>"
 			"$<TARGET_FILE_DIR:visionShell>/plugins/openvino"
+		VERBATIM
+	)
+endif()
+if(VISION_BUILD_TENSORRT_PLUGIN)
+	add_dependencies(visionShell visionBackendTensorRt)
+	add_custom_command(TARGET visionShell POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_directory
+			"$<TARGET_FILE_DIR:visionBackendTensorRt>"
+			"$<TARGET_FILE_DIR:visionShell>/plugins/tensorrt"
 		VERBATIM
 	)
 endif()
@@ -63,17 +103,22 @@ endif()
 
 # Publish target: self-contained release root with exe + Qt runtime +
 # backend plugins + product packages (mirrors Samples/anomalyDirectory)
-get_filename_component(QT_BIN_DIR "${Qt6_DIR}/../../../bin" ABSOLUTE)
-find_program(WINDEPLOYQT_EXECUTABLE windeployqt HINTS "${QT_BIN_DIR}")
-if(WINDEPLOYQT_EXECUTABLE)
-	set(SHELL_PUBLISH_DIR "${CMAKE_CURRENT_BINARY_DIR}/release/visionShell")
+set(SHELL_PUBLISH_DIR "${CMAKE_CURRENT_BINARY_DIR}/release/visionShell")
+if(WIN32)
+	get_filename_component(QT_BIN_DIR "${Qt6_DIR}/../../../bin" ABSOLUTE)
+	find_program(WINDEPLOYQT_EXECUTABLE windeployqt HINTS "${QT_BIN_DIR}")
+endif()
+if(WIN32 AND WINDEPLOYQT_EXECUTABLE)
 	set(SHELL_PUBLISH_COMMANDS
 		COMMAND ${CMAKE_COMMAND} -E rm -rf "${SHELL_PUBLISH_DIR}"
 		COMMAND ${CMAKE_COMMAND} -E make_directory "${SHELL_PUBLISH_DIR}"
 		COMMAND ${CMAKE_COMMAND} -E copy
 			"$<TARGET_FILE:visionShell>" "${SHELL_PUBLISH_DIR}/"
-		COMMAND ${CMAKE_COMMAND} -E copy_directory
-			"$<TARGET_FILE_DIR:visionShell>/plugins" "${SHELL_PUBLISH_DIR}/plugins"
+		COMMAND ${CMAKE_COMMAND} -E make_directory
+			"${SHELL_PUBLISH_DIR}/plugins"
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			"${CMAKE_SOURCE_DIR}/Runtime/plugins/plugins.json"
+			"${SHELL_PUBLISH_DIR}/plugins/plugins.json"
 		COMMAND ${CMAKE_COMMAND} -E copy_directory
 			"${SHELL_PRODUCTS_DIR}" "${SHELL_PUBLISH_DIR}/products"
 		COMMAND "${WINDEPLOYQT_EXECUTABLE}"
@@ -82,6 +127,48 @@ if(WINDEPLOYQT_EXECUTABLE)
 			--compiler-runtime
 			--no-translations
 			"$<TARGET_FILE:visionShell>"
+	)
+	if(VISION_BUILD_OPENVINO_PLUGIN OR VISION_BUILD_TENSORRT_PLUGIN)
+		list(APPEND SHELL_PUBLISH_COMMANDS
+			COMMAND ${CMAKE_COMMAND} -E copy_directory
+				"$<TARGET_FILE_DIR:visionShell>/plugins"
+				"${SHELL_PUBLISH_DIR}/plugins"
+		)
+	endif()
+else()
+	# Linux: there is no windeployqt equivalent; the entry script / package
+	# documentation require Qt 6.10+ on the target machine (system packages).
+	# The root carries the exe (RUNPATH=$ORIGIN) + backend plugins + products.
+	set(SHELL_PUBLISH_COMMANDS
+		COMMAND ${CMAKE_COMMAND} -E rm -rf "${SHELL_PUBLISH_DIR}"
+		COMMAND ${CMAKE_COMMAND} -E make_directory "${SHELL_PUBLISH_DIR}"
+		COMMAND ${CMAKE_COMMAND} -E copy
+			"$<TARGET_FILE:visionShell>" "${SHELL_PUBLISH_DIR}/"
+		COMMAND ${CMAKE_COMMAND} -E copy_directory
+			"${SHELL_PRODUCTS_DIR}" "${SHELL_PUBLISH_DIR}/products"
+	)
+	if(VISION_BUILD_OPENVINO_PLUGIN OR VISION_BUILD_TENSORRT_PLUGIN)
+		list(APPEND SHELL_PUBLISH_COMMANDS
+			COMMAND ${CMAKE_COMMAND} -E copy_directory
+				"$<TARGET_FILE_DIR:visionShell>/plugins"
+				"${SHELL_PUBLISH_DIR}/plugins"
+		)
+	endif()
+	# Ship the backend capability manifest so visionDesigner can enumerate
+	# backends/devices/platforms from the packaged template.
+	list(APPEND SHELL_PUBLISH_COMMANDS
+		COMMAND ${CMAKE_COMMAND} -E make_directory
+			"${SHELL_PUBLISH_DIR}/plugins"
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			"${CMAKE_SOURCE_DIR}/Runtime/plugins/plugins.json"
+			"${SHELL_PUBLISH_DIR}/plugins/plugins.json"
+	)
+endif()
+if(NOT WIN32 OR WINDEPLOYQT_EXECUTABLE)
+	list(APPEND SHELL_PUBLISH_COMMANDS
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			"$<TARGET_FILE_DIR:visionShell>/runtime-version.json"
+			"${SHELL_PUBLISH_DIR}/runtime-version.json"
 	)
 	if(VISION_BUILD_OPENVINO_PLUGIN)
 		add_custom_target(publishShell ${SHELL_PUBLISH_COMMANDS}

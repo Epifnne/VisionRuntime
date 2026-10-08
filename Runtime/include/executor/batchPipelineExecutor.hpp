@@ -46,6 +46,7 @@ public:
 		: pipeline_(std::move(pipeline)),
 		  queueCapacity_(options.queueCapacity),
 		  queueFullPolicy_(options.queueFullPolicy),
+		  taskTimeout_(options.taskTimeout),
 		  stageQueueCapacity_(options.stageQueueCapacity),
 		  maxBatchSize_(batchOptions.maxBatchSize == 0 ? 1 : batchOptions.maxBatchSize),
 		  flushTimeout_(batchOptions.flushTimeout),
@@ -79,18 +80,31 @@ public:
 			return submitFailure(core::StatusCode::InvalidArgument,
 				"executor queue capacities must be greater than zero");
 		}
+		if (taskTimeout_ &&
+			(taskTimeout_->count() <= 0 || taskTimeout_->count() > 86400000)) {
+			return submitFailure(core::StatusCode::InvalidArgument,
+				"task timeout must be in [1, 86400000] milliseconds");
+		}
+		const auto deadline = taskDeadline(packet.identity(), taskTimeout_);
 		if (!accepting_) {
 			return submitFailure(core::StatusCode::InvalidState,
 				"executor has stopped accepting tasks");
 		}
 		if (queueFullPolicy_ == QueueFullPolicy::Block) {
-			entrySpaceAvailable_.wait(lock, [this] {
+			if (!waitForEntry(entrySpaceAvailable_, lock, deadline, [this] {
 				return !accepting_ || entryQueue_.size() < queueCapacity_;
-			});
+			})) {
+				return submitFailure(core::StatusCode::DeadlineExceeded,
+					"task deadline expired while waiting for queue space");
+			}
 			if (!accepting_) {
 				return submitFailure(core::StatusCode::InvalidState,
 					"executor has stopped accepting tasks");
 			}
+		}
+		if (deadlineExceeded(deadline)) {
+			return submitFailure(core::StatusCode::DeadlineExceeded,
+				"task deadline expired before submission");
 		}
 		if (entryQueue_.size() >= queueCapacity_) {
 			return submitFailure(core::StatusCode::QueueFull,
@@ -98,7 +112,7 @@ public:
 		}
 
 		const auto taskId = nextTaskId_.fetch_add(1);
-		Task task(taskId, std::move(packet), std::move(callback));
+		Task task(taskId, std::move(packet), std::move(callback), deadline);
 		auto handle = task.handle();
 		entryQueue_.push_back(std::move(task));
 		entryReady_.notify_one();
@@ -193,7 +207,11 @@ private:
 
 			auto prepared = cancelled(*task)
 				? cancelledResult<preprocess::PreparedInput>()
-				: callPreprocess(std::move(task->packet()));
+				: task->expired()
+					? core::Result<preprocess::PreparedInput>::failure(
+						core::Status::error(core::StatusCode::DeadlineExceeded,
+							"task deadline expired before preprocessing"))
+					: callPreprocess(std::move(task->packet()));
 			if (cancelled(*task)) {
 				prepared = cancelledResult<preprocess::PreparedInput>();
 			}
@@ -210,12 +228,12 @@ private:
 				break;
 			}
 			if (cancelled(first->task)) {
-				queueCompletion(std::move(first->task),
+				stageCompletion(std::move(first->task),
 					cancelledResult<ResultType>());
 				continue;
 			}
 			if (!first->prepared) {
-				queueCompletion(std::move(first->task),
+				stageCompletion(std::move(first->task),
 					core::Result<ResultType>::failure(first->prepared.status()));
 				continue;
 			}
@@ -248,12 +266,16 @@ private:
 				return !preprocessQueue_.isClosed();
 			}
 			if (cancelled(next->task)) {
-				queueCompletion(std::move(next->task),
+				flushBatch(std::move(members));
+				members.clear();
+				stageCompletion(std::move(next->task),
 					cancelledResult<ResultType>());
 				continue;
 			}
 			if (!next->prepared) {
-				queueCompletion(std::move(next->task),
+				flushBatch(std::move(members));
+				members.clear();
+				stageCompletion(std::move(next->task),
 					core::Result<ResultType>::failure(next->prepared.status()));
 				continue;
 			}
@@ -268,25 +290,48 @@ private:
 			return;
 		}
 		std::vector<preprocess::PreparedInput> inputs;
+		std::vector<std::size_t> active;
+		std::vector<std::optional<core::Result<ResultType>>> results(members.size());
 		inputs.reserve(members.size());
-		for (auto& member : members) {
-			inputs.push_back(std::move(member.prepared));
-		}
-		auto outputs = callInferBatch(std::move(inputs));
-		if (!outputs) {
-			const auto status = outputs.status();
-			for (auto& member : members) {
-				queueCompletion(std::move(member.task),
-					core::Result<ResultType>::failure(status));
-			}
-			return;
-		}
-
-		// inferBatch contract: one InferenceOutput per member, in order.
 		for (std::size_t index = 0; index < members.size(); ++index) {
-			auto result = callPostprocess(std::move(outputs.value()[index]));
-			static_cast<void>(postprocessQueue_.push(CompletedTask{
-				std::move(members[index].task), std::move(result)}));
+			auto& member = members[index];
+			if (cancelled(member.task)) {
+				results[index] = cancelledResult<ResultType>();
+			} else if (member.task.expired()) {
+				results[index] = core::Result<ResultType>::failure(core::Status::error(
+					core::StatusCode::DeadlineExceeded,
+					"task deadline expired while waiting for its inference batch"));
+			} else {
+				active.push_back(index);
+				inputs.push_back(std::move(member.prepared));
+			}
+		}
+		if (!active.empty()) {
+			auto outputs = callInferBatch(std::move(inputs));
+			if (!outputs || outputs->size() != active.size()) {
+				const auto status = !outputs ? outputs.status() :
+					core::Status::error(core::StatusCode::ShapeMismatch,
+						"batch inference must return one output per submitted member");
+				for (const auto index : active) {
+					results[index] = core::Result<ResultType>::failure(status);
+				}
+			} else {
+				for (std::size_t position = 0; position < active.size(); ++position) {
+					const auto index = active[position];
+					if (cancelled(members[index].task)) {
+						results[index] = cancelledResult<ResultType>();
+					} else if (members[index].task.expired()) {
+						results[index] = core::Result<ResultType>::failure(core::Status::error(
+							core::StatusCode::DeadlineExceeded,
+							"task deadline expired during batch inference"));
+					} else {
+						results[index] = callPostprocess(std::move(outputs.value()[position]));
+					}
+				}
+			}
+		}
+		for (std::size_t index = 0; index < members.size(); ++index) {
+			stageCompletion(std::move(members[index].task), std::move(*results[index]));
 		}
 	}
 
@@ -296,7 +341,6 @@ private:
 			if (!task) {
 				break;
 			}
-			pipeline_->finishExecution(task->task.executionId(), task->result);
 			queueCompletion(std::move(task->task), std::move(task->result));
 		}
 	}
@@ -338,7 +382,20 @@ private:
 		}
 	}
 
+	void stageCompletion(Task task, core::Result<ResultType> result) {
+		static_cast<void>(postprocessQueue_.push(
+			CompletedTask{std::move(task), std::move(result)}));
+	}
+
 	void queueCompletion(Task task, core::Result<ResultType> result) {
+		if (cancelled(task)) {
+			result = cancelledResult<ResultType>();
+		} else if (result && task.expired()) {
+			result = core::Result<ResultType>::failure(core::Status::error(
+				core::StatusCode::DeadlineExceeded,
+				"task deadline expired before result delivery"));
+		}
+		pipeline_->finishExecution(task.executionId(), result);
 		auto sharedTask = std::make_shared<Task>(std::move(task));
 		static_cast<void>(completionDispatcher_.dispatch(
 			std::move(result),
@@ -363,6 +420,7 @@ private:
 	std::unique_ptr<pipeline::IStagedVisionPipeline<ResultType>> pipeline_;
 	const std::size_t queueCapacity_;
 	const QueueFullPolicy queueFullPolicy_;
+	const std::optional<std::chrono::milliseconds> taskTimeout_;
 	const std::size_t stageQueueCapacity_;
 	const std::size_t maxBatchSize_;
 	const std::chrono::milliseconds flushTimeout_;

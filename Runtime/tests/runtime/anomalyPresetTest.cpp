@@ -3,8 +3,10 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <atomic>
 #include <filesystem>
 #include <fstream>
+#include <string>
 
 #ifndef VISION_RUNTIME_TEST_PLUGIN_DIRECTORY
 #error VISION_RUNTIME_TEST_PLUGIN_DIRECTORY must be defined
@@ -14,7 +16,7 @@ namespace {
 
 class TemporaryPresetPackage {
 public:
-	TemporaryPresetPackage()
+	explicit TemporaryPresetPackage(std::string outputName = "score")
 		: root_(std::filesystem::temp_directory_path() /
 			("vision-runtime-anomaly-preset-" +
 			 std::to_string(
@@ -34,7 +36,7 @@ public:
 				"shape": [1, 1, 224, 224]
 			}],
 			"outputs": [{
-				"name": "score",
+				"name": ")" << outputName << R"(",
 				"elementType": "float32",
 				"layout": "scalar",
 				"shape": [1]
@@ -150,6 +152,49 @@ TEST(AnomalyPresetTest, AcceptsManifestWithLargerStaticBatch) {
 	});
 
 	ASSERT_TRUE(session) << session.status().toString();
+}
+
+TEST(AnomalyPresetTest, PreservesExecutionCallbackUnlessLegacyCallbackIsProvided) {
+	using namespace visionRuntime;
+	TemporaryPresetPackage package("output");
+	{
+		std::ofstream gray(package.imageDirectory() / "gray.pgm", std::ios::binary);
+		gray << "P5\n1 1\n255\n";
+		gray.put('\0');
+	}
+	for (const bool useLegacy : {false, true}) {
+		std::atomic_size_t executionCallbacks{0}, legacyCallbacks{0};
+		executor::CompletionCallback<vision::AnomalyResult> legacy;
+		if (useLegacy) {
+			legacy = [&](auto, const auto& result) {
+				EXPECT_FALSE(result);
+				EXPECT_EQ(result.status().code(), core::StatusCode::Unsupported);
+				++legacyCallbacks;
+			};
+		}
+		auto session = runtime::presets::AnomalyPreset::create({
+			.source = camera::FileFrameSourceConfig{{
+				.directory = package.imageDirectory(), .extensions = {"pgm"}}},
+			.model = {.packagePath = package.packageDirectory()},
+			.deployment = {
+				.backend = {.pluginDirectory = VISION_RUNTIME_TEST_PLUGIN_DIRECTORY,
+					.id = "fake", .device = "CPU"},
+				.executor = {.performancePolicy = config::PerformancePolicy::Serial}},
+			.callback = std::move(legacy),
+			.execution = {.completionCallback = [&](auto, const auto& result) {
+				EXPECT_FALSE(result);
+				EXPECT_EQ(result.status().code(), core::StatusCode::Unsupported);
+				++executionCallbacks;
+			}}});
+		ASSERT_TRUE(session) << session.status().toString();
+		ASSERT_TRUE(session.value()->start());
+		const auto summary = session.value()->wait();
+		// The fake backend echoes the input tensor rather than an anomaly scalar.
+		EXPECT_EQ(summary.completed, 1U);
+		EXPECT_EQ(summary.failed, 1U);
+		EXPECT_EQ(executionCallbacks, useLegacy ? 0U : 1U);
+		EXPECT_EQ(legacyCallbacks, useLegacy ? 1U : 0U);
+	}
 }
 
 TEST(AnomalyPresetTest, RejectsManifestWithMismatchedSpatialDimensions) {

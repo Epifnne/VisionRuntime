@@ -1,0 +1,33 @@
+{
+  "schemaVersion": { "major": 1, "minor": 0 },
+  "comment": "Backend plugin manifest. visionDesigner reads this to drive the backend/device pickers and to validate the publish platform; publishShell ships it next to the packaged plugins. Add a new backend by building its plugin and listing it here.",
+  "backends": [
+    {
+      "id": "openvino",
+      "displayName": "OpenVINO",
+      "pluginLibrary": {
+        "windows": "vision-backend-openvino.dll",
+        "linux": "vision-backend-openvino.so"
+      },
+      "devices": [
+        { "id": "CPU", "platforms": ["windows", "linux"] },
+        { "id": "GPU", "platforms": ["windows", "linux"] },
+        { "id": "NPU", "platforms": ["linux"] }
+      ]
+    },
+    {
+      "id": "tensorrt",
+      "displayName": "TensorRT",
+      "pluginLibrary": {
+        "windows": "vision-backend-tensorrt.dll",
+        "linux": "vision-backend-tensorrt.so"
+      },
+      "devices": [
+        { "id": "0", "platforms": ["windows", "linux"] },
+        { "id": "1", "platforms": ["windows", "linux"] },
+        { "id": "2", "platforms": ["windows", "linux"] },
+        { "id": "3", "platforms": ["windows", "linux"] }
+      ]
+    }
+  ]
+}

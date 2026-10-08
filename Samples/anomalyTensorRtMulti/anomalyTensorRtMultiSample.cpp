@@ -27,22 +27,51 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "sampleRuntime.hpp"
 
+namespace visionSample {
+using namespace visionRuntime;
+
+core::Result<std::unique_ptr<runtime::MultiCameraSession<vision::AnomalyResult>>>
+createSampleRuntime(RuntimeOptions options) {
+	using Session = runtime::MultiCameraSession<vision::AnomalyResult>;
+	auto sources = createSources(options);
+	if (!sources) {
+		return core::Result<std::unique_ptr<Session>>::failure(sources.status());
+	}
+	auto pipeline = createPipeline(options, true);
+	if (!pipeline) {
+		return core::Result<std::unique_ptr<Session>>::failure(pipeline.status());
+	}
+	auto printed = std::make_shared<std::atomic_bool>(false);
+	benchmark::PipelineTimingObserver<vision::AnomalyResult> observer =
+		[printed](std::uint64_t, const core::Result<vision::AnomalyResult>& result,
+			const benchmark::PipelineDurations&) {
+			if (result && !printed->exchange(true)) {
+				std::cerr << "score=" << result->score << ", threshold=" << result->threshold
+					<< ", decision=" << vision::anomalyDecisionName(result->decision) << '\n';
+			}
+		};
+	auto executor = runtime::RuntimeFactory::createBatchExecutor<vision::AnomalyResult>(
+		std::make_unique<benchmark::TimedPipeline<vision::AnomalyResult>>(
+			std::move(pipeline).value(), std::move(observer)),
+		options.deployment, {.maxBatchSize = options.pipeline.maxBatchSize,
+			.flushTimeout = options.pipeline.flushTimeout});
+	if (!executor) {
+		return core::Result<std::unique_ptr<Session>>::failure(executor.status());
+	}
+	runtime::MultiCameraExecutionOptions<vision::AnomalyResult> execution;
+	execution.duration = std::chrono::seconds(20);
+	execution.faultPolicy = options.faultPolicy;
+	return core::Result<std::unique_ptr<Session>>::success(std::make_unique<Session>(
+		std::move(sources).value(), std::move(executor).value(), std::move(execution)));
+}
+} // namespace visionSample
+
+#ifndef VISION_SAMPLE_SHELL
 namespace {
 
-struct SampleProfile {
-	float threshold = 2.0F;
-	std::size_t resizeShortSide = 224;
-	std::size_t cropWidth = 224;
-	std::size_t cropHeight = 224;
-	std::vector<float> mean{0.449F};
-	std::vector<float> standardDeviation{0.226F};
-	std::size_t maxBatchSize = 4;
-	std::chrono::milliseconds flushTimeout{10};
-	int backendStreams = 1;
-	bool dynamicBatch = false;
-	std::size_t imageChannels = 1;
-};
+using SampleProfile = visionSample::PipelineOptions;
 
 void printUsage(const char* program) {
 	std::cerr << "usage: " << program
@@ -120,15 +149,17 @@ int main(int argc, char* argv[]) {
 	}
 	deployment = std::move(deploymentResult).value();
 
-	// Build one source per camera IP or per replay directory.
-	std::vector<std::unique_ptr<camera::IFrameSource>> sources;
+	visionSample::RuntimeOptions options;
+	options.modelPackage = argv[1];
+	options.deployment = std::move(deployment);
+	options.pipeline = profile;
 	if (std::string(argv[4]) == "--dirs") {
 		if (argc < 6) {
 			printUsage(argv[0]);
 			return 1;
 		}
 		for (const auto& directory : splitList(argv[5])) {
-			auto source = camera::FrameSourceFactory::create(
+			options.sources.push_back(
 				camera::FileFrameSourceConfig{
 					.source = {
 						.directory = directory,
@@ -137,133 +168,28 @@ int main(int argc, char* argv[]) {
 						.loop = true,
 					},
 				});
-			if (!source) {
-				return 1;
-			}
-			sources.push_back(std::move(source).value());
 		}
 	} else {
 		for (int index = 4; index < argc; ++index) {
-			auto source = camera::FrameSourceFactory::create(
+			options.sources.push_back(
 				camera::ContinuousCameraSourceConfig{
 					.device = {
 						.ipAddress = argv[index],
 						.pixelFormat = vision::PixelFormat::Gray8,
 					},
 				});
-			if (!source) {
-				return 1;
-			}
-			sources.push_back(std::move(source).value());
 		}
 	}
 
-	auto package = config::ModelPackageLoader::load(argv[1]);
-	if (!package) {
+	auto session = visionSample::createSampleRuntime(std::move(options));
+	if (!session) {
 		return 1;
 	}
-	const auto& manifest = package->manifest();
-
-	preprocess::ToTensorOptions toTensorOptions{
-		.tensorName = manifest.inputs.front().name,
-		.bufferCount = deployment.executor.stageQueueCapacity + 2,
-		.channels = profile.imageChannels,
-	};
-	preprocess::NormalizeOptions normalizeOptions{
-		.mean = profile.mean,
-		.standardDeviation = profile.standardDeviation,
-	};
-	auto preprocessor = preprocess::PreprocessBuilder::start<vision::Frame>()
-		.then(preprocess::CvResize::shortSide(profile.resizeShortSide))
-		.then(preprocess::CvCenterCrop({profile.cropWidth, profile.cropHeight}))
-		.then(preprocess::ToTensor(std::move(toTensorOptions)))
-		.then(preprocess::Normalize(std::move(normalizeOptions)))
-		.build();
-	if (!preprocessor) {
-		return 1;
-	}
-
-	auto selected = package->selectArtifact(deployment.backend);
-	if (!selected) {
-		return 1;
-	}
-	// Merge the sample's stream-parallelism choice into the artifact options
-	// handed to the backend plugin.
-	auto backendOptions = nlohmann::json::parse(selected->optionsJson);
-	backendOptions["streams"] = profile.backendStreams;
-	backendOptions["dynamicBatch"] = profile.dynamicBatch;
-	auto backend = backends::PluginInferenceBackend::create({
-		.pluginPath = backends::backendPluginPath(
-			deployment.backend.pluginDirectory, deployment.backend.id),
-		.backendId = deployment.backend.id,
-		.artifactPath = selected->artifactPath,
-		.device = selected->device,
-		.optionsJson = backendOptions.dump(),
-		.artifactKind = selected->artifactKind,
-		.inputName = manifest.inputs.front().name,
-		.outputName = manifest.outputs.front().name,
-	});
-	if (!backend) {
-		return 1;
-	}
-
-	auto postprocessor = postprocess::AnomalyThresholdPostprocessor::create({
-		.outputName = manifest.outputs.front().name,
-		.threshold = profile.threshold,
-	});
-	if (!postprocessor) {
-		return 1;
-	}
-
-	pipeline::PipelineBuilder<vision::AnomalyResult> builder;
-	auto builtPipeline = builder
-		.setPreprocessor(std::move(preprocessor).value())
-		.setBackend(std::move(backend).value())
-		.setPostprocessor(std::move(postprocessor).value())
-		.build();
-	if (!builtPipeline) {
-		return 1;
-	}
-
-	std::atomic_bool firstResultPrinted = false;
-	benchmark::PipelineTimingObserver<vision::AnomalyResult> timingObserver =
-		[&firstResultPrinted](std::uint64_t,
-			const core::Result<vision::AnomalyResult>& result,
-			const benchmark::PipelineDurations&) {
-			if (!result || firstResultPrinted.exchange(true)) {
-				return;
-			}
-			std::cerr << "score=" << result->score
-				<< ", threshold=" << result->threshold
-				<< ", decision="
-				<< vision::anomalyDecisionName(result->decision) << '\n';
-		};
-	std::unique_ptr<pipeline::IStagedVisionPipeline<vision::AnomalyResult>>
-		stagedPipeline = std::make_unique<
-			benchmark::TimedPipeline<vision::AnomalyResult>>(
-				std::move(builtPipeline).value(), std::move(timingObserver));
-
-	auto executor = runtime::RuntimeFactory::createBatchExecutor<
-		vision::AnomalyResult>(
-		std::move(stagedPipeline), deployment,
-		executor::BatchInferenceOptions{
-			.maxBatchSize = profile.maxBatchSize,
-			.flushTimeout = profile.flushTimeout,
-		});
-	if (!executor) {
-		return 1;
-	}
-
-	runtime::MultiCameraExecutionOptions<vision::AnomalyResult> options;
-	options.duration = std::chrono::seconds(20);
-	runtime::MultiCameraSession<vision::AnomalyResult> session(
-		std::move(sources), std::move(executor).value(), std::move(options));
-
-	auto started = session.start();
+	auto started = session.value()->start();
 	if (!started) {
 		return 1;
 	}
-	const auto summary = session.wait();
+	const auto summary = session.value()->wait();
 	std::cerr << "received=" << summary.received
 		<< ", submitted=" << summary.submitted
 		<< ", completed=" << summary.completed
@@ -277,3 +203,4 @@ int main(int argc, char* argv[]) {
 	}
 	return summary.failed == 0 && summary.sourceFailures == 0 ? 0 : 2;
 }
+#endif

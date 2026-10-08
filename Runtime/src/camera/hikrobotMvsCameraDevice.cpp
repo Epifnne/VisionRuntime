@@ -3,6 +3,7 @@
 #include "core/status.hpp"
 #include "core/tensorBuffer.hpp"
 #include "vision/frame.hpp"
+#include "logs/logger.hpp"
 
 #include <MvCameraControl.h>
 
@@ -458,7 +459,7 @@ private:
 			if (!buffer || !format) {
 				invoke(callback, core::Result<vision::Frame>::failure(
 					buffer ? format.status() : buffer.status()));
-				continue;
+				break;
 			}
 
 			const auto rawFrame = sdkFrame.stFrameInfo.nFrameNum;
@@ -497,6 +498,7 @@ private:
 		try {
 			callback(std::move(frame));
 		} catch (...) {
+			logs::error("camera frame callback threw an exception");
 		}
 	}
 

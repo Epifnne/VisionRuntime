@@ -9,7 +9,7 @@ endif()
 set(CMAKE_MSVC_RUNTIME_LIBRARY
 	"MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 
-project(VisionRuntime LANGUAGES CXX)
+project(VisionRuntime VERSION 1.0.0 LANGUAGES CXX)
 
 if(NOT MINGW AND NOT MSVC AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
 	message(FATAL_ERROR "VisionRuntime currently supports MSVC, MinGW, and Linux only")
@@ -19,6 +19,10 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+set(VISION_PRODUCT_SAMPLE "" CACHE STRING "Sample runtime linked into this product Shell")
+if(VISION_PRODUCT_SAMPLE)
+	include(Samples/common/configureProduct.cmake)
+endif()
 include(cmake/visionBuildOptions.cmake)
 
 if(PROJECT_IS_TOP_LEVEL)

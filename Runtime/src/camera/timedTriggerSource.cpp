@@ -1,6 +1,7 @@
 #include "camera/timedTriggerSource.hpp"
 
 #include "core/status.hpp"
+#include "logs/logger.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -13,8 +14,8 @@
 namespace visionRuntime::camera {
 namespace {
 
-[[nodiscard]] core::Status error(core::StatusCode code, const char* message) {
-	return core::Status::error(code, message);
+[[nodiscard]] core::Status error(core::StatusCode code, std::string message) {
+	return core::Status::error(code, std::move(message));
 }
 
 } // namespace
@@ -53,7 +54,12 @@ public:
 		}
 		try {
 			worker_ = std::jthread([this](std::stop_token) { run(); });
+		} catch (const std::exception& exception) {
+			deliverError(error(core::StatusCode::Internal,
+				std::string("trigger worker failed: ") + exception.what()));
 		} catch (...) {
+			deliverError(error(core::StatusCode::Internal,
+				"trigger worker failed with an unknown exception"));
 			callback_ = {};
 			return core::Result<void>::failure(error(
 				core::StatusCode::ResourceExhausted,
@@ -112,6 +118,7 @@ public:
 	[[nodiscard]] bool isRunning() const noexcept {
 		return running_;
 	}
+	[[nodiscard]] ICameraDevice* cameraDevice() const noexcept { return device_.get(); }
 
 	[[nodiscard]] FrameSourceInfo info() const {
 		return {
@@ -190,6 +197,7 @@ private:
 		try {
 			callback_(std::move(frame));
 		} catch (...) {
+			logs::error("trigger frame callback threw an exception");
 		}
 
 		{
@@ -203,6 +211,7 @@ private:
 		try {
 			callback_(core::Result<vision::Frame>::failure(std::move(status)));
 		} catch (...) {
+			logs::error("trigger error callback threw an exception");
 		}
 	}
 
@@ -270,6 +279,10 @@ bool TimedTriggerSource::isRunning() const noexcept {
 
 FrameSourceInfo TimedTriggerSource::info() const {
 	return impl_->info();
+}
+
+ICameraDevice* TimedTriggerSource::cameraDevice() const noexcept {
+	return impl_->cameraDevice();
 }
 
 } // namespace visionRuntime::camera

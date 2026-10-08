@@ -23,6 +23,26 @@ TEST(ConfigLoaderTest, RejectsNegativeAndFractionalQueueCapacities) {
 	std::filesystem::remove(path);
 }
 
+TEST(ConfigLoaderTest, ValidatesTaskTimeout) {
+	const auto path = std::filesystem::temp_directory_path() / "vision-runtime-timeout.json";
+	for (const auto value : {"0", "-1", "1.5", "\"100\"", "86400001", "100"}) {
+		std::ofstream stream(path);
+		stream << R"({"schemaVersion":{"major":1},
+			"backend":{"pluginDirectory":"plugins","id":"fake","device":"CPU"},
+			"executor":{"performancePolicy":"serial","queueFullPolicy":"block",
+			"queueCapacity":1,"taskTimeoutMilliseconds":)" << value << "}}";
+		stream.close();
+		auto loaded = visionRuntime::config::ConfigLoader::loadDeployment(path);
+		if (std::string_view(value) == "100") {
+			ASSERT_TRUE(loaded);
+			EXPECT_EQ(loaded->executor.taskTimeout, std::chrono::milliseconds(100));
+		} else {
+			EXPECT_FALSE(loaded) << value;
+		}
+	}
+	std::filesystem::remove(path);
+}
+
 TEST(ConfigLoaderTest, LoadsUtf8PluginDirectory) {
 	const auto path = std::filesystem::temp_directory_path() / "vision-runtime-utf8-deployment.json";
 	std::ofstream stream(path);

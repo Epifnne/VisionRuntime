@@ -31,6 +31,7 @@ public:
 		: pipeline_(std::move(pipeline)),
 		  queueCapacity_(options.queueCapacity),
 		  queueFullPolicy_(options.queueFullPolicy),
+		  taskTimeout_(options.taskTimeout),
 		  stageQueueCapacity_(options.stageQueueCapacity),
 		  preprocessQueue_(options.stageQueueCapacity),
 		  inferenceQueue_(options.stageQueueCapacity),
@@ -62,18 +63,31 @@ public:
 			return submitFailure(core::StatusCode::InvalidArgument,
 				"executor queue capacities must be greater than zero");
 		}
+		if (taskTimeout_ &&
+			(taskTimeout_->count() <= 0 || taskTimeout_->count() > 86400000)) {
+			return submitFailure(core::StatusCode::InvalidArgument,
+				"task timeout must be in [1, 86400000] milliseconds");
+		}
+		const auto deadline = taskDeadline(packet.identity(), taskTimeout_);
 		if (!accepting_) {
 			return submitFailure(core::StatusCode::InvalidState,
 				"executor has stopped accepting tasks");
 		}
 		if (queueFullPolicy_ == QueueFullPolicy::Block) {
-			entrySpaceAvailable_.wait(lock, [this] {
+			if (!waitForEntry(entrySpaceAvailable_, lock, deadline, [this] {
 				return !accepting_ || entryQueue_.size() < queueCapacity_;
-			});
+			})) {
+				return submitFailure(core::StatusCode::DeadlineExceeded,
+					"task deadline expired while waiting for queue space");
+			}
 			if (!accepting_) {
 				return submitFailure(core::StatusCode::InvalidState,
 					"executor has stopped accepting tasks");
 			}
+		}
+		if (deadlineExceeded(deadline)) {
+			return submitFailure(core::StatusCode::DeadlineExceeded,
+				"task deadline expired before submission");
 		}
 		if (entryQueue_.size() >= queueCapacity_) {
 			return submitFailure(core::StatusCode::QueueFull,
@@ -81,7 +95,7 @@ public:
 		}
 
 		const auto taskId = nextTaskId_.fetch_add(1);
-		Task task(taskId, std::move(packet), std::move(callback));
+		Task task(taskId, std::move(packet), std::move(callback), deadline);
 		auto handle = task.handle();
 		entryQueue_.push_back(std::move(task));
 		entryReady_.notify_one();
@@ -171,7 +185,11 @@ private:
 
 			auto prepared = cancelled(*task)
 				? cancelledResult<preprocess::PreparedInput>()
-				: callPreprocess(std::move(task->packet()));
+				: task->expired()
+					? core::Result<preprocess::PreparedInput>::failure(
+						core::Status::error(core::StatusCode::DeadlineExceeded,
+							"task deadline expired before preprocessing"))
+					: callPreprocess(std::move(task->packet()));
 			if (cancelled(*task)) {
 				prepared = cancelledResult<preprocess::PreparedInput>();
 			}
@@ -191,7 +209,11 @@ private:
 				cancelled(task->task)
 				? cancelledResult<pipeline::InferenceOutput>()
 				: task->prepared
-					? callInference(std::move(task->prepared).value())
+					? task->task.expired()
+						? core::Result<pipeline::InferenceOutput>::failure(core::Status::error(
+							core::StatusCode::DeadlineExceeded,
+							"task deadline expired before inference"))
+						: callInference(std::move(task->prepared).value())
 					: core::Result<pipeline::InferenceOutput>::failure(
 						task->prepared.status());
 			if (cancelled(task->task)) {
@@ -212,7 +234,11 @@ private:
 			core::Result<ResultType> result = cancelled(task->task)
 				? cancelledResult<ResultType>()
 				: task->output
-					? callPostprocess(std::move(task->output).value())
+					? task->task.expired()
+						? core::Result<ResultType>::failure(core::Status::error(
+							core::StatusCode::DeadlineExceeded,
+							"task deadline expired before postprocessing"))
+						: callPostprocess(std::move(task->output).value())
 					: core::Result<ResultType>::failure(task->output.status());
 			if (cancelled(task->task)) {
 				result = cancelledResult<ResultType>();
@@ -284,6 +310,7 @@ private:
 	std::unique_ptr<pipeline::IStagedVisionPipeline<ResultType>> pipeline_;
 	const std::size_t queueCapacity_;
 	const QueueFullPolicy queueFullPolicy_;
+	const std::optional<std::chrono::milliseconds> taskTimeout_;
 	const std::size_t stageQueueCapacity_;
 	std::atomic<TaskId> nextTaskId_{1};
 	std::atomic_bool immediateStopRequested_{false};

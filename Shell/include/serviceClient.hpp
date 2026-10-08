@@ -7,6 +7,7 @@
 #include <memory>
 #include <cstdint>
 #include <functional>
+#include "service/visionService.hpp"
 
 namespace visionService {
 class VisionService;
@@ -25,6 +26,8 @@ class ServiceClient : public QObject {
 
 public:
 	explicit ServiceClient(QObject* parent = nullptr);
+	explicit ServiceClient(visionService::ProductRuntimeFactory factory,
+		QObject* parent = nullptr);
 	~ServiceClient() override;
 
 	[[nodiscard]] QVariantList parameters() const;
@@ -33,6 +36,7 @@ public:
 	[[nodiscard]] QVariantList streams() const;
 	[[nodiscard]] QString lastError() const;
 	[[nodiscard]] QString uiJson() const;
+	[[nodiscard]] QString exportManifest() const;
 
 	Q_INVOKABLE bool loadProfile(const QString& path);
 	Q_INVOKABLE QVariant readParameter(const QString& name);
@@ -48,6 +52,7 @@ signals:
 	void frameReceived(quint32 sourceId, const QImage& image);
 
 private:
+	bool subscribeEndpoints();
 	class Impl;
 	std::unique_ptr<Impl> impl_;
 };

@@ -46,6 +46,7 @@ struct AnomalyRuntimeOptions {
 		},
 	};
 	executor::CompletionCallback<vision::AnomalyResult> callback{};
+	executor::FrameExecutionOptions<vision::AnomalyResult> execution{};
 };
 
 class AnomalyPreset {
@@ -149,9 +150,13 @@ public:
 				timedPipeline.status());
 		}
 
-		executor::FrameExecutionOptions<vision::AnomalyResult> executionOptions;
-		executionOptions.frameCount = frameCount;
-		executionOptions.completionCallback = std::move(options.callback);
+		auto executionOptions = std::move(options.execution);
+		if (!executionOptions.frameCount) {
+			executionOptions.frameCount = frameCount;
+		}
+		if (options.callback) {
+			executionOptions.completionCallback = std::move(options.callback);
+		}
 		return RuntimeFactory::createRuntime(
 			std::move(source), std::move(timedPipeline).value(), options.deployment,
 			std::move(executionOptions));

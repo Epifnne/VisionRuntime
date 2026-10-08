@@ -16,17 +16,12 @@ namespace visionShell {
 
 namespace {
 
-/// Wraps the frame buffer in a QImage without copying pixels; a heap-allocated
-/// TensorBuffer copy keeps the shared buffer alive until the QImage is freed.
-[[nodiscard]] QImage wrapZeroCopy(
+// GUI snapshots must not retain camera SDK buffer leases across recovery.
+[[nodiscard]] QImage copyPixels(
 	const visionRuntime::vision::Frame& frame, QImage::Format format) {
-	auto* holder = new visionRuntime::core::TensorBuffer(frame.buffer());
-	const auto cleanup = [](void* info) {
-		delete static_cast<visionRuntime::core::TensorBuffer*>(info);
-	};
 	return QImage(static_cast<const uchar*>(frame.data()),
 		static_cast<int>(frame.width()), static_cast<int>(frame.height()),
-		static_cast<int>(frame.rowStride()), format, cleanup, holder);
+		static_cast<int>(frame.rowStride()), format).copy();
 }
 
 QImage convertFrame(const visionRuntime::vision::Frame& frame) {
@@ -38,17 +33,17 @@ QImage convertFrame(const visionRuntime::vision::Frame& frame) {
 
 	switch (frame.pixelFormat()) {
 	case PixelFormat::Gray8:
-		return wrapZeroCopy(frame, QImage::Format_Grayscale8);
+		return copyPixels(frame, QImage::Format_Grayscale8);
 	case PixelFormat::Gray16:
-		return wrapZeroCopy(frame, QImage::Format_Grayscale16);
+		return copyPixels(frame, QImage::Format_Grayscale16);
 	case PixelFormat::Bgr8:
-		return wrapZeroCopy(frame, QImage::Format_BGR888);
+		return copyPixels(frame, QImage::Format_BGR888);
 	case PixelFormat::Rgb8:
-		return wrapZeroCopy(frame, QImage::Format_RGB888);
+		return copyPixels(frame, QImage::Format_RGB888);
 	case PixelFormat::Bgra8:
-		return wrapZeroCopy(frame, QImage::Format_ARGB32);
+		return copyPixels(frame, QImage::Format_ARGB32);
 	case PixelFormat::Rgba8:
-		return wrapZeroCopy(frame, QImage::Format_RGBA8888);
+		return copyPixels(frame, QImage::Format_RGBA8888);
 	case PixelFormat::Float32Gray: {
 		// Convert float [0,1] or arbitrary to grayscale8
 		const auto* src = static_cast<const float*>(frame.data());
@@ -72,6 +67,8 @@ QImage convertFrame(const visionRuntime::vision::Frame& frame) {
 
 class ServiceClient::Impl {
 public:
+	explicit Impl(visionService::ProductRuntimeFactory factory = {})
+		: service(std::move(factory)) {}
 	visionService::VisionService service;
 	QString lastError;
 	QHash<quint32, QImage> latestFrames;
@@ -82,8 +79,15 @@ public:
 ServiceClient::ServiceClient(QObject* parent)
 	: QObject(parent), impl_(std::make_unique<Impl>()) {}
 
+ServiceClient::ServiceClient(visionService::ProductRuntimeFactory factory, QObject* parent)
+	: QObject(parent), impl_(std::make_unique<Impl>(std::move(factory))) {}
+
 ServiceClient::~ServiceClient() {
 	impl_->service.shutdown();
+}
+
+QString ServiceClient::exportManifest() const {
+	return QString::fromStdString(impl_->service.exportManifest());
 }
 
 QVariantList ServiceClient::parameters() const {
@@ -164,7 +168,22 @@ bool ServiceClient::loadProfile(const QString& path) {
 	impl_->lastError.clear();
 	emit lastErrorChanged();
 
+	return subscribeEndpoints();
+}
+
+bool ServiceClient::subscribeEndpoints() {
+	impl_->subscriptions.clear();
 	auto& registry = impl_->service.endpoints();
+	auto failed = [this, &registry](const visionRuntime::core::Status& status) {
+		for (const auto token : impl_->subscriptions) {
+			registry.unsubscribe(token);
+		}
+		impl_->subscriptions.clear();
+		impl_->lastError = QString::fromStdString(status.toString());
+		qWarning().noquote() << impl_->lastError;
+		emit lastErrorChanged();
+		return false;
+	};
 	for (const auto& descriptor : registry.states()) {
 		auto name = QString::fromStdString(descriptor.name);
 		auto callback = [this, name](
@@ -172,13 +191,13 @@ bool ServiceClient::loadProfile(const QString& path) {
 			emit stateChanged(name, QString::fromStdString(snapshot.payload));
 		};
 		auto subscribed = registry.subscribeState(descriptor.name, callback);
-		if (subscribed) {
-			impl_->subscriptions.push_back(subscribed.value());
+		if (!subscribed) {
+			return failed(subscribed.status());
 		}
+		impl_->subscriptions.push_back(subscribed.value());
 	}
 	for (const auto& descriptor : registry.streams()) {
-		auto sourceId = descriptor.sourceId;
-		auto callback = [this, sourceId](
+		auto callback = [this](
 			std::uint32_t sid, const visionRuntime::vision::Frame& frame) {
 			QImage image = convertFrame(frame);
 			if (!image.isNull()) {
@@ -186,9 +205,10 @@ bool ServiceClient::loadProfile(const QString& path) {
 			}
 		};
 		auto subscribed = registry.subscribeStream(descriptor.name, callback);
-		if (subscribed) {
-			impl_->subscriptions.push_back(subscribed.value());
+		if (!subscribed) {
+			return failed(subscribed.status());
 		}
+		impl_->subscriptions.push_back(subscribed.value());
 	}
 
 	emit registryChanged();
@@ -238,6 +258,9 @@ bool ServiceClient::invokeCommand(const QString& name) {
 	}
 	impl_->lastError.clear();
 	emit lastErrorChanged();
+	if (name == QStringLiteral("session.recover")) {
+		return subscribeEndpoints();
+	}
 	return true;
 }
 

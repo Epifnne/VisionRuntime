@@ -7,6 +7,7 @@
 
 #include <chrono>
 #include <utility>
+#include <nlohmann/json.hpp>
 
 namespace visionService {
 
@@ -20,25 +21,21 @@ core::Result<void> failure(core::StatusCode code, std::string message) {
 [[nodiscard]] std::string sessionStatePayload(
 	session::SessionLifecycle state,
 	std::string lastError) {
-	std::string payload = R"({"state":")";
-	payload += session::sessionLifecycleName(state);
-	payload += '"';
+	nlohmann::json payload{{"state", session::sessionLifecycleName(state)}};
 	if (!lastError.empty()) {
-		payload += R"(,"error":")";
-		payload += std::move(lastError);
-		payload += '"';
+		payload["error"] = std::move(lastError);
 	}
-	payload += '}';
-	return payload;
+	return payload.dump();
 }
 
 } // namespace
 
-VisionService::VisionService()
+VisionService::VisionService(ProductRuntimeFactory runtimeFactory)
 	: dispatcher_(),
 	  registry_(dispatcher_),
 	  cameraService_(registry_),
-	  metrics_(registry_, sessionController_) {
+	  metrics_(registry_, sessionController_),
+	  runtimeFactory_(std::move(runtimeFactory)) {
 	sessionController_.completionCallback =
 		[this](const session::SessionCounters&) {
 			{
@@ -55,13 +52,25 @@ VisionService::~VisionService() {
 
 core::Result<void> VisionService::loadProfile(
 	const std::filesystem::path& path) {
+	if (dispatcher_.isDispatcherThread()) {
+		return failure(core::StatusCode::InvalidState,
+			"load/recover must run outside endpoint subscription callbacks");
+	}
 	shutdown();
 	auto profile = profile::ProfileLoader::load(path);
 	if (!profile) {
 		return failure(profile.status().code(),
 			std::string(profile.status().message()));
 	}
+	if (!runtimeFactory_ && !profile->runtimeProduct.empty()) {
+		auto status = core::Status::error(core::StatusCode::Unsupported,
+			"profile requires product Shell runtime: " + profile->runtimeProduct);
+		visionRuntime::logs::report(status);
+		return core::Result<void>::failure(std::move(status));
+	}
 	profile_ = std::move(profile).value();
+	profilePath_ = std::filesystem::absolute(path);
+	metrics_.reset();
 	streamBindings_.reset();
 	timedPipeline_ = nullptr;
 
@@ -70,15 +79,45 @@ core::Result<void> VisionService::loadProfile(
 		return registered;
 	}
 
-	auto assembled = session::SessionAssembler::assemble(
-		profile_, registry_, metrics_.timingObserver(), metrics_.batchObserver());
+	auto observeOutcome = [this, observe = metrics_.resultObserver()](auto outcome, const auto& identity,
+			auto taskId, const auto& result) {
+			observe(outcome, identity, taskId, result);
+			if (resultObserver) {
+				resultObserver(outcome, identity, taskId, result);
+			}
+		};
+	auto sourceFaultObserver = [this](const auto& fault) { metrics_.observeSourceFault(fault); };
+	auto assembled = [&]() -> core::Result<session::AssembledSession> {
+		if (!runtimeFactory_) {
+			return session::SessionAssembler::assemble(profile_, registry_,
+				metrics_.timingObserver(), metrics_.batchObserver(),
+				observeOutcome, sourceFaultObserver);
+		}
+		auto runtime = [&]() -> core::Result<std::unique_ptr<session::IInspectionSession>> {
+			try {
+				return runtimeFactory_(profile_, registry_);
+			} catch (const std::exception& exception) {
+				auto status = core::Status::error(core::StatusCode::Internal,
+					std::string("product runtime factory threw: ") + exception.what());
+				visionRuntime::logs::report(status);
+				return core::Result<std::unique_ptr<session::IInspectionSession>>::failure(
+					std::move(status));
+			}
+		}();
+		if (!runtime) {
+			visionRuntime::logs::report(runtime.status());
+			return core::Result<session::AssembledSession>::failure(runtime.status());
+		}
+		return session::SessionAssembler::bindRuntime(std::move(runtime).value(),
+			profile_, registry_, {.result = observeOutcome, .sourceFault = sourceFaultObserver});
+	}();
 	if (!assembled) {
 		return failure(assembled.status().code(),
 			std::string(assembled.status().message()));
 	}
 	streamBindings_ = assembled->streamBindings;
 
-	auto configured = sessionController_.configure(
+	auto configured = sessionController_.configureSession(
 		std::move(assembled->session), assembled->sourceCount);
 	if (!configured) {
 		return configured;
@@ -131,7 +170,10 @@ void VisionService::shutdown() noexcept {
 	}
 	sessionController_.requestStop(
 		visionRuntime::executor::StopMode::Immediate);
+	sessionController_.waitForIdle();
+	dispatcher_.drain();
 	registry_.clear();
+	sessionController_.releaseSession();
 	profileLoaded_ = false;
 	timedPipeline_ = nullptr;
 }
@@ -149,13 +191,17 @@ core::Result<void> VisionService::registerCoreEndpoints() {
 		.invoke = [this] {
 		auto started = sessionController_.start();
 			metrics_.publishSessionState();
-			if (started) {
+			if (started &&
+				sessionController_.state() == session::SessionLifecycle::Running) {
 				// Live publish starts only after start() succeeded so no sample
 				// is missed between the last tick and the final publish. The
 				// stop request is interrupted before the control thread finishes,
 				// so the final summary/performance are never overwritten by a
 				// racing live tick.
 				std::lock_guard lock(metricsThreadMutex_);
+				if (sessionController_.state() != session::SessionLifecycle::Running) {
+					return started;
+				}
 				metricsThread_ = std::jthread([this](std::stop_token stop) {
 					while (!stop.stop_requested()) {
 						metrics_.publishLive(timedPipeline_);
@@ -168,6 +214,23 @@ core::Result<void> VisionService::registerCoreEndpoints() {
 				});
 			}
 			return started;
+		},
+	});
+	if (!registered) {
+		return registered;
+	}
+
+	registered = registry_.registerCommand({
+		.name = "session.recover",
+		.description = "reload the profile and recreate camera/model resources; does not start detection",
+		.accessLevel = endpoints::AccessLevel::Engineer,
+		.invoke = [this] {
+			if (sessionController_.state() != session::SessionLifecycle::Idle) {
+				return failure(core::StatusCode::InvalidState,
+					"stop the session and wait for idle before recovering");
+			}
+			const auto path = profilePath_;
+			return loadProfile(path);
 		},
 	});
 	if (!registered) {
@@ -241,7 +304,25 @@ core::Result<void> VisionService::registerCoreEndpoints() {
 		return registered;
 	}
 
-	return core::Result<void>::success();
+	registered = registry_.registerState({
+		.name = "inspection.result",
+		.description = "latest correlated inspection outcome; subscribe for immutable outcome snapshots",
+		.accessLevel = endpoints::AccessLevel::Operator,
+		.current = [this] {
+			return endpoints::StateSnapshot{0, metrics_.resultPayload()};
+		},
+	});
+	if (!registered) {
+		return registered;
+	}
+	return registry_.registerState({
+		.name = "source.fault",
+		.description = "latest acquisition fault or frame-sequence gap",
+		.accessLevel = endpoints::AccessLevel::Operator,
+		.current = [this] {
+			return endpoints::StateSnapshot{0, metrics_.sourceFaultPayload()};
+		},
+	});
 }
 
 core::Result<void> VisionService::applyEndpointExposure() {

@@ -15,6 +15,10 @@ TEST(ContinuousCameraSourceOptionsTest, ValidatesOptionalFrameRate) {
 	EXPECT_FALSE(ContinuousCameraSourceOptions{.frameRate = -1.0}.isValid());
 	EXPECT_FALSE(ContinuousCameraSourceOptions{
 		.frameRate = std::numeric_limits<double>::infinity()}.isValid());
+	EXPECT_TRUE(ContinuousCameraSourceOptions{
+		.noFrameTimeout = std::chrono::milliseconds(100)}.isValid());
+	EXPECT_FALSE(ContinuousCameraSourceOptions{
+		.noFrameTimeout = std::chrono::milliseconds(0)}.isValid());
 }
 
 TEST(CameraAcquisitionOptionsTest, ValidatesModeAndDeviceFrameRate) {

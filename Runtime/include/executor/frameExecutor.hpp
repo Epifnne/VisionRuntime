@@ -1,8 +1,12 @@
 #pragma once
 
 #include "camera/iFrameSource.hpp"
+#include "camera/sourceFault.hpp"
 #include "core/result.hpp"
 #include "executor/iPipelineExecutor.hpp"
+#include "executor/frameOutcome.hpp"
+#include "executor/frameObservers.hpp"
+#include "executor/executorOptions.hpp"
 #include "logs/logger.hpp"
 
 #include <chrono>
@@ -15,6 +19,7 @@
 #include <string>
 #include <thread>
 #include <utility>
+#include <vector>
 
 namespace visionRuntime::executor {
 
@@ -30,6 +35,10 @@ struct FrameExecutionSummary {
 	std::size_t failed = 0;
 	std::size_t dropped = 0;
 	std::size_t sourceFailures = 0;
+	std::uint64_t missingFrames = 0;
+	std::size_t rejected = 0;
+	std::size_t expired = 0;
+	std::string lastError{};
 };
 
 template<typename ResultType>
@@ -41,6 +50,9 @@ struct FrameExecutionOptions {
 	CompletionCallback<ResultType> completionCallback;
 	std::function<void(const core::Status&)> sourceFailureCallback;
 	std::function<void(const core::Status&)> droppedFrameCallback;
+	FaultPolicy faultPolicy = FaultPolicy::ReportAndContinue;
+	FrameOutcomeCallback<ResultType> resultObserver;
+	std::function<void(const camera::SourceFault&)> sourceFaultObserver;
 };
 
 template<typename ResultType>
@@ -63,6 +75,28 @@ public:
 	FrameExecutor& operator=(const FrameExecutor&) = delete;
 	FrameExecutor(FrameExecutor&&) = delete;
 	FrameExecutor& operator=(FrameExecutor&&) = delete;
+
+	[[nodiscard]] core::Result<void> addObservers(FrameObservers<ResultType> observers) {
+		std::lock_guard lock(stateMutex_);
+		if (started_) {
+			return failure(core::StatusCode::InvalidState,
+				"observers must be attached before the runtime starts");
+		}
+		observers_.push_back(std::move(observers));
+		return core::Result<void>::success();
+	}
+
+	[[nodiscard]] FrameExecutionSummary currentSummary() const {
+		std::lock_guard lock(stateMutex_);
+		return summary_;
+	}
+
+	[[nodiscard]] bool stopRequested() const {
+		std::lock_guard lock(stateMutex_);
+		return stopRequested_;
+	}
+
+	[[nodiscard]] camera::IFrameSource* source() const noexcept { return source_.get(); }
 
 	[[nodiscard]] core::Result<void> start() {
 		if (!source_) {
@@ -131,6 +165,7 @@ public:
 				}
 				requestStop();
 				if (executor_) {
+					executor_->requestStop();
 					executor_->wait();
 				}
 				joinTimer();
@@ -155,7 +190,7 @@ public:
 		if (source_) {
 			source_->requestStop();
 		}
-		if (executor_) {
+		if (executor_ && mode == StopMode::Immediate) {
 			executor_->requestStop(mode);
 		}
 	}
@@ -184,25 +219,72 @@ private:
 			{
 				std::lock_guard lock(stateMutex_);
 				++summary_.sourceFailures;
+				summary_.lastError = frame.status().toString();
 				stopping = stopRequested_;
 			}
 			if (!stopping) {
 				logs::report(frame.status());
 			}
 			invokeStatusCallback(options_.sourceFailureCallback, frame.status());
-			stopForFailure = options_.sourceFailurePolicy == SourceFailurePolicy::Stop;
+			const bool terminal = source_->failureIsTerminal(frame.status());
+			publishSourceFault({.status = frame.status(), .terminal = terminal});
+			stopForFailure = terminal ||
+				options_.sourceFailurePolicy == SourceFailurePolicy::Stop ||
+				options_.faultPolicy == FaultPolicy::StopSession;
 		} else {
-			auto submitted = executor_->submit(
-				pipeline::PipelinePacket(std::move(frame).value()),
-				[this](TaskId id, const core::Result<ResultType>& result) {
+			const auto sequence = frame->metadata().sequenceNumber;
+			const auto previous = sequence_.previous();
+			const auto missing = sequence_.observe(sequence);
+			if (missing > 0) {
+				{
+					std::lock_guard lock(stateMutex_);
+					summary_.missingFrames += missing;
+					summary_.lastError = "DataLoss: acquisition frame sequence contains a gap";
+				}
+				auto status = core::Status::error(core::StatusCode::DataLoss,
+					"acquisition frame sequence contains a gap");
+				logs::report(status);
+				publishSourceFault({.status = std::move(status),
+					.missingFrames = missing, .previousSequence = previous,
+					.currentSequence = sequence});
+				if (options_.faultPolicy == FaultPolicy::StopSession) {
+					requestStop(StopMode::Immediate);
+				}
+			}
+			for (const auto& observer : observers_) {
+				if (observer.frame) {
+					try {
+						observer.frame(0, frame.value());
+					} catch (...) {
+						logs::error("runtime frame observer threw an exception");
+					}
+				}
+			}
+			pipeline::PipelinePacket packet(std::move(frame).value(), {}, 0);
+			const auto identity = packet.identity();
+			auto submitted = executor_->submit(std::move(packet),
+				[this, identity](TaskId id, const core::Result<ResultType>& result) {
 					{
 						std::lock_guard lock(stateMutex_);
 						++summary_.completed;
 						if (!result) {
 							++summary_.failed;
+							if (result.status().code() != core::StatusCode::Cancelled) {
+								summary_.lastError = result.status().toString();
+							}
+							if (result.status().code() == core::StatusCode::DeadlineExceeded) {
+								++summary_.expired;
+							}
 						}
 					}
 					invokeCompletionCallback(id, result);
+					publishResult(FrameOutcome::Completed, identity, id, result);
+					if (!result && result.status().code() != core::StatusCode::Cancelled) {
+						logs::report(result.status());
+						if (options_.faultPolicy == FaultPolicy::StopSession) {
+							requestStop(StopMode::Immediate);
+						}
+					}
 				});
 			if (submitted) {
 				std::lock_guard lock(stateMutex_);
@@ -214,16 +296,32 @@ private:
 				}
 				invokeStatusCallback(
 					options_.droppedFrameCallback, submitted.status());
+				publishResult(FrameOutcome::Dropped, identity, std::nullopt,
+					core::Result<ResultType>::failure(submitted.status()));
 			} else {
 				{
 					std::lock_guard lock(stateMutex_);
-					stopForFailure = !stopRequested_;
+					++summary_.rejected;
+					if (!stopRequested_) {
+						summary_.lastError = submitted.status().toString();
+					}
+					const bool expired =
+						submitted.status().code() == core::StatusCode::DeadlineExceeded;
+					if (expired) {
+						++summary_.expired;
+					}
+					stopForFailure = !stopRequested_ &&
+						(!expired || options_.faultPolicy == FaultPolicy::StopSession);
 				}
+				publishResult(FrameOutcome::Rejected, identity, std::nullopt,
+					core::Result<ResultType>::failure(submitted.status()));
+				logs::report(submitted.status());
 				if (stopForFailure) {
 					logs::report(submitted.status());
 					invokeStatusCallback(
 						options_.sourceFailureCallback, submitted.status());
 				}
+
 			}
 		}
 
@@ -236,6 +334,46 @@ private:
 		}
 	}
 
+	void publishResult(FrameOutcome outcome,
+		const pipeline::FrameIdentity& identity, std::optional<TaskId> taskId,
+		const core::Result<ResultType>& result) noexcept {
+		if (options_.resultObserver) {
+			try {
+				options_.resultObserver(outcome, identity, taskId, result);
+			} catch (...) {
+				logs::error("result observer threw an exception");
+			}
+		}
+		for (const auto& observer : observers_) {
+			if (observer.result) {
+				try {
+					observer.result(outcome, identity, taskId, result);
+				} catch (...) {
+					logs::error("attached result observer threw an exception");
+				}
+			}
+		}
+	}
+
+	void publishSourceFault(const camera::SourceFault& fault) noexcept {
+		if (options_.sourceFaultObserver) {
+			try {
+				options_.sourceFaultObserver(fault);
+			} catch (...) {
+				logs::error("source fault observer threw an exception");
+			}
+		}
+		for (const auto& observer : observers_) {
+			if (observer.sourceFault) {
+				try {
+					observer.sourceFault(fault);
+				} catch (...) {
+					logs::error("attached source fault observer threw an exception");
+				}
+			}
+		}
+	}
+
 	static void invokeStatusCallback(
 		const std::function<void(const core::Status&)>& callback,
 		const core::Status& status) noexcept {
@@ -245,6 +383,7 @@ private:
 		try {
 			callback(status);
 		} catch (...) {
+			logs::error("source status callback threw an exception");
 		}
 	}
 
@@ -257,6 +396,7 @@ private:
 		try {
 			options_.completionCallback(id, result);
 		} catch (...) {
+			logs::error("frame completion callback threw an exception");
 		}
 	}
 
@@ -280,8 +420,10 @@ private:
 	std::unique_ptr<IPipelineExecutor<ResultType>> executor_;
 	FrameExecutionOptions<ResultType> options_;
 
-	std::mutex stateMutex_;
+	mutable std::mutex stateMutex_;
+	std::vector<FrameObservers<ResultType>> observers_;
 	FrameExecutionSummary summary_;
+	camera::FrameSequenceTracker sequence_;
 	bool started_ = false;
 	bool stopRequested_ = false;
 	bool finished_ = false;

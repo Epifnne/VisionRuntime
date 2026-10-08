@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased - v1.0 release hardening
+
+### Added
+
+- Capture-to-delivery task deadlines for serial, staged-parallel and batch executors, including bounded waiting for a blocked submission and rejection of late success.
+- Correlated frame outcome observers for single-source RuntimeSession, MultiCameraSession and VisionService; Service exposes `inspection.result`, `source.fault`, and explicit `session.recover`.
+- Configurable report-and-continue/stop-session fault policy; terminating acquisition errors stop the session. Optional continuous-camera silence watchdog and separate acquisition-sequence-gap counters.
+- Release contract regression tests; CI now enables Service tests. Designer selftest is registered with CTest for GUI builds.
+- Published product SHA-256 manifests, incomplete-publication markers, Shell preflight (`--check`), and runtime version/build metadata.
+
+### Fixed
+
+- Non-finite anomaly scores can no longer be classified as OK.
+- Batch failures are routed through one completion producer, preserve submission order alongside successful members, and validate per-member output cardinality.
+- Serial immediate-stop no longer accesses a moved-from running task during completion handoff.
+- Source completion watching waits for acquisition startup; Service shutdown drains producers and endpoint callbacks before resource replacement. Single-use sessions explicitly require recovery before restart.
+- Worker/observer exceptions are logged. Monitoring dispatch is bounded, JSON error payloads are escaped, and summaries no longer use a fixed-size per-source buffer.
+- Designer publication checks file-copy/script-write failures and conflicting runtime files. Release assembly no longer hardcodes the checkout path or deletes an existing output.
+
+### Release status
+
+- Candidate version is 1.0.0. Hardware soak, real-model accuracy and clean-target deployment remain explicit release approval gates documented in README; they are not implied by software test success.
+
 ## Unreleased - 2026-09-21（visionDesigner 搭建工具）
 
 ### Added

@@ -150,6 +150,7 @@ struct SourceBuild {
 
 	camera::ContinuousCameraSourceOptions options;
 	options.frameRate = cameraProfile.frameRate;
+	options.noFrameTimeout = cameraProfile.noFrameTimeout;
 	auto source = camera::ContinuousCameraSource::create(
 		std::move(device).value(), options);
 	if (!source) {
@@ -162,6 +163,11 @@ struct SourceBuild {
 
 [[nodiscard]] core::Result<config::DeploymentConfig> buildDeployment(
 	const profile::ProductProfile& profile) {
+	if (profile.pipeline.faultPolicy != "reportAndContinue" &&
+		profile.pipeline.faultPolicy != "stopSession") {
+		return failure<config::DeploymentConfig>(core::StatusCode::InvalidArgument,
+			"pipeline.faultPolicy must be reportAndContinue or stopSession");
+	}
 	config::DeploymentConfig deployment;
 	deployment.backend.pluginDirectory = profile.model.pluginDirectory;
 	deployment.backend.id = profile.model.backendId;
@@ -169,6 +175,7 @@ struct SourceBuild {
 	deployment.executor.queueCapacity = profile.pipeline.queueCapacity;
 	deployment.executor.stageQueueCapacity =
 		profile.pipeline.stageQueueCapacity;
+	deployment.executor.taskTimeout = profile.pipeline.taskTimeout;
 	if (profile.pipeline.queueFullPolicy == "block") {
 		deployment.executor.queueFullPolicy = config::QueueFullPolicy::Block;
 	} else if (profile.pipeline.queueFullPolicy == "drop") {
@@ -186,7 +193,9 @@ core::Result<AssembledSession> SessionAssembler::assemble(
 	const profile::ProductProfile& profile,
 	endpoints::EndpointRegistry& registry,
 	benchmark::PipelineTimingObserver<SessionResult> timingObserver,
-	benchmark::BatchPerformanceObserver batchObserver) {
+	benchmark::BatchPerformanceObserver batchObserver,
+	executor::FrameOutcomeCallback<SessionResult> resultObserver,
+	std::function<void(const camera::SourceFault&)> sourceFaultObserver) {
 	AssembledSession assembled;
 	assembled.sourceCount = profile.sources.size();
 	assembled.cameraDevices.assign(profile.sources.size(), nullptr);
@@ -231,6 +240,10 @@ core::Result<AssembledSession> SessionAssembler::assemble(
 			std::string(package.status().message()));
 	}
 	const auto& modelManifest = package->manifest();
+	if (modelManifest.inputs.size() != 1 || modelManifest.outputs.size() != 1) {
+		return failure<AssembledSession>(core::StatusCode::Unsupported,
+			"v1 anomaly sessions require exactly one input and one output");
+	}
 
 	auto deployment = buildDeployment(profile);
 	if (!deployment) {
@@ -243,6 +256,11 @@ core::Result<AssembledSession> SessionAssembler::assemble(
 		inputTensor.shape.size() != 4) {
 		return failure<AssembledSession>(core::StatusCode::Unsupported,
 			"model input must be a ranked NCHW tensor");
+	}
+	if (profile.pipeline.cropHeight != inputTensor.shape[2] ||
+		profile.pipeline.cropWidth != inputTensor.shape[3]) {
+		return failure<AssembledSession>(core::StatusCode::ShapeMismatch,
+			"configured crop dimensions must match the model manifest input height and width");
 	}
 	preprocess::ToTensorOptions toTensorOptions{
 		.tensorName = inputTensor.name,
@@ -330,6 +348,11 @@ core::Result<AssembledSession> SessionAssembler::assemble(
 	}
 
 	runtime::MultiCameraExecutionOptions<SessionResult> options;
+	options.faultPolicy = profile.pipeline.faultPolicy == "stopSession"
+		? executor::FaultPolicy::StopSession
+		: executor::FaultPolicy::ReportAndContinue;
+	options.resultObserver = std::move(resultObserver);
+	options.sourceFaultObserver = std::move(sourceFaultObserver);
 	options.sourceFailureCallback =
 		[&registry](const core::Status& status) {
 			static_cast<void>(status);
@@ -354,12 +377,64 @@ core::Result<AssembledSession> SessionAssembler::assemble(
 				std::move(view).value());
 		}
 	};
-	assembled.session = std::make_unique<
+	assembled.session = adoptRuntime(std::make_unique<
 		runtime::MultiCameraSession<SessionResult>>(
 		std::move(sources), std::move(executorResult).value(),
-		std::move(options));
+		std::move(options)));
 	assembled.streamBindings = std::move(streamBindings);
 
+	return core::Result<AssembledSession>::success(std::move(assembled));
+}
+
+core::Result<AssembledSession> SessionAssembler::bindRuntime(
+	std::unique_ptr<IInspectionSession> session,
+	const profile::ProductProfile& profile,
+	endpoints::EndpointRegistry& registry, SessionObservers observers) {
+	if (!session || session->sourceCount() != profile.sources.size()) {
+		return failure<AssembledSession>(core::StatusCode::InvalidArgument,
+			"adopted runtime source count must match the profile source array");
+	}
+	auto bindings = std::make_shared<
+		std::vector<std::pair<std::uint32_t, std::string>>>();
+	AssembledSession assembled;
+	assembled.sourceCount = session->sourceCount();
+	for (std::size_t index = 0; index < assembled.sourceCount; ++index) {
+		auto* source = session->source(index);
+		if (!source) {
+			return failure<AssembledSession>(core::StatusCode::InvalidArgument,
+				"adopted runtime contains a null source");
+		}
+		const auto& sourceProfile = profile.sources[index];
+		const auto id = static_cast<std::uint32_t>(index);
+		const auto name = "stream." + sourceProfile.id;
+		auto registered = registry.registerStream({
+			.name = name, .description = sourceProfile.role,
+			.accessLevel = endpoints::AccessLevel::Operator, .sourceId = id});
+		if (!registered) {
+			return core::Result<AssembledSession>::failure(registered.status());
+		}
+		bindings->emplace_back(id, name);
+		assembled.cameraDevices.push_back(source->cameraDevice());
+	}
+	observers.frame = [&registry, bindings](std::uint32_t id, const vision::Frame& frame) {
+		auto view = vision::Frame::create(frame.buffer(), frame.width(), frame.height(),
+			frame.pixelFormat(), frame.rowStride(), frame.metadata(), frame.byteOffset());
+		if (!view) {
+			visionRuntime::logs::report(view.status());
+			return;
+		}
+		if (id >= bindings->size()) {
+			visionRuntime::logs::error("adopted runtime emitted an invalid source id");
+			return;
+		}
+		registry.publishFrame((*bindings)[id].second, id, std::move(view).value());
+	};
+	auto observed = session->addObservers(std::move(observers));
+	if (!observed) {
+		return core::Result<AssembledSession>::failure(observed.status());
+	}
+	assembled.session = std::move(session);
+	assembled.streamBindings = std::move(bindings);
 	return core::Result<AssembledSession>::success(std::move(assembled));
 }
 

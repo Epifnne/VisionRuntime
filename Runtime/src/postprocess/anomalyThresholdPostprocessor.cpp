@@ -54,11 +54,22 @@ core::Result<vision::AnomalyResult> AnomalyThresholdPostprocessor::process(
 			core::StatusCode::Unsupported,
 			"anomaly output must be a single Float32 scalar"));
 	}
+	if (output.buffer().device() != core::Device::cpu()) {
+		return core::Result<vision::AnomalyResult>::failure(
+			invalidArgument("anomaly output must be in CPU memory"));
+	}
+	const auto score = *static_cast<const float*>(output.data());
+	if (!std::isfinite(score)) {
+		auto status = core::Status::error(core::StatusCode::DataLoss,
+			"anomaly output score must be finite");
+		logs::report(status);
+		return core::Result<vision::AnomalyResult>::failure(std::move(status));
+	}
 
 	vision::AnomalyResult result{
-		.score = *static_cast<const float*>(output.data()),
+		.score = score,
 		.threshold = options_.threshold,
-		.decision = *static_cast<const float*>(output.data()) >= options_.threshold
+		.decision = score >= options_.threshold
 			? vision::AnomalyDecision::Ng
 			: vision::AnomalyDecision::Ok,
 	};

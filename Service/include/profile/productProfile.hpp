@@ -40,6 +40,7 @@ struct CameraSourceProfile {
 	std::optional<double> frameRate;
 	std::chrono::milliseconds triggerInterval{100};
 	std::chrono::milliseconds responseTimeout{1000};
+	std::optional<std::chrono::milliseconds> noFrameTimeout;
 };
 
 struct SourceProfile {
@@ -69,6 +70,8 @@ struct PipelineProfile {
 	std::size_t queueCapacity = 16;
 	std::size_t stageQueueCapacity = 1;
 	std::string queueFullPolicy = "drop";
+	std::optional<std::chrono::milliseconds> taskTimeout;
+	std::string faultPolicy = "reportAndContinue";
 };
 
 struct EndpointExposure {
@@ -87,6 +90,9 @@ struct ProductProfile {
 	std::vector<EndpointExposure> endpoints;
 	/// Raw `ui` subtree serialized back to JSON; not interpreted by the service.
 	std::string uiJson;
+	/// Original JSON for product-specific configuration not interpreted by Service.
+	std::string documentJson;
+	std::string runtimeProduct;
 };
 
 } // namespace visionService::profile

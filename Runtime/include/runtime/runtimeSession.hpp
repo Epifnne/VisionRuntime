@@ -37,6 +37,18 @@ public:
 		frameExecutor_.requestStop(mode);
 	}
 
+	[[nodiscard]] core::Result<void> addObservers(
+		executor::FrameObservers<ResultType> observers) {
+		return frameExecutor_.addObservers(std::move(observers));
+	}
+
+	[[nodiscard]] executor::FrameExecutionSummary currentSummary() const {
+		return frameExecutor_.currentSummary();
+	}
+
+	[[nodiscard]] bool stopRequested() const { return frameExecutor_.stopRequested(); }
+	[[nodiscard]] camera::IFrameSource* source() const noexcept { return frameExecutor_.source(); }
+
 private:
 	executor::FrameExecutor<ResultType> frameExecutor_;
 };

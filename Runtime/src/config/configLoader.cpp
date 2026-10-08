@@ -87,6 +87,17 @@ core::Result<DeploymentConfig> ConfigLoader::loadDeployment(
 		}
 		config.executor.queueCapacity = queueCapacity.get<std::size_t>();
 		config.executor.stageQueueCapacity = stageQueueCapacity.get<std::size_t>();
+		if (executor.contains("taskTimeoutMilliseconds")) {
+			const auto& timeout = executor.at("taskTimeoutMilliseconds");
+			if (!timeout.is_number_integer() ||
+				timeout.get<std::int64_t>() <= 0 ||
+				timeout.get<std::int64_t>() > 86400000) {
+				return invalidConfig(core::StatusCode::InvalidArgument,
+					"executor.taskTimeoutMilliseconds must be an integer in [1, 86400000]");
+			}
+			config.executor.taskTimeout =
+				std::chrono::milliseconds(timeout.get<std::int64_t>());
+		}
 		return core::Result<DeploymentConfig>::success(config);
 	} catch (const std::exception& exception) {
 		return invalidConfig(core::StatusCode::InvalidArgument,

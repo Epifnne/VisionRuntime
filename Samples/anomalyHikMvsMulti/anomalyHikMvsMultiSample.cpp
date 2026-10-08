@@ -11,7 +11,38 @@
 #include <memory>
 #include <utility>
 #include <vector>
+#include "sampleRuntime.hpp"
 
+namespace visionSample {
+using namespace visionRuntime;
+
+core::Result<std::unique_ptr<runtime::MultiCameraSession<vision::AnomalyResult>>>
+createSampleRuntime(RuntimeOptions options) {
+	using Session = runtime::MultiCameraSession<vision::AnomalyResult>;
+	auto sources = createSources(options);
+	if (!sources) {
+		return core::Result<std::unique_ptr<Session>>::failure(sources.status());
+	}
+	auto pipeline = createPipeline(options);
+	if (!pipeline) {
+		return core::Result<std::unique_ptr<Session>>::failure(pipeline.status());
+	}
+	auto executor = runtime::RuntimeFactory::createBatchExecutor<vision::AnomalyResult>(
+		std::make_unique<pipeline::Pipeline<vision::AnomalyResult>>(std::move(pipeline).value()),
+		options.deployment, {.maxBatchSize = options.pipeline.maxBatchSize,
+			.flushTimeout = options.pipeline.flushTimeout});
+	if (!executor) {
+		return core::Result<std::unique_ptr<Session>>::failure(executor.status());
+	}
+	runtime::MultiCameraExecutionOptions<vision::AnomalyResult> execution;
+	execution.duration = std::chrono::seconds(30);
+	execution.faultPolicy = options.faultPolicy;
+	return core::Result<std::unique_ptr<Session>>::success(std::make_unique<Session>(
+		std::move(sources).value(), std::move(executor).value(), std::move(execution)));
+}
+} // namespace visionSample
+
+#ifndef VISION_SAMPLE_SHELL
 namespace {
 
 void printUsage(const char* program) {
@@ -33,111 +64,29 @@ int main(int argc, char* argv[]) {
 		return 1;
 	}
 
-	// Build one Hik MVS continuous source per camera IP on the command line.
-	std::vector<std::unique_ptr<camera::IFrameSource>> sources;
+	visionSample::RuntimeOptions options;
+	options.pipeline.maxBatchSize = static_cast<std::size_t>(argc - 3);
+	options.modelPackage = argv[1];
+	options.deployment = std::move(deployment).value();
 	for (int index = 3; index < argc; ++index) {
-		auto sourceResult = camera::FrameSourceFactory::create(
+		options.sources.push_back(
 			camera::ContinuousCameraSourceConfig{
 				.device = {
 					.ipAddress = argv[index],
 					.pixelFormat = vision::PixelFormat::Gray8,
 				},
 			});
-		if (!sourceResult) {
-			return 1;
-		}
-		sources.push_back(std::move(sourceResult).value());
 	}
 
-	auto package = config::ModelPackageLoader::load(argv[1]);
-	if (!package) {
+	auto session = visionSample::createSampleRuntime(std::move(options));
+	if (!session) {
 		return 1;
 	}
-	const auto& manifest = package->manifest();
-
-	preprocess::ToTensorOptions toTensorOptions{
-		.tensorName = manifest.inputs.front().name,
-		.bufferCount = deployment->executor.stageQueueCapacity + 2,
-		.channels = 1,
-	};
-	preprocess::NormalizeOptions normalizeOptions{
-		.mean = {0.449F},
-		.standardDeviation = {0.226F},
-	};
-	auto preprocessor = preprocess::PreprocessBuilder::start<vision::Frame>()
-		.then(preprocess::CvResize::shortSide(256))
-		.then(preprocess::CvCenterCrop({224, 224}))
-		.then(preprocess::ToTensor(std::move(toTensorOptions)))
-		.then(preprocess::Normalize(std::move(normalizeOptions)))
-		.build();
-	if (!preprocessor) {
-		return 1;
-	}
-
-	auto selected = package->selectArtifact(deployment->backend);
-	if (!selected) {
-		return 1;
-	}
-	auto backend = backends::PluginInferenceBackend::create({
-		.pluginPath = backends::backendPluginPath(
-			deployment->backend.pluginDirectory, deployment->backend.id),
-		.backendId = deployment->backend.id,
-		.artifactPath = selected->artifactPath,
-		.device = selected->device,
-		.optionsJson = selected->optionsJson,
-		.artifactKind = selected->artifactKind,
-		.inputName = manifest.inputs.front().name,
-		.outputName = manifest.outputs.front().name,
-	});
-	if (!backend) {
-		return 1;
-	}
-
-	constexpr float kThreshold = 2.0F;
-	auto postprocessor = postprocess::AnomalyThresholdPostprocessor::create({
-		.outputName = manifest.outputs.front().name,
-		.threshold = kThreshold,
-	});
-	if (!postprocessor) {
-		return 1;
-	}
-
-	pipeline::PipelineBuilder<vision::AnomalyResult> builder;
-	auto builtPipeline = builder
-		.setPreprocessor(std::move(preprocessor).value())
-		.setBackend(std::move(backend).value())
-		.setPostprocessor(std::move(postprocessor).value())
-		.build();
-	if (!builtPipeline) {
-		return 1;
-	}
-	std::unique_ptr<pipeline::IStagedVisionPipeline<vision::AnomalyResult>>
-		stagedPipeline = std::make_unique<
-			pipeline::Pipeline<vision::AnomalyResult>>(
-				std::move(builtPipeline).value());
-
-	const std::size_t cameraCount = sources.size();
-	auto executor = runtime::RuntimeFactory::createBatchExecutor<
-		vision::AnomalyResult>(
-		std::move(stagedPipeline), *deployment,
-		executor::BatchInferenceOptions{
-			.maxBatchSize = cameraCount,
-			.flushTimeout = std::chrono::milliseconds(20),
-		});
-	if (!executor) {
-		return 1;
-	}
-
-	runtime::MultiCameraExecutionOptions<vision::AnomalyResult> options;
-	options.duration = std::chrono::seconds(30);
-	runtime::MultiCameraSession<vision::AnomalyResult> session(
-		std::move(sources), std::move(executor).value(), std::move(options));
-
-	auto started = session.start();
+	auto started = session.value()->start();
 	if (!started) {
 		return 1;
 	}
-	const auto summary = session.wait();
+	const auto summary = session.value()->wait();
 	std::cerr << "received=" << summary.received
 		<< ", submitted=" << summary.submitted
 		<< ", completed=" << summary.completed
@@ -150,3 +99,4 @@ int main(int argc, char* argv[]) {
 			<< ", dropped=" << summary.droppedPerSource[index] << '\n';
 	}
 }
+#endif

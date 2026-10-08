@@ -10,6 +10,8 @@ namespace visionRuntime::camera {
 
 class TimedTriggerSource final : public IFrameSource {
 public:
+	[[nodiscard]] bool failureIsTerminal(
+		const core::Status&) const noexcept override { return true; }
 	[[nodiscard]] static core::Result<std::unique_ptr<TimedTriggerSource>> create(
 		std::unique_ptr<ICameraDevice> device,
 		TimedTriggerSourceOptions options = {});
@@ -26,6 +28,7 @@ public:
 	void wait() noexcept override;
 	[[nodiscard]] bool isRunning() const noexcept override;
 	[[nodiscard]] FrameSourceInfo info() const override;
+	[[nodiscard]] ICameraDevice* cameraDevice() const noexcept override;
 
 private:
 	class Impl;

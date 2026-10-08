@@ -10,6 +10,8 @@
 #include <latch>
 #include <string>
 #include <thread>
+#include <future>
+#include <vector>
 
 namespace {
 
@@ -42,6 +44,7 @@ using visionService::endpoints::StreamEndpoint;
 
 class RegistryFixture : public ::testing::Test {
 protected:
+	~RegistryFixture() override { dispatcher.drain(); }
 	EndpointDispatcher dispatcher;
 	EndpointRegistry registry{dispatcher};
 };
@@ -64,6 +67,42 @@ TEST_F(RegistryFixture, RegistersAndReadsParameter) {
 	auto value = registry.readParameter("camera.cam0.exposureMicroseconds");
 	ASSERT_TRUE(value) << value.status().toString();
 	EXPECT_DOUBLE_EQ(std::get<double>(value.value()), 12000.0);
+}
+
+TEST(EndpointDispatcherTest, ReportsSaturationAndDrainsAcceptedWork) {
+	EndpointDispatcher dispatcher(1);
+	std::promise<void> entered;
+	auto started = entered.get_future();
+	std::promise<void> release;
+	auto released = release.get_future().share();
+	auto first = dispatcher.post([&entered, released] {
+		entered.set_value();
+		released.wait();
+	});
+	ASSERT_TRUE(first);
+	const auto ready = started.wait_for(std::chrono::seconds(5));
+	auto second = dispatcher.post([] {});
+	auto overflow = dispatcher.post([] {});
+	release.set_value();
+	dispatcher.drain();
+	EXPECT_EQ(ready, std::future_status::ready);
+	EXPECT_TRUE(second);
+	ASSERT_FALSE(overflow);
+	EXPECT_EQ(overflow.status().code(), StatusCode::QueueFull);
+}
+
+TEST_F(RegistryFixture, PublishesTheExactSuppliedOutcomeRatherThanALaterSnapshot) {
+	ASSERT_TRUE(registry.registerState(StateEndpoint{
+		.name = "inspection.result",
+		.current = [] { return StateSnapshot{0, "latest"}; }}));
+	std::vector<std::string> payloads;
+	auto subscribed = registry.subscribeState("inspection.result",
+		[&payloads](const StateSnapshot& snapshot) { payloads.push_back(snapshot.payload); });
+	ASSERT_TRUE(subscribed);
+	ASSERT_TRUE(registry.publishState("inspection.result", {0, "frame-1"}));
+	ASSERT_TRUE(registry.publishState("inspection.result", {0, "frame-2"}));
+	dispatcher.drain();
+	EXPECT_EQ(payloads, (std::vector<std::string>{"frame-1", "frame-2"}));
 }
 
 TEST_F(RegistryFixture, RejectsDuplicateEndpointNames) {

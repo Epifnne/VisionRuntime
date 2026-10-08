@@ -1,0 +1,5 @@
+set(VISION_SAMPLE_CAMERA HIK_MVS)
+set(VISION_SAMPLE_DEFAULT_BACKEND openvino)
+set(VISION_SAMPLE_SOURCES [=[{"id":"camera0","type":"camera","ipAddress":"169.254.239.231","pixelFormat":"gray8","mode":"continuous"},{"id":"camera1","type":"camera","ipAddress":"169.254.239.232","pixelFormat":"gray8","mode":"continuous"}]=])
+set(VISION_SAMPLE_SOURCE_IDS camera0 camera1)
+set(VISION_SAMPLE_RESIZE 256)

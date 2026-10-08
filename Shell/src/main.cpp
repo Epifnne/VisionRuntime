@@ -1,5 +1,9 @@
 #include "serviceClient.hpp"
 #include "frameImageProvider.hpp"
+#include "releaseManifest.hpp"
+#ifdef VISION_SAMPLE_SHELL
+#include "productShell.hpp"
+#endif
 
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
@@ -9,12 +13,17 @@
 #include <QTimer>
 #include <QThread>
 #include <QHash>
+#include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonParseError>
+#include <QSaveFile>
 #include <memory>
 
 int main(int argc, char* argv[]) {
 	QGuiApplication app(argc, argv);
 	QCoreApplication::setApplicationName("visionShell");
-	QCoreApplication::setApplicationVersion("1.0.0");
+	QCoreApplication::setApplicationVersion(VISION_RUNTIME_VERSION);
 
 	QCommandLineParser parser;
 	parser.setApplicationDescription(
@@ -23,9 +32,18 @@ int main(int argc, char* argv[]) {
 	parser.addVersionOption();
 	parser.addPositionalArgument("profile", "Path to the product profile JSON");
 	const QCommandLineOption smokeOption({"s", "smoke"},
-		"Auto-start the session, count stream frames for <seconds>, "
-		"print statistics and exit (acceptance harness).", "seconds");
+		"Run detection for <seconds> and fail unless valid inspections complete "
+		"without acquisition or execution errors (acceptance harness).", "seconds");
 	parser.addOption(smokeOption);
+	const QCommandLineOption checkOption(QStringLiteral("check"),
+		"Validate package checksums, profile, model, plugin and camera setup without starting detection.");
+	parser.addOption(checkOption);
+	const QCommandLineOption sealOption(QStringLiteral("seal-package"),
+		"Write package checksums without loading a runtime or opening cameras.", "root");
+	parser.addOption(sealOption);
+	const QCommandLineOption exportOption(QStringLiteral("export-manifest"),
+		"Export this product's actual endpoint manifest without starting acquisition.", "output");
+	parser.addOption(exportOption);
 	parser.process(app);
 
 	if (parser.positionalArguments().isEmpty()) {
@@ -33,11 +51,68 @@ int main(int argc, char* argv[]) {
 		return 1;
 	}
 	const auto profilePath = parser.positionalArguments().first();
+	if (parser.isSet(sealOption)) {
+		const auto productId = QFileInfo(profilePath).absoluteDir().dirName();
+		const QDir root(parser.value(sealOption));
+		const auto expectedProfile = root.filePath(
+			QStringLiteral("products/%1/profile.json").arg(productId));
+		if (!visionPackage::safeId(productId) ||
+			QFileInfo(expectedProfile).canonicalFilePath().isEmpty() ||
+			QFileInfo(expectedProfile).canonicalFilePath() != QFileInfo(profilePath).canonicalFilePath()) {
+			qCritical() << "Seal requires an existing products/<id>/profile.json inside the package root.";
+			return 3;
+		}
+		QString error;
+#ifdef Q_OS_WIN
+		const auto platform = QStringLiteral("windows");
+#else
+		const auto platform = QStringLiteral("linux");
+#endif
+		if (!visionPackage::writeManifest(root.absolutePath(), productId, platform, error)) {
+			qCritical().noquote() << error;
+			return 3;
+		}
+		return 0;
+	}
+	if (QFileInfo::exists(QFileInfo(profilePath).absoluteDir()
+		.filePath(QStringLiteral("publishing.lock")))) {
+		qCritical() << "Package assembly did not finish; republish the product before running it.";
+		return 3;
+	}
+	const auto manifestPath = QFileInfo(profilePath).absoluteDir()
+		.filePath(QStringLiteral("release-manifest.json"));
+	if (QFileInfo::exists(manifestPath)) {
+		QString error;
+		if (!visionPackage::verifyManifest(manifestPath, error)) {
+			qCritical().noquote() << error;
+			return 3;
+		}
+	}
 
+#ifdef VISION_SAMPLE_SHELL
+	visionShell::ServiceClient serviceClient(visionSample::createProductRuntime);
+#else
 	visionShell::ServiceClient serviceClient;
+#endif
 	if (!serviceClient.loadProfile(profilePath)) {
 		qWarning() << "Failed to load profile:" << serviceClient.lastError();
 		return 1;
+	}
+	if (parser.isSet(exportOption)) {
+		QSaveFile output(parser.value(exportOption));
+		const auto data = serviceClient.exportManifest().toUtf8();
+		if (!output.open(QIODevice::WriteOnly) || output.write(data) != data.size() ||
+			!output.commit()) {
+			qCritical() << "Cannot write endpoint manifest:" << output.errorString();
+			return 3;
+		}
+		return 0;
+	}
+	if (parser.isSet(checkOption)) {
+		qInfo() << (QFileInfo::exists(manifestPath)
+			? "Package checksums and profile preflight passed; detection was not started."
+			: "Profile preflight passed; no release manifest is present. Detection was not started.");
+		return 0;
 	}
 
 	// addImageProvider() transfers ownership to the engine, which deletes the
@@ -63,7 +138,12 @@ int main(int argc, char* argv[]) {
 	engine.load(url);
 
 	if (parser.isSet(smokeOption)) {
-		const auto seconds = parser.value(smokeOption).toInt();
+		bool secondsValid = false;
+		const auto seconds = parser.value(smokeOption).toInt(&secondsValid);
+		if (!secondsValid || seconds < 1 || seconds > 86400) {
+			qCritical() << "SMOKE seconds must be an integer between 1 and 86400.";
+			return 2;
+		}
 		auto counters = std::make_shared<QHash<quint32, int>>();
 		QObject::connect(&serviceClient,
 			&visionShell::ServiceClient::frameReceived,
@@ -82,7 +162,7 @@ int main(int argc, char* argv[]) {
 				<< serviceClient.stateSnapshot("metrics.performance");
 		});
 		QTimer::singleShot(seconds * 1000, &app, [&serviceClient, counters, seconds] {
-			serviceClient.invokeCommand("session.stop");
+			const bool stopped = serviceClient.invokeCommand("session.stop");
 			int total = 0;
 			QStringList perStream;
 			for (auto it = counters->constBegin(); it != counters->constEnd(); ++it) {
@@ -112,7 +192,25 @@ int main(int argc, char* argv[]) {
 			}
 			qInfo().noquote() << "SMOKE summary:" << summary;
 			qInfo().noquote() << "SMOKE performance:" << performance;
-			QCoreApplication::exit(total > 0 ? 0 : 2);
+			QJsonParseError parseError;
+			const auto document = QJsonDocument::fromJson(summary.toUtf8(), &parseError);
+			bool passed = stopped && total > 0 &&
+				parseError.error == QJsonParseError::NoError && document.isObject();
+			const auto payload = document.object();
+			const auto completed = payload.value(QStringLiteral("completed"));
+			const auto failed = payload.value(QStringLiteral("failed"));
+			passed = passed && completed.isDouble() && failed.isDouble() &&
+				completed.toDouble() > failed.toDouble();
+			for (const auto* field : {"failed", "sourceFailures", "missingFrames",
+				"rejected", "expired", "dropped"}) {
+				const auto value = payload.value(QLatin1String(field));
+				passed = passed && value.isDouble() && value.toDouble() == 0;
+			}
+			if (!passed) {
+				qCritical() << "SMOKE acceptance failed: require final counters, valid "
+					"inspections and no failed, missing, rejected, expired or dropped frames.";
+			}
+			QCoreApplication::exit(passed ? 0 : 2);
 		});
 	}
 

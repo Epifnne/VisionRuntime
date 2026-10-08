@@ -13,6 +13,7 @@
 #include "metrics/metricsAggregator.hpp"
 #include "profile/productProfile.hpp"
 #include "session/sessionController.hpp"
+#include "session/sessionAssembler.hpp"
 
 #include <filesystem>
 #include <memory>
@@ -26,9 +27,13 @@ namespace visionService {
 
 namespace serviceCamera = visionService::camera;
 
+using ProductRuntimeFactory = std::function<core::Result<
+	std::unique_ptr<session::IInspectionSession>>(const profile::ProductProfile&,
+		endpoints::EndpointRegistry&)>;
+
 class VisionService {
 public:
-	VisionService();
+	explicit VisionService(ProductRuntimeFactory runtimeFactory = {});
 	~VisionService();
 
 	VisionService(const VisionService&) = delete;
@@ -38,6 +43,8 @@ public:
 
 	[[nodiscard]] core::Result<void> loadProfile(
 		const std::filesystem::path& path);
+	visionRuntime::executor::FrameOutcomeCallback<session::SessionResult>
+		resultObserver;
 
 	[[nodiscard]] endpoints::EndpointRegistry& endpoints() noexcept;
 	[[nodiscard]] session::SessionController& sessionController() noexcept;
@@ -63,7 +70,9 @@ private:
 	serviceCamera::CameraService cameraService_;
 	metrics::MetricsAggregator metrics_;
 	profile::ProductProfile profile_;
+	ProductRuntimeFactory runtimeFactory_;
 	bool profileLoaded_ = false;
+	std::filesystem::path profilePath_;
 	std::shared_ptr<std::vector<std::pair<std::uint32_t, std::string>>>
 		streamBindings_;
 	/// Non-owning; owned by the executor of the current session. Null when no

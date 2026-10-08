@@ -436,9 +436,94 @@ ApplicationWindow {
 		onAccepted: designerBackend.loadManifest(selectedFile)
 	}
 
-	FolderDialog {
+	Dialog {
 		id: publishDialog
-		title: "选择产品包发布目录"
-		onAccepted: designerBackend.publish(selectedFolder, window.currentJson())
+		title: "发布产品包"
+		modal: true
+		standardButtons: Dialog.Ok | Dialog.Cancel
+		anchors.centerIn: parent
+		// Constrain the dialog so long paths never push it past the window.
+		width: Math.min(620, window.width - 40)
+		// "windows" or "linux"; drives template lookup and entry-script kind.
+		property string platform: "windows"
+		property string targetFolder: ""
+
+		// Convert a FolderDialog file: URL to a native path. On Windows the
+		// URL is file:///E:/... which needs the leading slash dropped as well.
+		function urlToLocal(url) {
+			return designerBackend.toLocalPath(url.toString());
+		}
+
+		function templateDir() {
+			return designerBackend.runtimeTemplate(platform);
+		}
+
+		onOpened: {
+			targetFolder = "";
+			templateField.text = templateDir();
+		}
+		onAccepted: {
+			designerBackend.setRuntimeTemplate(platform, templateField.text);
+			designerBackend.publish(targetFolder, window.currentJson(), platform);
+		}
+
+		ColumnLayout {
+			width: publishDialog.availableWidth
+			spacing: 8
+
+			Label { text: "目标平台（发布包只包含所选平台的运行时）" }
+			ComboBox {
+				id: platformCombo
+				Layout.fillWidth: true
+				model: [
+					{ text: "Windows（windeployqt 自包含）", value: "windows" },
+					{ text: "Linux（目标机需预装 Qt 6.10+ 运行时）", value: "linux" }
+				]
+				textRole: "text"
+				currentIndex: publishDialog.platform === "linux" ? 1 : 0
+				onActivated: publishDialog.platform = model[currentIndex].value
+				Component.onCompleted: publishDialog.platform = model[currentIndex].value
+			}
+
+			Label { text: "运行时模板目录（publishShell 产物；留空自动探测）" }
+			RowLayout {
+				Layout.fillWidth: true
+				TextField {
+					id: templateField
+					Layout.fillWidth: true
+					placeholderText: publishDialog.templateDir() || "未找到，请先构建 publishShell"
+				}
+				Button {
+					text: "浏览"
+					onClicked: templateDialog.open()
+				}
+			}
+
+			Label { text: "发布目录" }
+			RowLayout {
+				Layout.fillWidth: true
+				TextField {
+					Layout.fillWidth: true
+					readOnly: true
+					text: publishDialog.targetFolder
+					placeholderText: "选择整个产品包的输出目录"
+				}
+				Button {
+					text: "浏览"
+					onClicked: publishFolderDialog.open()
+				}
+			}
+		}
+
+		FolderDialog {
+			id: templateDialog
+			title: "选择运行时模板目录"
+			onAccepted: templateField.text = publishDialog.urlToLocal(selectedFolder)
+		}
+		FolderDialog {
+			id: publishFolderDialog
+			title: "选择产品包发布目录"
+			onAccepted: publishDialog.targetFolder = publishDialog.urlToLocal(selectedFolder)
+		}
 	}
 }

@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Dialogs
 
 // Product-side profile editing: identity, sources, model package, pipeline
 // parameters and the exposed endpoint subset. Writes go straight into
@@ -29,6 +30,95 @@ Item {
 	function numberOrKeep(text, fallback) {
 		var value = parseFloat(text);
 		return isNaN(value) ? fallback : value;
+	}
+
+	// Backend/device options come from the runtime template's plugins.json
+	// (backendCatalog). Devices carry their supported platforms; the label
+	// flags ones that are not universal (e.g. NPU is Linux-only) so the user
+	// sees the constraint while editing. Falls back to hardcoded ids when no
+	// template manifest is available yet.
+	readonly property var catalog: designerBackend.backendCatalog("")
+
+	function backendIds() {
+		if (catalog.length > 0) {
+			var ids = [];
+			for (var i = 0; i < catalog.length; ++i) {
+				ids.push(catalog[i].id);
+			}
+			return ids;
+		}
+		return ["openvino", "tensorrt"];
+	}
+
+	function deviceOptions(backendId) {
+		for (var i = 0; i < catalog.length; ++i) {
+			if (catalog[i].id !== backendId) {
+				continue;
+			}
+			var opts = [];
+			var devs = catalog[i].devices || [];
+			for (var j = 0; j < devs.length; ++j) {
+				var plats = devs[j].platforms || [];
+				var label = devs[j].id;
+				if (plats.length > 0 && plats.length < 2) {
+					label += "（仅 " + plats.join("/") + "）";
+				}
+				opts.push({ "id": devs[j].id, "label": label });
+			}
+			return opts;
+		}
+		if (backendId === "tensorrt") {
+			return [{ "id": "0", "label": "0" }, { "id": "1", "label": "1" }];
+		}
+		return [{ "id": "CPU", "label": "CPU" },
+				{ "id": "GPU", "label": "GPU" },
+				{ "id": "NPU", "label": "NPU（仅 linux）" }];
+	}
+
+	function deviceIds(backendId) {
+		var opts = deviceOptions(backendId);
+		var ids = [];
+		for (var i = 0; i < opts.length; ++i) {
+			ids.push(opts[i].id);
+		}
+		return ids;
+	}
+
+	function ensureModel() {
+		if (!window.doc.model) {
+			window.doc.model = {};
+		}
+		return window.doc.model;
+	}
+
+	// Folder pickers write the absolute path straight into the profile.
+	FolderDialog {
+		id: packagePathDialog
+		title: "选择模型包目录"
+		onAccepted: {
+			panel.ensureModel().packagePath =
+				panel.urlToLocalPath(selectedFolder);
+			panel.commitStructural();
+		}
+	}
+	FolderDialog {
+		id: pluginDirDialog
+		title: "选择后端插件目录"
+		onAccepted: {
+			panel.ensureModel().pluginDirectory =
+				panel.urlToLocalPath(selectedFolder);
+			panel.commitStructural();
+		}
+	}
+	function urlToLocalPath(url) {
+		var text = String(url);
+		if (text.indexOf("file:///") === 0) {
+			text = text.substring(8);
+			if (/^\/[A-Za-z]:\//.test(text)) {
+				text = text.substring(1);
+			}
+		}
+		return decodeURIComponent(text);
 	}
 
 	// Collapsible section header; the content item toggles with `collapsed`.
@@ -319,6 +409,21 @@ delegate: ColumnLayout {
 								}
 
 								Label {
+									text: "无帧超时 ms (留空关闭)"
+									visible: sourceBox.source && sourceBox.source.type === "camera"
+								}
+								TextField {
+									Layout.fillWidth: true
+									visible: sourceBox.source && sourceBox.source.type === "camera"
+									text: visible && sourceBox.source.noFrameTimeoutMilliseconds !== undefined
+										? String(sourceBox.source.noFrameTimeoutMilliseconds) : ""
+									onEditingFinished: {
+										if (text.trim() === "") delete sourceBox.source.noFrameTimeoutMilliseconds;
+										else sourceBox.source.noFrameTimeoutMilliseconds = Number(text);
+										panel.commitStructural();
+									}
+								}
+								Label {
 									text: "序列号"
 									visible: sourceBox.source
 										&& sourceBox.source.type === "camera"
@@ -546,48 +651,81 @@ delegate: ColumnLayout {
 					GridLayout {
 						Layout.fillWidth: true
 						visible: !modelHeader.collapsed
-						columns: 2
+						columns: 3
 						rowSpacing: 4
 
 						Label { text: "模型包路径" }
 						TextField {
 							Layout.fillWidth: true
-							text: window.doc.model
-								? (window.doc.model.packagePath || "") : ""
-							onTextChanged: panel.liveEdit(function(t) {
-								if (!window.doc.model) { window.doc.model = {}; }
-								window.doc.model.packagePath = t;
-							}, text)
+							readOnly: true
+							placeholderText: "未选择"
+							text: {
+								window.revision;
+								return window.doc.model
+									? (window.doc.model.packagePath || "") : "";
+							}
 						}
+						Button {
+							text: "浏览…"
+							onClicked: packagePathDialog.open()
+						}
+
 						Label { text: "backendId" }
-						TextField {
+						ComboBox {
 							Layout.fillWidth: true
-							text: window.doc.model
-								? (window.doc.model.backendId || "") : ""
-							onTextChanged: panel.liveEdit(function(t) {
-								if (!window.doc.model) { window.doc.model = {}; }
-								window.doc.model.backendId = t;
-							}, text)
+							Layout.columnSpan: 2
+							model: panel.backendIds()
+							currentIndex: {
+								var id = window.doc.model
+									? (window.doc.model.backendId || "") : "";
+								var found = panel.backendIds().indexOf(id);
+								return found >= 0 ? found : 0;
+							}
+							onActivated: function(i) {
+								var model = panel.ensureModel();
+								model.backendId = panel.backendIds()[i];
+								model.device = panel.deviceIds(model.backendId)[0];
+								panel.commitStructural();
+							}
 						}
+
 						Label { text: "device" }
-						TextField {
+						ComboBox {
 							Layout.fillWidth: true
-							text: window.doc.model
-								? (window.doc.model.device || "") : ""
-							onTextChanged: panel.liveEdit(function(t) {
-								if (!window.doc.model) { window.doc.model = {}; }
-								window.doc.model.device = t;
-							}, text)
+							Layout.columnSpan: 2
+							model: panel.deviceOptions(window.doc.model
+								? window.doc.model.backendId : "")
+							textRole: "label"
+							currentIndex: {
+								var dev = window.doc.model
+									? (window.doc.model.device || "") : "";
+								var ids = panel.deviceIds(window.doc.model
+									? window.doc.model.backendId : "");
+								var found = ids.indexOf(dev);
+								return found >= 0 ? found : 0;
+							}
+							onActivated: function(i) {
+								var ids = panel.deviceIds(window.doc.model
+									? window.doc.model.backendId : "");
+								panel.ensureModel().device = ids[i];
+								panel.commitStructural();
+							}
 						}
+
 						Label { text: "插件目录" }
 						TextField {
 							Layout.fillWidth: true
-							text: window.doc.model
-								? (window.doc.model.pluginDirectory || "") : ""
-							onTextChanged: panel.liveEdit(function(t) {
-								if (!window.doc.model) { window.doc.model = {}; }
-								window.doc.model.pluginDirectory = t;
-							}, text)
+							readOnly: true
+							placeholderText: "未选择"
+							text: {
+								window.revision;
+								return window.doc.model
+									? (window.doc.model.pluginDirectory || "") : "";
+							}
+						}
+						Button {
+							text: "浏览…"
+							onClicked: pluginDirDialog.open()
 						}
 					}
 				}
@@ -663,8 +801,8 @@ delegate: ColumnLayout {
 							ComboBox {
 								model: ["block", "drop"]
 								currentIndex: window.doc.pipeline
-									&& window.doc.pipeline.queueFullPolicy === "drop"
-									? 1 : 0
+									&& window.doc.pipeline.queueFullPolicy === "block"
+									? 0 : 1
 								onActivated: function(i) {
 									if (!window.doc.pipeline) {
 										window.doc.pipeline = {};
@@ -672,6 +810,56 @@ delegate: ColumnLayout {
 									window.doc.pipeline.queueFullPolicy = model[i];
 									window.commitDoc();
 								}
+							}
+						}
+						ColumnLayout {
+							Label {
+								text: "故障策略"
+								font.pixelSize: 10
+								color: "#7f8c99"
+							}
+							ComboBox {
+								model: ["reportAndContinue", "stopSession"]
+								currentIndex: window.doc.pipeline
+									&& window.doc.pipeline.faultPolicy === "stopSession" ? 1 : 0
+								onActivated: function(i) {
+									if (!window.doc.pipeline) window.doc.pipeline = {};
+									window.doc.pipeline.faultPolicy = model[i];
+									window.commitDoc();
+								}
+							}
+						}
+						ColumnLayout {
+							CheckBox {
+								id: taskDeadlineEnabled
+								text: "启用任务期限"
+								checked: !!(window.doc.pipeline
+									&& window.doc.pipeline.taskTimeoutMilliseconds !== undefined)
+								onClicked: {
+									if (!window.doc.pipeline) window.doc.pipeline = {};
+									if (checked) window.doc.pipeline.taskTimeoutMilliseconds = taskDeadlineValue.value;
+									else delete window.doc.pipeline.taskTimeoutMilliseconds;
+									window.commitDoc();
+								}
+							}
+							SpinBox {
+								id: taskDeadlineValue
+								enabled: taskDeadlineEnabled.checked
+								from: 1
+								to: 86400000
+								editable: true
+								value: window.doc.pipeline
+									&& window.doc.pipeline.taskTimeoutMilliseconds
+									? window.doc.pipeline.taskTimeoutMilliseconds : 1000
+								onValueModified: {
+									window.doc.pipeline.taskTimeoutMilliseconds = value;
+									window.commitDoc();
+								}
+							}
+							Label {
+								text: "采集至结果交付的期限 (ms)"
+								font.pixelSize: 10
+								color: "#7f8c99"
 							}
 						}
 					}

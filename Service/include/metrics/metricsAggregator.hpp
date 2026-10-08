@@ -13,6 +13,9 @@
 #include "benchmark/time.hpp"
 #include "benchmark/timedPipeline.hpp"
 #include "vision/anomalyResult.hpp"
+#include "executor/frameOutcome.hpp"
+#include "camera/sourceFault.hpp"
+#include "benchmark/latencyWindow.hpp"
 
 #include <atomic>
 #include <cstddef>
@@ -44,6 +47,12 @@ public:
 	timingObserver();
 	[[nodiscard]] visionRuntime::benchmark::BatchPerformanceObserver
 	batchObserver();
+	[[nodiscard]] visionRuntime::executor::FrameOutcomeCallback<
+		visionRuntime::vision::AnomalyResult> resultObserver();
+	void observeSourceFault(const visionRuntime::camera::SourceFault& fault);
+	[[nodiscard]] std::string resultPayload() const;
+	[[nodiscard]] std::string sourceFaultPayload() const;
+	void reset();
 
 	void publishSessionState();
 	void publishSummary();
@@ -70,7 +79,6 @@ private:
 	std::atomic_uint64_t batchReports_{0};
 	mutable std::mutex errorMutex_;
 	std::string lastPipelineError_;
-	visionRuntime::benchmark::BatchPerformance lastBatch_;
 	/// Guards lastBatchPayload_ / liveSummaryPayload_ / livePerformancePayload_
 	/// (written by pipeline, control and metrics threads; read by endpoint
 	/// snapshot calls from any thread).
@@ -83,6 +91,9 @@ private:
 	/// and batchObserver (final values win).
 	std::string liveSummaryPayload_;
 	std::string livePerformancePayload_;
+	std::string resultPayload_ = R"({"valid":false,"outcome":"none","decision":"UNKNOWN"})";
+	std::string sourceFaultPayload_ = "{}";
+	visionRuntime::benchmark::LatencyWindow deliveryLatencies_;
 };
 
 } // namespace metrics

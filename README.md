@@ -365,4 +365,176 @@ Build\MSVC-HikMvs\bin\anomalyHikMvsSample.exe <model-package> <deployment.json>
 
 The MVS client must be closed first because Runtime opens the camera exclusively. The first-frame hardware validation output was `score=5.45422, threshold=2, decision=NG`.
 
-CTest currently discovers 122 tests covering camera build profiles, core result types, Tensor views, buffer pools, SPSC queues, serial/parallel executors, backpressure and cancellation, Pipeline lifetimes, directory image decoding, preprocessing, anomaly postprocessing, backend plugin loading, model package loading, and deployment configuration. All tests pass on the MSVC build.
+CTest covers camera build profiles, core result types, Tensor views, buffer pools, SPSC queues, serial/parallel/batch executors, backpressure and cancellation, Pipeline lifetimes, directory image decoding, preprocessing, anomaly postprocessing, backend plugin loading, model package loading, deployment configuration, and v1 release contracts. Test counts depend on enabled service, GUI, and vendor targets; use `ctest -N` in the selected build rather than a historical count.
+
+## v1.0 Contract and Release Gates
+
+The v1 product route is single-model, scalar-score anomaly detection with directory inputs or Hikrobot MVS cameras and explicitly deployed OpenVINO/TensorRT plugins. Classification, detection decoding, OCR, heatmaps, hardware trigger synchronization, automatic reconnect, and multi-model routing are not v1 product capabilities. Custom SDK consumers can implement business logic through the existing C++ extension interfaces.
+
+### Fault and deadline configuration
+
+Existing profiles retain their queue `block`/`drop` behavior. The following optional fields enable production fault policies:
+
+```json
+{
+  "pipeline": {
+    "faultPolicy": "reportAndContinue",
+    "taskTimeoutMilliseconds": 1000,
+    "queueFullPolicy": "block"
+  }
+}
+```
+
+- `faultPolicy`: `reportAndContinue` (default) or `stopSession`. Failed inspection results never become OK; a terminating camera fault always stops the session, regardless of this policy.
+- `taskTimeoutMilliseconds`: integer 1..86400000, omitted to disable. SDK consumers use `DeploymentConfig.executor.taskTimeout` or `ExecutorOptions.taskTimeout`. The deadline starts at `FrameMetadata::capturedAt`, or submission when that timestamp is absent, and includes queue waiting, batching, processing, and completion dispatch.
+- Timeout handling is cooperative: an expired task is rejected before admission or at a stage boundary, and late successful outputs become `DeadlineExceeded`. A running vendor inference or blocking user callback cannot be preempted; there is no guaranteed deadline-time callback or bounded shutdown for a hung vendor SDK. Use an external process supervisor if that failure mode must be recovered.
+- Continuous camera sources accept optional `noFrameTimeoutMilliseconds` (same range); SDK consumers use `ContinuousCameraSourceOptions.noFrameTimeout`. This reports silence as a terminal fault. Software-trigger sources retain their separate `responseTimeoutMilliseconds`. Choose these values above the expected acquisition interval and worst normal jitter.
+- `NaN` and positive/negative infinity in an anomaly score produce `DataLoss`, never an OK decision.
+
+### Correlated delivery
+
+`FrameExecutionOptions.resultObserver`, `MultiCameraExecutionOptions.resultObserver`, and `VisionService.resultObserver` receive outcome (`Completed`, `Dropped`, `Rejected`), `FrameIdentity`, optional accepted task ID, and `Result<T>`. Identity retains `executionId`, `sourceId`, frame sequence, and capture metadata after image buffers are released. IDs are process-local; persist a deployment/run identifier alongside them for cross-restart traceability. Business applications map these identities to their own workpiece/trigger IDs.
+
+Observers run on source or completion threads and must remain non-blocking. Forward immutable result data into the application's bounded device/traceability queue; do not perform PLC communication, image saving, or disk I/O in these callbacks. An observer exception is logged and does not kill its worker, but cannot prove that a physical action was performed.
+
+Acquisition sequence gaps are reported through `sourceFaultObserver` and `missingFrames`/`missingPerSource`, separately from executor `dropped`/`droppedPerSource`. Gap counts describe missing monotonically increasing sequence values, not missing physical workpieces; first frames and sequence resets do not establish a gap count. Third-party sources must override `IFrameSource::failureIsTerminal()` when a delivered error terminates acquisition.
+
+Service monitoring endpoints:
+
+- `inspection.result`: an immutable snapshot per published outcome; errors use `valid:false`, `decision:"UNKNOWN"`, `score:null`, and an explicit error code. `sourceId` maps to the profile's source array; rejected/dropped frames have no accepted task ID.
+- `source.fault`: source index, terminal flag, error, and sequence-gap information.
+- `session.summary`: also exposes acquisition gaps, rejected frames, and expired tasks.
+- `metrics.performance`: adds capture-to-delivery P50/P95/P99 and sample counts. Stage and delivery percentiles use bounded windows of the latest 4096 measured outcomes; completed/failed counters still span the whole session. Outcomes without a valid software capture timestamp are not added to the delivery window.
+- `session.recover`: while idle, reload the saved profile and recreate camera/model resources; detection must then be explicitly started. Sessions remain single-use. Recovery does not resume a production line automatically.
+
+The GUI dispatcher has a bounded queue and reports saturation. Monitoring endpoints are not a durable industrial command bus: an overloaded UI subscription may miss a notification, while the latest snapshot remains readable. Use the Runtime/Service result observer for business handoff and implement device acknowledgement/idempotency in the business adapter.
+
+### Product-specific Shells from samples
+
+Build a separate Shell for each product instead of running a sample executable
+alongside a generic Shell. `VisionService(ProductRuntimeFactory)` adopts the
+sample's existing `RuntimeSession<AnomalyResult>` or
+`MultiCameraSession<AnomalyResult>`. It attaches monitoring observers without
+replacing business callbacks, pipelines, executors, or camera instances.
+Recovery calls the same factory again.
+The previous session is destroyed before rebuilding so its model/device
+resources can be reopened. GUI snapshots own their pixels and do not pin SDK
+buffer leases; detection itself retains the Runtime's existing ownership model.
+Business code that retains raw leased frames must release them before recovery.
+
+Windows: edit the machine configuration at the top of
+[`Samples/buildShell.cmd`](Samples/buildShell.cmd): `QT_DIR` is a Qt6 **MSVC**
+kit; `VCVARS64` is optional when Visual Studio discovery or an x64 developer
+prompt is available. The script explicitly uses MSVC x64, Ninja, Release, and
+four jobs; it does not use CMake presets. CMake 3.25+, Ninja, Qt6 Quick, and the
+selected inference/camera SDK development files must be installed.
+
+```bat
+Samples\buildShell.cmd
+Samples\buildShell.cmd anomalyHikMvs
+Samples\buildShell.cmd anomalyHikMvsMulti
+Samples\buildShell.cmd anomalyTensorRtMulti
+```
+
+Linux:
+
+```sh
+sh Samples/buildShell.sh anomalyDirectory -DCMAKE_PREFIX_PATH=/path/to/qt
+```
+
+Both scripts default to `anomalyDirectory` and forward remaining arguments to
+CMake. Build output defaults to `Build/SampleShell/<sample>`; the design kit
+is installed directly into `Publish/release`, replacing the previous kit:
+
+```text
+Publish/release/
+  visionDesigner/                 # Designer, Qt runtime, Shell/controls
+  runtimeTemplates/windows/       # or linux: dedicated Shell + selected backend
+  profiles/<sample>.json          # starting profile, without model/image assets
+  design.cmd                     # or design.sh
+  sample-release.json
+```
+
+Only the platform and product built this time are included; stale templates for
+other products/platforms are not retained. Run `design.cmd` (Windows) or
+`./design.sh` (Linux), select the model and source resources, compose the GUI,
+then publish the final `bin/` + `products/<id>/` + entry-script package in Designer.
+Linux currently uses system Qt libraries. Environment overrides are
+`VISION_SHELL_BUILD_DIR`, `VISION_SHELL_JOBS`, and on Windows
+`VISION_SHELL_QT_DIR`/`VISION_SHELL_VCVARS64`.
+
+Each sample's `shell.cmake` declares its default sources/backend and its original
+sample source defines `visionSample::createSampleRuntime`. Put business
+assembly/callback changes in that shared function, **not** inside CLI-only
+`main()`. Rebuild the script after C++ changes.
+Product-specific JSON remains available as `RuntimeOptions.productDocumentJson`;
+source ordering must match the profile's source array. Directory Shell timing
+output defaults to stdout, not an implicitly overwritten working-directory CSV;
+the CLI still uses its explicitly supplied CSV path.
+Designer does not compile C++: it automatically selects the adjacent
+`runtimeTemplates/<platform>` before previously saved global paths. An explicit
+template selection in the current Designer session takes precedence.
+Product identity is carried in runtime metadata
+and `runtimeProduct`; mismatched runtimes are rejected rather than silently
+falling back to the default assembler.
+
+Building the design kit does not require or copy model/image assets and does not
+open cameras. Prepare and select these resources before final publication in
+Designer; the generated `model` and `image` paths are placeholders relative to
+the profile. Hik samples require MVS; TensorRT multi defaults to
+directory replay and only needs `-DVISION_CAMERA_SDK=HIK_MVS` for camera use.
+Use `-DVISION_SAMPLE_BACKEND=openvino` only with a compatible OpenVINO model
+artifact. Single-source AnomalyPreset samples explicitly reject changes to
+their fixed preprocessing (256 resize, 224 crop, one channel, mean 0.449,
+standard deviation 0.226); customize their assembly to change it.
+
+Design kit replacement is staged: build/deployment failures leave the existing
+release intact. Unexpected files at the release root prevent replacement;
+keep user projects and final products outside this replaceable kit.
+Windows deployment uses MSVC and windeployqt, includes only the selected inference
+backend and (when required) vendor camera runtime DLLs, and excludes Qt development
+plugins. The included `vc_redist.x64.exe` installs the MSVC runtime on machines
+that do not already have it. Final product assembly and sealing happen in Designer.
+`visionShell --export-manifest <output> <profile>` exports actual endpoints,
+including product registrations, but loads the runtime and can open cameras.
+Adopted runtimes retain their own timing callbacks; Service reports
+`stageMetricsAvailable:false` when no stage timing provider is wired.
+
+### Packaging and preflight
+
+Designer publication checks copy/write failures, rejects differing runtime/plugin files in a shared output, and refuses missing model manifests, selected backend libraries, and empty directory sources. Product/source IDs used in publication must match `[A-Za-z0-9][A-Za-z0-9_.-]*`; display names may be localized. A failed publication retains `publishing.lock`, and Shell refuses such an incomplete product. Remove only that failed product's directory and republish into a clean/versioned package root.
+
+Published products carry `release-manifest.json` with SHA-256 hashes of their runtime, profile, model and assets. Shell verifies the listed files before loading the product. This is an integrity check, not a digital signature or license mechanism. Editing packaged files requires republishing. Full verification may take time for large model/image packages.
+
+```powershell
+bin\visionShell.exe --check products\<id>\profile.json
+bin\visionShell.exe --smoke 30 products\<id>\profile.json
+```
+
+`--check` verifies package checksums when present and loads the profile, model, selected plugin and configured camera without starting acquisition. A development profile without a release manifest is explicitly reported as such. Windows runtime templates include Qt; Linux templates require the documented target Qt/runtime dependencies. Camera/GPU drivers remain target-machine prerequisites.
+
+`--smoke` accepts 1..86400 seconds and exits successfully only after final session counters report at least one successful inspection, preview frames, and zero failed, missing, rejected, expired, dropped frames or source failures. A running image stream alone is not an acceptance pass. This strict no-loss check intentionally rejects an overloaded Drop configuration; test deliberate overload separately.
+
+Before publishing the v1.0 tag, retain evidence for all gates:
+
+1. Build/test the Runtime and Service on Windows MSVC and Linux GNU; build Shell/Designer and run `visionDesignerSelftest` on supported GUI builds. Vendor inference tests must run with real model packages, not be counted as passed when skipped.
+2. Compare a fixed OK/NG golden dataset with the training reference, including threshold-borderline inputs; specify numerical tolerance and allowed false-accept/false-reject rates for the product.
+3. Run the actual camera/backend/profile at the required input rate; record capture-to-delivery P50/P95/P99, deadline failures, both categories of loss, CPU/GPU use and memory. Set limits from the line's cycle time, not average FPS.
+4. Perform at least a 24-hour initial soak and a 72-hour release soak on the target hardware, with bounded memory and reconciled frame/outcome counts. Inject queue overload, camera disconnect/silence, invalid output, model failure and repeated stop/recover/start.
+5. Copy the complete package to a clean target without the repository/development environment, relocate it, run preflight and inspection, and verify the documented driver/runtime prerequisites.
+
+Software tests do not certify hardware soak, model accuracy, device actuation, or clean-target deployment. The version metadata identifies the candidate; release approval requires the corresponding evidence.
+
+Current candidate verification on the development host:
+
+- Windows MinGW: 181 registered checks, 180 passed and one symlink-permission check skipped. Windows MSVC: 186 checks, 182 passed and four TensorRT model checks skipped.
+- Linux GNU under WSL: Runtime and Service built successfully, with all 175 registered checks passing. Vendor plugins and the Linux GUI were not enabled in that build.
+- The real OpenVINO plugin's five contract checks passed on both Windows toolchains with a generated dynamic-shape identity IR model, including output ownership after backend destruction.
+- Lifecycle, fault, deadline and package checks were repeated 20 times; the four batch grouping/flush checks were repeated 30 times on each Windows toolchain.
+- The real rubber-ring OpenVINO directory profile passed preflight and a five-second smoke run: 42 successful inspections and zero failed, dropped, missing, rejected or expired frames.
+- A freshly deployed Qt runtime was relocated outside the repository and passed real inference with development directories removed from `PATH`: 27 successful inspections and zero losses/errors. This is a same-host relocation check, not clean-machine certification.
+- The updated Hikrobot adapter and sample compiled with MSVC. Camera acquisition was not started for this candidate verification.
+
+Formal release remains pending the field gates above and real TensorRT model validation. A passed or skipped test count must not be substituted for those acceptance results.
+
+Confirm redistribution rights and license notices for Qt, inference runtimes and camera SDKs before shipping binaries. The local Qt tooling emitted license warnings during this verification; successful compilation does not resolve those warnings.

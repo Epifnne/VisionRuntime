@@ -56,8 +56,54 @@ qt_add_resources(visionDesigner "templates"
 
 target_include_directories(visionDesigner PRIVATE
 	${CMAKE_CURRENT_SOURCE_DIR}/include
+	${PROJECT_SOURCE_DIR}/Tools/packageSupport
 )
 
 target_link_libraries(visionDesigner PRIVATE
 	Qt6::Quick
 )
+if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
+	add_test(NAME visionDesignerSelftest COMMAND visionDesigner --selftest)
+	set_tests_properties(visionDesignerSelftest PROPERTIES
+		ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+		TIMEOUT 60
+	)
+endif()
+
+# Publish target: distributable designer package. Windows gets a
+# windeployqt self-contained root; Linux ships the exe only (target machine
+# provides the Qt runtime, per Docs/clickToRunPackagePlan.md section 5).
+# The Shell control set is copied next to the exe so the shipped designer
+# can still resolve its preview controls by path (detectControlsPath walks
+# up from the executable and finds <root>/Shell/controls).
+set(DESIGNER_PUBLISH_DIR "${CMAKE_CURRENT_BINARY_DIR}/release/visionDesigner")
+if(WIN32)
+	get_filename_component(QT_BIN_DIR "${Qt6_DIR}/../../../bin" ABSOLUTE)
+	find_program(WINDEPLOYQT_EXECUTABLE windeployqt HINTS "${QT_BIN_DIR}")
+endif()
+set(DESIGNER_PUBLISH_COMMANDS
+	COMMAND ${CMAKE_COMMAND} -E rm -rf "${DESIGNER_PUBLISH_DIR}"
+	COMMAND ${CMAKE_COMMAND} -E make_directory "${DESIGNER_PUBLISH_DIR}"
+	COMMAND ${CMAKE_COMMAND} -E copy
+		"$<TARGET_FILE:visionDesigner>" "${DESIGNER_PUBLISH_DIR}/"
+	COMMAND ${CMAKE_COMMAND} -E copy_directory
+		"${CMAKE_SOURCE_DIR}/Shell/controls"
+		"${DESIGNER_PUBLISH_DIR}/Shell/controls"
+)
+if(WIN32 AND WINDEPLOYQT_EXECUTABLE)
+	list(APPEND DESIGNER_PUBLISH_COMMANDS
+		COMMAND "${WINDEPLOYQT_EXECUTABLE}"
+			--dir "${DESIGNER_PUBLISH_DIR}"
+			--qmldir "${CMAKE_CURRENT_SOURCE_DIR}"
+			--compiler-runtime
+			--no-translations
+			"$<TARGET_FILE:visionDesigner>"
+	)
+endif()
+if(NOT WIN32 OR WINDEPLOYQT_EXECUTABLE)
+	add_custom_target(publishDesigner ${DESIGNER_PUBLISH_COMMANDS}
+		DEPENDS visionDesigner
+		VERBATIM
+	)
+	set_property(TARGET publishDesigner PROPERTY FOLDER "Custom")
+endif()

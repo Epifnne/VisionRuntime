@@ -141,6 +141,8 @@ public:
 	 */
 	[[nodiscard]] visionRuntime::core::Result<void> publishState(
 		std::string_view name);
+	[[nodiscard]] visionRuntime::core::Result<void> publishState(
+		std::string_view name, StateSnapshot snapshot);
 	/**
 	 * Offers a frame to stream subscribers. Only the latest frame per stream
 	 * is kept while a dispatch is pending; superseded frames are counted as

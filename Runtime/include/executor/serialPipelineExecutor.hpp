@@ -29,6 +29,7 @@ public:
 		: pipeline_(std::move(pipeline)),
 		  queueCapacity_(options.queueCapacity),
 		  queueFullPolicy_(options.queueFullPolicy),
+		  taskTimeout_(options.taskTimeout),
 		  completionDispatcher_(options.queueCapacity) {
 		runnerThread_ = std::thread([this] { runTasks(); });
 	}
@@ -61,18 +62,31 @@ public:
 			return submitFailure(core::StatusCode::InvalidArgument,
 				"executor queue capacity must be greater than zero");
 		}
+		if (taskTimeout_ &&
+			(taskTimeout_->count() <= 0 || taskTimeout_->count() > 86400000)) {
+			return submitFailure(core::StatusCode::InvalidArgument,
+				"task timeout must be in [1, 86400000] milliseconds");
+		}
+		const auto deadline = taskDeadline(packet.identity(), taskTimeout_);
 		if (!accepting_) {
 			return submitFailure(core::StatusCode::InvalidState,
 				"executor has stopped accepting tasks");
 		}
 		if (queueFullPolicy_ == QueueFullPolicy::Block) {
-			queueSpaceAvailable_.wait(lock, [this] {
+			if (!waitForEntry(queueSpaceAvailable_, lock, deadline, [this] {
 				return !accepting_ || taskQueue_.size() < queueCapacity_;
-			});
+			})) {
+				return submitFailure(core::StatusCode::DeadlineExceeded,
+					"task deadline expired while waiting for queue space");
+			}
 			if (!accepting_) {
 				return submitFailure(core::StatusCode::InvalidState,
 					"executor has stopped accepting tasks");
 			}
+		}
+		if (deadlineExceeded(deadline)) {
+			return submitFailure(core::StatusCode::DeadlineExceeded,
+				"task deadline expired before submission");
 		}
 		if (taskQueue_.size() >= queueCapacity_) {
 			return submitFailure(core::StatusCode::QueueFull,
@@ -80,7 +94,7 @@ public:
 		}
 
 		const auto taskId = nextTaskId_.fetch_add(1);
-		Task task(taskId, std::move(packet), std::move(callback));
+		Task task(taskId, std::move(packet), std::move(callback), deadline);
 		auto handle = task.handle();
 		taskQueue_.push_back(std::move(task));
 		queueReady_.notify_one();
@@ -154,15 +168,17 @@ private:
 				queueCompletion(std::move(*task), cancelledResult("task was cancelled"));
 			} else {
 				task->markRunning();
-				auto result = execute(std::move(task->packet()));
+				auto result = task->expired()
+					? core::Result<ResultType>::failure(core::Status::error(
+						core::StatusCode::DeadlineExceeded,
+						"task deadline expired before execution"))
+					: execute(std::move(task->packet()));
 				if (task->cancellationRequested()) {
 					result = cancelledResult("task was cancelled");
 				}
 				queueCompletion(std::move(*task), std::move(result));
 			}
 
-			std::lock_guard lock(queueMutex_);
-			runningTask_ = nullptr;
 		}
 	}
 
@@ -181,7 +197,14 @@ private:
 		}
 	}
 
-	void queueCompletion(Task task, core::Result<ResultType> result) noexcept {
+	void queueCompletion(Task&& task, core::Result<ResultType> result) noexcept {
+		{
+			std::lock_guard lock(queueMutex_);
+			if (task.cancellationRequested()) {
+				result = cancelledResult("task was cancelled");
+			}
+			runningTask_ = nullptr;
+		}
 		auto sharedTask = std::make_shared<Task>(std::move(task));
 		static_cast<void>(completionDispatcher_.dispatch(
 			std::move(result),
@@ -201,6 +224,7 @@ private:
 	std::unique_ptr<pipeline::IVisionPipeline<ResultType>> pipeline_;
 	const std::size_t queueCapacity_;
 	const QueueFullPolicy queueFullPolicy_;
+	const std::optional<std::chrono::milliseconds> taskTimeout_;
 	std::atomic<TaskId> nextTaskId_{1};
 	core::CompletionDispatcher<ResultType> completionDispatcher_;
 

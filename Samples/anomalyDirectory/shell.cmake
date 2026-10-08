@@ -1,0 +1,5 @@
+set(VISION_SAMPLE_CAMERA NONE)
+set(VISION_SAMPLE_DEFAULT_BACKEND tensorrt)
+set(VISION_SAMPLE_SOURCES [=[{"id":"files","type":"directory","directory":"image","extensions":[".bmp",".png",".jpg",".tif"],"loop":false}]=])
+set(VISION_SAMPLE_SOURCE_IDS files)
+set(VISION_SAMPLE_RESIZE 256)

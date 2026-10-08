@@ -28,7 +28,7 @@ namespace core = visionRuntime::core;
 namespace runtime = visionRuntime::runtime;
 
 struct AssembledSession {
-	std::unique_ptr<runtime::MultiCameraSession<SessionResult>> session;
+	std::unique_ptr<IInspectionSession> session;
 	/// One entry per profile source, in source order; null for directory sources.
 	std::vector<camera::ICameraDevice*> cameraDevices;
 	/// Owns the source-id and stream-name pairs used to fan frames out to the
@@ -51,7 +51,15 @@ public:
 		endpoints::EndpointRegistry& registry,
 		visionRuntime::benchmark::PipelineTimingObserver<SessionResult>
 			timingObserver = {},
-		visionRuntime::benchmark::BatchPerformanceObserver batchObserver = {});
+		visionRuntime::benchmark::BatchPerformanceObserver batchObserver = {},
+		visionRuntime::executor::FrameOutcomeCallback<SessionResult>
+			resultObserver = {},
+		std::function<void(const camera::SourceFault&)> sourceFaultObserver = {});
+	[[nodiscard]] static core::Result<AssembledSession> bindRuntime(
+		std::unique_ptr<IInspectionSession> session,
+		const profile::ProductProfile& profile,
+		endpoints::EndpointRegistry& registry,
+		SessionObservers observers);
 };
 
 } // namespace visionService::session

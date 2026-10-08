@@ -9,6 +9,7 @@
 #include <latch>
 #include <string>
 #include <thread>
+#include <nlohmann/json.hpp>
 
 #ifndef VISION_SERVICE_TEST_PLUGIN_DIRECTORY
 #error VISION_SERVICE_TEST_PLUGIN_DIRECTORY must be defined
@@ -196,22 +197,25 @@ TEST(VisionServiceDirectorySessionTest, RegistersEndpointsFromProfile) {
 
 TEST(VisionServiceDirectorySessionTest, RunsDirectorySessionEndToEnd) {
 	TemporaryProduct product;
+	std::latch framesDelivered(3);
+	std::atomic_size_t observedFrames{0};
+	std::latch summaryPublished(1);
+	std::atomic<bool> summaryMatched{false};
 	VisionService service;
 	ASSERT_TRUE(service.loadProfile(product.profilePath()));
 
-	std::latch framesDelivered(3);
 	auto streamSubscription = service.endpoints().subscribeStream(
 		"stream.files",
 		[&](std::uint32_t sourceId,
 			const visionRuntime::vision::Frame& frame) {
 			EXPECT_EQ(sourceId, 0U);
 			EXPECT_EQ(frame.width(), 1U);
-			framesDelivered.count_down();
+			if (observedFrames.fetch_add(1) < 3) {
+				framesDelivered.count_down();
+			}
 		});
 	ASSERT_TRUE(streamSubscription) << streamSubscription.status().toString();
 
-	std::latch summaryPublished(1);
-	std::atomic<bool> summaryMatched{false};
 	auto stateSubscription = service.endpoints().subscribeState(
 		"session.summary",
 		[&](const StateSnapshot& snapshot) {
@@ -251,7 +255,7 @@ TEST(VisionServiceDirectorySessionTest, RunsDirectorySessionEndToEnd) {
 	EXPECT_EQ(counters.sourceFailures, 0U);
 	ASSERT_EQ(counters.receivedPerSource.size(), 1U);
 	EXPECT_EQ(counters.receivedPerSource[0], 6U);
-	EXPECT_TRUE(service.sessionController().lastError().empty());
+	EXPECT_FALSE(service.sessionController().lastError().empty());
 
 	service.endpoints().unsubscribe(streamSubscription.value());
 	service.endpoints().unsubscribe(stateSubscription.value());
@@ -271,7 +275,43 @@ TEST(VisionServiceDirectorySessionTest, StopIsGracefulFromCommandEndpoint) {
 		service.sessionController().state() == SessionLifecycle::Idle);
 	ASSERT_TRUE(waitForState(
 		service, SessionLifecycle::Idle, std::chrono::seconds(30)));
+	if (service.sessionController().counters().failed > 0) {
+		EXPECT_FALSE(service.sessionController().lastError().empty());
+	}
+}
+
+TEST(VisionServiceDirectorySessionTest, PublishesCorrelatedFailuresAndCanRecoverForAnotherRun) {
+	TemporaryProduct product;
+	std::atomic_size_t observed{0};
+	VisionService service;
+	ASSERT_TRUE(service.loadProfile(product.profilePath()));
+	auto subscription = service.endpoints().subscribeState("inspection.result",
+		[&observed](const StateSnapshot& snapshot) {
+			const auto payload = nlohmann::json::parse(snapshot.payload);
+			EXPECT_FALSE(payload.at("valid").get<bool>());
+			EXPECT_EQ(payload.at("decision"), "UNKNOWN");
+			EXPECT_EQ(payload.at("sourceId"), 0);
+			EXPECT_FALSE(payload.at("taskId").is_null());
+			EXPECT_GT(payload.at("executionId").get<std::uint64_t>(), 0U);
+			EXPECT_EQ(payload.at("errorCode"), "InvalidArgument");
+			++observed;
+		});
+	ASSERT_TRUE(subscription);
+	ASSERT_TRUE(service.endpoints().invokeCommand("session.start"));
+	ASSERT_TRUE(waitForState(service, SessionLifecycle::Idle, std::chrono::seconds(10)));
+	auto secondStart = service.endpoints().invokeCommand("session.start");
+	ASSERT_FALSE(secondStart);
+	EXPECT_EQ(secondStart.status().code(), StatusCode::InvalidState);
+	ASSERT_TRUE(service.endpoints().invokeCommand("session.recover"));
+	EXPECT_EQ(observed.load(), 6U);
 	EXPECT_TRUE(service.sessionController().lastError().empty());
+	auto initial = service.endpoints().stateSnapshot("inspection.result");
+	ASSERT_TRUE(initial);
+	EXPECT_FALSE(nlohmann::json::parse(initial->payload).at("valid").get<bool>());
+	ASSERT_TRUE(service.endpoints().invokeCommand("session.start"));
+	ASSERT_TRUE(waitForState(service, SessionLifecycle::Idle, std::chrono::seconds(10)));
+	EXPECT_EQ(service.sessionController().counters().completed, 6U);
+	service.shutdown();
 }
 
 } // namespace

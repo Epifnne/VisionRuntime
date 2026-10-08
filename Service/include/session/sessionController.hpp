@@ -12,6 +12,7 @@
 
 #include "core/result.hpp"
 #include "runtime/multiCameraSession.hpp"
+#include "session/inspectionSession.hpp"
 #include "vision/anomalyResult.hpp"
 
 #include <chrono>
@@ -32,8 +33,6 @@ namespace core = visionRuntime::core;
 namespace runtime = visionRuntime::runtime;
 
 namespace session {
-
-using SessionResult = visionRuntime::vision::AnomalyResult;
 
 enum class SessionLifecycle {
 	Idle,
@@ -66,6 +65,10 @@ struct SessionCounters {
 	std::size_t sourceFailures = 0;
 	std::vector<std::size_t> receivedPerSource;
 	std::vector<std::size_t> droppedPerSource;
+	std::uint64_t missingFrames = 0;
+	std::vector<std::uint64_t> missingPerSource;
+	std::size_t rejected = 0;
+	std::size_t expired = 0;
 };
 
 class SessionController {
@@ -93,6 +96,9 @@ public:
 	[[nodiscard]] core::Result<void> configure(
 		std::unique_ptr<AnomalySession> session,
 		std::size_t sourceCount);
+	[[nodiscard]] core::Result<void> configureSession(
+		std::unique_ptr<IInspectionSession> session, std::size_t sourceCount);
+	void releaseSession() noexcept;
 
 	/**
 	 * Starts the session on a dedicated control thread. The control thread is
@@ -108,6 +114,7 @@ public:
 	void requestStop(
 		visionRuntime::executor::StopMode mode =
 			visionRuntime::executor::StopMode::Graceful) noexcept;
+	void waitForIdle() noexcept;
 
 	[[nodiscard]] SessionCounters counters() const;
 	/// Live counters while a run is in flight (read from the running session;
@@ -121,14 +128,15 @@ private:
 	void controlThreadMain();
 	void completionWatchMain();
 	void noteError(core::Status status);
-	void waitForIdle() noexcept;
+	void waitForIdleImpl() noexcept;
 
 	mutable std::mutex mutex_;
+	std::mutex operationMutex_;
 	SessionLifecycle state_ = SessionLifecycle::Idle;
-	std::unique_ptr<AnomalySession> session_;
+	std::unique_ptr<IInspectionSession> session_;
 	/// Valid while a run is active; owned by the control thread. Set in
 	/// start(), cleared by the control thread before it finishes.
-	AnomalySession* runningSession_ = nullptr;
+	IInspectionSession* runningSession_ = nullptr;
 	visionRuntime::executor::StopMode pendingStopMode_ =
 		visionRuntime::executor::StopMode::Graceful;
 	std::size_t sourceCount_ = 0;
@@ -137,6 +145,8 @@ private:
 	std::thread controlThread_;
 	std::thread completionWatchThread_;
 	std::condition_variable wakeReady_;
+	bool acquisitionStarted_ = false;
+	bool hasRun_ = false;
 };
 
 } // namespace session

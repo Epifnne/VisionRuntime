@@ -58,7 +58,10 @@ public:
 				"runtime factory requires a pipeline");
 		}
 		if (config.executor.queueCapacity == 0 ||
-			config.executor.stageQueueCapacity == 0) {
+			config.executor.stageQueueCapacity == 0 ||
+			(config.executor.taskTimeout &&
+				(config.executor.taskTimeout->count() <= 0 ||
+				 config.executor.taskTimeout->count() > 86400000))) {
 			return executorFailure<ResultType>(core::StatusCode::InvalidArgument,
 				"executor queue capacities must be greater than zero");
 		}
@@ -66,6 +69,7 @@ public:
 		executor::ExecutorOptions options;
 		options.queueCapacity = config.executor.queueCapacity;
 		options.stageQueueCapacity = config.executor.stageQueueCapacity;
+		options.taskTimeout = config.executor.taskTimeout;
 		options.queueFullPolicy = config.executor.queueFullPolicy ==
 			config::QueueFullPolicy::Block
 			? executor::QueueFullPolicy::Block
@@ -102,7 +106,10 @@ public:
 				"runtime factory requires a pipeline");
 		}
 		if (config.executor.queueCapacity == 0 ||
-			config.executor.stageQueueCapacity == 0) {
+			config.executor.stageQueueCapacity == 0 ||
+			(config.executor.taskTimeout &&
+				(config.executor.taskTimeout->count() <= 0 ||
+				 config.executor.taskTimeout->count() > 86400000))) {
 			return executorFailure<ResultType>(core::StatusCode::InvalidArgument,
 				"executor queue capacities must be greater than zero");
 		}
@@ -110,6 +117,7 @@ public:
 		executor::ExecutorOptions options;
 		options.queueCapacity = config.executor.queueCapacity;
 		options.stageQueueCapacity = config.executor.stageQueueCapacity;
+		options.taskTimeout = config.executor.taskTimeout;
 		options.queueFullPolicy = config.executor.queueFullPolicy ==
 			config::QueueFullPolicy::Block
 			? executor::QueueFullPolicy::Block

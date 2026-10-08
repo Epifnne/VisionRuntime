@@ -1,5 +1,10 @@
 include(GoogleTest)
 
+add_executable(runtimeAdoptionTest service/runtimeAdoptionTest.cpp)
+target_link_libraries(runtimeAdoptionTest PRIVATE
+	visionService GTest::gtest_main nlohmann_json::nlohmann_json)
+gtest_discover_tests(runtimeAdoptionTest)
+
 add_executable(endpointRegistryTest
 	endpoints/endpointRegistryTest.cpp
 )
@@ -24,7 +29,8 @@ add_executable(visionServiceDirectorySessionTest
 target_compile_definitions(visionServiceDirectorySessionTest PRIVATE
 	VISION_SERVICE_TEST_PLUGIN_DIRECTORY="$<TARGET_FILE_DIR:visionServiceDirectorySessionTest>/plugins"
 )
-target_link_libraries(visionServiceDirectorySessionTest PRIVATE visionService GTest::gtest_main)
+target_link_libraries(visionServiceDirectorySessionTest PRIVATE
+	visionService GTest::gtest_main nlohmann_json::nlohmann_json)
 add_dependencies(visionServiceDirectorySessionTest fakeBackendPlugin)
 add_custom_command(TARGET visionServiceDirectorySessionTest POST_BUILD
 	COMMAND ${CMAKE_COMMAND} -E make_directory

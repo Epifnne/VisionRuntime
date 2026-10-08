@@ -1,7 +1,9 @@
 #pragma once
 
 #include "benchmark/time.hpp"
+#include "benchmark/latencyWindow.hpp"
 #include "core/result.hpp"
+#include "logs/logger.hpp"
 #include "pipeline/iStagedVisionPipeline.hpp"
 #include "pipeline/pipeline.hpp"
 
@@ -162,11 +164,12 @@ public:
 			try {
 				observer_(timing->sequenceNumber, result, timing->durations);
 			} catch (...) {
+				logs::error("pipeline timing observer threw an exception");
 			}
 		}
 		std::lock_guard lock(mutex_);
 		++batchCompleted_;
-		batchStageDurations_.push_back(timing->durations.stageMilliseconds);
+		stageLatencies_.observe(timing->durations.stageMilliseconds);
 		if (!result) {
 			++batchFailed_;
 		}
@@ -186,6 +189,7 @@ public:
 			try {
 				batchObserver_(performance);
 			} catch (...) {
+				logs::error("batch performance observer threw an exception");
 			}
 		}
 	}
@@ -214,23 +218,12 @@ private:
 			? static_cast<double>(performance.completed) * 1000.0 /
 				performance.totalMilliseconds
 			: 0.0;
-		auto sorted = batchStageDurations_;
-		std::ranges::sort(sorted);
-		performance.stageP50Milliseconds = percentile(sorted, 0.50);
-		performance.stageP95Milliseconds = percentile(sorted, 0.95);
-		performance.stageP99Milliseconds = percentile(sorted, 0.99);
+		const auto stage = stageLatencies_.snapshot();
+		performance.stageP50Milliseconds = stage.p50Milliseconds;
+		performance.stageP95Milliseconds = stage.p95Milliseconds;
+		performance.stageP99Milliseconds = stage.p99Milliseconds;
+		performance.stageSamples = stage.samples;
 		return performance;
-	}
-
-	[[nodiscard]] static double percentile(
-		const std::vector<double>& sortedValues,
-		double quantile) noexcept {
-		if (sortedValues.empty()) {
-			return 0.0;
-		}
-		const auto rank = static_cast<std::size_t>(
-			std::ceil(quantile * static_cast<double>(sortedValues.size())));
-		return sortedValues[std::max<std::size_t>(rank, 1) - 1];
 	}
 
 	struct TimingState {
@@ -258,7 +251,7 @@ private:
 	std::optional<Clock::time_point> batchStarted_;
 	std::size_t batchCompleted_ = 0;
 	std::size_t batchFailed_ = 0;
-	std::vector<double> batchStageDurations_;
+	LatencyWindow stageLatencies_;
 	bool batchReported_ = false;
 };
 

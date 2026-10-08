@@ -41,6 +41,28 @@ private:
 	std::filesystem::path root_;
 };
 
+TEST(ProfileLoaderTest, ValidatesFaultPolicyAndDeadline) {
+	TemporaryProfile fixture;
+	for (const auto fields : {
+		R"("faultPolicy":"reportAndContinue","taskTimeoutMilliseconds":1000)",
+		R"("faultPolicy":"stopSession","taskTimeoutMilliseconds":1)",
+		R"("faultPolicy":"silent")",
+		R"("taskTimeoutMilliseconds":0)",
+		R"("taskTimeoutMilliseconds":1.5)",
+		R"("queueCapacity":-1)"}) {
+		const auto path = fixture.write(std::string(R"({
+			"schemaVersion":{"major":1},"id":"test",
+			"sources":[{"id":"files","type":"directory","directory":"images"}],
+			"model":{"packagePath":"model","backendId":"fake","device":"CPU","pluginDirectory":"plugins"},
+			"pipeline":{)") + fields + "}}");
+		auto result = ProfileLoader::load(path);
+		const std::string_view text(fields);
+		const bool valid = text.find("reportAndContinue") != std::string_view::npos ||
+			text.find("stopSession") != std::string_view::npos;
+		EXPECT_EQ(static_cast<bool>(result), valid) << fields;
+	}
+}
+
 TEST(ProfileLoaderTest, ParsesDirectoryAndCameraSources) {
 	TemporaryProfile fixture;
 	const auto path = fixture.write(R"({

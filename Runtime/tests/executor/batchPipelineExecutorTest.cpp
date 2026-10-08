@@ -156,7 +156,8 @@ TEST(BatchPipelineExecutorTest, BatchesFullGroupIntoSingleInference) {
 	auto pipeline = std::make_unique<FakeBatchPipeline>();
 	auto* backend = &pipeline->backend_;
 	visionRuntime::executor::BatchPipelineExecutor<float> executor(
-		std::move(pipeline), executorOptions(), {.maxBatchSize = 3});
+		std::move(pipeline), executorOptions(),
+		{.maxBatchSize = 3, .flushTimeout = std::chrono::seconds(5)});
 
 	std::vector<std::shared_future<Result<float>>> futures;
 	for (int index = 0; index < 3; ++index) {

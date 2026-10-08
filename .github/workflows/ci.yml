@@ -21,7 +21,7 @@ jobs:
           -DTHIRDPARTY_DIRECTORY="${{ github.workspace }}/Thirdparty"
           -P cmake/bootstrapDependencies.cmake
       - name: Configure
-        run: cmake --preset windows-msvc-ci-debug
+        run: cmake --preset windows-msvc-ci-debug -DVISION_BUILD_SERVICE=ON
       - name: Build
         run: cmake --build --preset windows-msvc-ci-debug
       - name: Test
@@ -39,8 +39,35 @@ jobs:
           -DTHIRDPARTY_DIRECTORY="${{ github.workspace }}/Thirdparty"
           -P cmake/bootstrapDependencies.cmake
       - name: Configure
-        run: cmake --preset linux-gnu-debug
+        run: cmake --preset linux-gnu-debug -DVISION_BUILD_SERVICE=ON
       - name: Build
         run: cmake --build --preset linux-gnu-debug
       - name: Test
         run: ctest --preset linux-gnu-debug
+
+  desktop-qt:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: seanmiddleditch/gha-setup-ninja@v5
+      - uses: ilammy/msvc-dev-cmd@v1
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.10.1'
+          arch: win64_msvc2022_64
+          cache: true
+      - name: Bootstrap dependencies
+        run: >-
+          cmake -DGIT_EXECUTABLE=git
+          -DTHIRDPARTY_DIRECTORY="${{ github.workspace }}/Thirdparty"
+          -P cmake/bootstrapDependencies.cmake
+      - name: Configure desktop
+        run: >-
+          cmake -S . -B Build/Desktop-CI -G Ninja
+          -DCMAKE_BUILD_TYPE=Release -DVISION_CAMERA_SDK=NONE
+          -DVISION_BUILD_SERVICE=ON -DVISION_BUILD_SHELL=ON
+          -DVISION_BUILD_DESIGNER=ON
+      - name: Build desktop and design package
+        run: cmake --build Build/Desktop-CI --target visionShell publishDesigner
+      - name: Verify designer publication contracts
+        run: ctest --test-dir Build/Desktop-CI -R visionDesignerSelftest --output-on-failure

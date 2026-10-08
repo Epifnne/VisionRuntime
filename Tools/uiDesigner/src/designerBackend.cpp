@@ -1,4 +1,5 @@
 #include "designerBackend.hpp"
+#include "releaseManifest.hpp"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -9,8 +10,11 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QJsonValue>
+#include <QSet>
 #include <QSettings>
 #include <QUrl>
+#include <QSaveFile>
+#include <cmath>
 
 namespace visionDesigner {
 
@@ -31,6 +35,72 @@ namespace {
 
 [[nodiscard]] bool isContainerType(const QString& type) {
 	return type == QLatin1String("row") || type == QLatin1String("column");
+}
+
+/// Recursively copies \p sourceRoot into \p targetRoot. Existing target
+/// files are skipped (release-template plugins win over profile-local
+/// duplicates). Paths listed in \p excludeTopLevel are not copied.
+bool copyDirectoryContents(const QString& sourceRoot, const QString& targetRoot,
+		const QSet<QString>& excludeTopLevel = {}, bool topLevel = true) {
+	const QDir source(sourceRoot);
+	if (!source.exists()) {
+		return false;
+	}
+	if (!QDir().mkpath(targetRoot)) {
+		return false;
+	}
+	const auto entries = source.entryInfoList(
+		QDir::Dirs | QDir::Files | QDir::NoDotAndDotDot);
+	for (const auto& entry : entries) {
+		if (topLevel && excludeTopLevel.contains(entry.fileName())) {
+			continue;
+		}
+		const auto target = targetRoot + QLatin1Char('/') + entry.fileName();
+		if (entry.isSymLink() && entry.isDir()) {
+			return false;
+		}
+		if (entry.isDir()) {
+			if (!copyDirectoryContents(entry.absoluteFilePath(), target, {}, false)) {
+				return false;
+			}
+		} else if (QFileInfo::exists(target)) {
+			const auto hash = visionPackage::sha256(entry.absoluteFilePath());
+			if (hash.isEmpty() || hash != visionPackage::sha256(target)) {
+				return false;
+			}
+		} else if (!QFile::copy(entry.absoluteFilePath(), target)) {
+			return false;
+		}
+	}
+	return true;
+}
+
+[[nodiscard]] int countFiles(const QString& root) {
+	int count = 0;
+	const QDir dir(root);
+	const auto entries = dir.entryInfoList(
+		QDir::Dirs | QDir::Files | QDir::NoDotAndDotDot);
+	for (const auto& entry : entries) {
+		count += entry.isDir() ? countFiles(entry.absoluteFilePath()) : 1;
+	}
+	return count;
+}
+
+/// Strips characters that are invalid in file names on either platform.
+[[nodiscard]] QString sanitizeFileName(QString name) {
+	const QString invalid = QStringLiteral("\\\\/:*?\"<>|");
+	for (const auto& ch : invalid) {
+		name.replace(ch, QLatin1Char('_'));
+	}
+	return name.trimmed();
+}
+
+[[nodiscard]] bool writeTextFile(const QString& path, const QByteArray& data) {
+	QSaveFile file(path);
+	if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+		return false;
+	}
+	return file.write(data) == data.size() && file.commit();
 }
 
 [[nodiscard]] QVariantMap makeIssue(
@@ -216,6 +286,16 @@ QVariantList DesignerBackend::deriveEndpointEntries(
 		{QStringLiteral("kind"), QStringLiteral("command")},
 		{QStringLiteral("description"),
 			QStringLiteral("request a graceful stop of the running session")}});
+	add({{QStringLiteral("name"), QStringLiteral("session.recover")},
+		{QStringLiteral("kind"), QStringLiteral("command")},
+		{QStringLiteral("access"), QStringLiteral("engineer")},
+		{QStringLiteral("description"), QStringLiteral("recreate session resources")}});
+	add({{QStringLiteral("name"), QStringLiteral("inspection.result")},
+		{QStringLiteral("kind"), QStringLiteral("state")},
+		{QStringLiteral("description"), QStringLiteral("correlated inspection outcome")}});
+	add({{QStringLiteral("name"), QStringLiteral("source.fault")},
+		{QStringLiteral("kind"), QStringLiteral("state")},
+		{QStringLiteral("description"), QStringLiteral("acquisition faults and sequence gaps")}});
 	add({{QStringLiteral("name"), QStringLiteral("session.state")},
 		{QStringLiteral("kind"), QStringLiteral("state")},
 		{QStringLiteral("description"),
@@ -301,9 +381,9 @@ bool DesignerBackend::validate(const QString& profileJson) {
 	}
 
 	const auto id = root.value(QStringLiteral("id")).toString();
-	if (id.isEmpty()) {
+	if (!visionPackage::safeId(id)) {
 		issues.append(makeIssue(QStringLiteral("profile"),
-			QStringLiteral("product id must not be empty"),
+			QStringLiteral("product id must match [A-Za-z0-9][A-Za-z0-9_.-]*"),
 			QStringLiteral("error")));
 	}
 	if (root.value(QStringLiteral("name")).toString().isEmpty()) {
@@ -325,9 +405,9 @@ bool DesignerBackend::validate(const QString& profileJson) {
 		const auto source = sourceValue.toObject();
 		const auto path = QStringLiteral("sources/%1").arg(sourceIndex++);
 		const auto sourceId = source.value(QStringLiteral("id")).toString();
-		if (sourceId.isEmpty()) {
+		if (!visionPackage::safeId(sourceId)) {
 			issues.append(makeIssue(path,
-				QStringLiteral("source id must not be empty"),
+				QStringLiteral("source id must match [A-Za-z0-9][A-Za-z0-9_.-]*"),
 				QStringLiteral("error")));
 		} else if (sourceIds.contains(sourceId)) {
 			issues.append(makeIssue(path,
@@ -352,6 +432,16 @@ bool DesignerBackend::validate(const QString& profileJson) {
 						"ipAddress"),
 					QStringLiteral("error")));
 			}
+			if (source.contains(QStringLiteral("noFrameTimeoutMilliseconds"))) {
+				const auto value = source.value(QStringLiteral("noFrameTimeoutMilliseconds"));
+				const auto timeout = value.toDouble(-1);
+				if (!value.isDouble() || !std::isfinite(timeout) || timeout < 1 ||
+					timeout > 86400000 || std::floor(timeout) != timeout) {
+					issues.append(makeIssue(path,
+						QStringLiteral("noFrameTimeoutMilliseconds must be an integer in [1, 86400000]"),
+						QStringLiteral("error")));
+				}
+			}
 		} else {
 			issues.append(makeIssue(path,
 				QStringLiteral("unknown source type: %1").arg(type),
@@ -370,6 +460,25 @@ bool DesignerBackend::validate(const QString& profileJson) {
 		issues.append(makeIssue(QStringLiteral("model"),
 			QStringLiteral("model.backendId must not be empty"),
 			QStringLiteral("error")));
+	}
+	const auto pipeline = root.value(QStringLiteral("pipeline")).toObject();
+	const auto faultPolicy = pipeline.value(QStringLiteral("faultPolicy"))
+		.toString(QStringLiteral("reportAndContinue"));
+	if (faultPolicy != QLatin1String("reportAndContinue") &&
+		faultPolicy != QLatin1String("stopSession")) {
+		issues.append(makeIssue(QStringLiteral("pipeline/faultPolicy"),
+			QStringLiteral("faultPolicy must be reportAndContinue or stopSession"),
+			QStringLiteral("error")));
+	}
+	if (pipeline.contains(QStringLiteral("taskTimeoutMilliseconds"))) {
+		const auto value = pipeline.value(QStringLiteral("taskTimeoutMilliseconds"));
+		const auto timeout = value.toDouble(-1);
+		if (!value.isDouble() || !std::isfinite(timeout) || timeout < 1 ||
+			timeout > 86400000 || std::floor(timeout) != timeout) {
+			issues.append(makeIssue(QStringLiteral("pipeline/taskTimeoutMilliseconds"),
+				QStringLiteral("taskTimeoutMilliseconds must be an integer in [1, 86400000]"),
+				QStringLiteral("error")));
+		}
 	}
 
 	// Exposed endpoint subset.
@@ -494,35 +603,360 @@ bool DesignerBackend::validate(const QString& profileJson) {
 }
 
 bool DesignerBackend::publish(
-	const QString& targetDirectory, const QString& jsonText) {
+		const QString& targetDirectory, const QString& jsonText,
+		const QString& platform) {
 	if (!validate(jsonText)) {
 		setStatus(QStringLiteral("publish aborted: validation errors"));
 		return false;
 	}
-	const auto document = QJsonDocument::fromJson(jsonText.toUtf8());
-	const auto id = document.object()
-		.value(QStringLiteral("id")).toString();
+	auto root = QJsonDocument::fromJson(jsonText.toUtf8()).object();
+	const auto id = root.value(QStringLiteral("id")).toString();
+	const auto name = root.value(QStringLiteral("name")).toString();
 	if (id.isEmpty()) {
 		setStatus(QStringLiteral("publish aborted: product id is empty"));
 		return false;
 	}
+#ifdef Q_OS_WIN
+	const QString hostPlatform = QStringLiteral("windows");
+#else
+	const QString hostPlatform = QStringLiteral("linux");
+#endif
+	const auto targetPlatform = platform.isEmpty() ? hostPlatform : platform;
+	if (targetPlatform != QLatin1String("windows")
+			&& targetPlatform != QLatin1String("linux")) {
+		setStatus(QStringLiteral("publish aborted: unknown platform %1")
+			.arg(targetPlatform));
+		return false;
+	}
+
 	const auto local = toLocalFile(targetDirectory);
-	const auto productDirectory = QDir(local).absoluteFilePath(id);
+	if (local.isEmpty()) {
+		setStatus(QStringLiteral("publish aborted: no target directory"));
+		return false;
+	}
+	const QDir targetRoot(local);
+	const auto productDirectory = targetRoot.absoluteFilePath(
+		QStringLiteral("products/%1").arg(id));
+	if (QFileInfo::exists(productDirectory + QStringLiteral("/profile.json"))) {
+		setStatus(QStringLiteral("publish aborted: %1 already published; "
+			"rename the product id or remove it first").arg(id));
+		return false;
+	}
+	if (!QDir().mkpath(targetRoot.absolutePath())) {
+		setStatus(QStringLiteral("cannot create target directory %1")
+			.arg(targetRoot.absolutePath()));
+		return false;
+	}
+
+	// 1. Runtime payload: the platform's publishShell release root becomes
+	// bin/ (its own example products/ are not carried over).
+	const auto templateRoot = runtimeTemplate(targetPlatform);
+	if (templateRoot.isEmpty()) {
+		setStatus(QStringLiteral("publish aborted: no %1 runtime template; "
+			"build the publishShell target first, then set the template "
+			"directory in the publish dialog").arg(targetPlatform));
+		return false;
+	}
+	const auto binDirectory = targetRoot.absoluteFilePath(QStringLiteral("bin"));
+	if (!copyDirectoryContents(templateRoot, binDirectory,
+		{QStringLiteral("products")})) {
+		setStatus(QStringLiteral("publish aborted: runtime copy failed or conflicts with an existing runtime"));
+		return false;
+	}
+	const auto versionPath = binDirectory + QStringLiteral("/runtime-version.json");
+	if (QFileInfo::exists(versionPath)) {
+		QFile versionFile(versionPath);
+		QJsonParseError parseError{};
+		if (!versionFile.open(QIODevice::ReadOnly)) {
+			setStatus(QStringLiteral("publish aborted: cannot read runtime metadata"));
+			return false;
+		}
+		const auto version = QJsonDocument::fromJson(versionFile.readAll(), &parseError);
+		if (parseError.error != QJsonParseError::NoError || !version.isObject()) {
+			setStatus(QStringLiteral("publish aborted: invalid runtime metadata"));
+			return false;
+		}
+		const auto runtimeProduct = version.object().value(QStringLiteral("productRuntime")).toString();
+		const auto expectedProduct = root.value(QStringLiteral("runtimeProduct")).toString();
+		if (!expectedProduct.isEmpty() && expectedProduct != runtimeProduct) {
+			setStatus(QStringLiteral("publish aborted: profile and runtime template belong to different products"));
+			return false;
+		}
+		if (!runtimeProduct.isEmpty()) {
+			root.insert(QStringLiteral("runtimeProduct"), runtimeProduct);
+		} else if (!root.value(QStringLiteral("runtimeProduct")).toString().isEmpty()) {
+			setStatus(QStringLiteral("publish aborted: profile requires its product-specific runtime template"));
+			return false;
+		}
+	} else if (!root.value(QStringLiteral("runtimeProduct")).toString().isEmpty()) {
+		setStatus(QStringLiteral("publish aborted: product runtime metadata is missing"));
+		return false;
+	}
+
+	// 2. Product resources: resolve against the profile's own directory,
+	// copy into the package, rewrite to in-package relative paths.
+	if (fileDirectory().isEmpty()) {
+		setStatus(QStringLiteral("publish aborted: save the profile first so "
+			"relative resource paths can be resolved"));
+		return false;
+	}
+	const QDir baseDirectory(fileDirectory());
+	QStringList warnings;
 	if (!QDir().mkpath(productDirectory)) {
 		setStatus(QStringLiteral("cannot create %1").arg(productDirectory));
 		return false;
 	}
+	const auto publishingLock = productDirectory + QStringLiteral("/publishing.lock");
+	if (!writeTextFile(publishingLock, QByteArray("package assembly in progress\n"))) {
+		setStatus(QStringLiteral("publish aborted: cannot create package assembly marker"));
+		return false;
+	}
+	auto model = root.value(QStringLiteral("model")).toObject();
+	const auto packagePath =
+		model.value(QStringLiteral("packagePath")).toString();
+	const auto resolvedModel = QDir::cleanPath(
+		baseDirectory.absoluteFilePath(packagePath));
+	if (packagePath.isEmpty() || !QFileInfo::exists(resolvedModel)) {
+		setStatus(QStringLiteral("publish aborted: model package not found: "
+			"%1").arg(resolvedModel));
+		return false;
+	}
+	// Validate the backend/device against the target platform's plugin
+	// manifest (e.g. NPU is Linux-only) before copying anything.
+	const auto backendId =
+		model.value(QStringLiteral("backendId")).toString();
+	const auto device = model.value(QStringLiteral("device")).toString();
+	const auto catalog = backendCatalog(targetPlatform);
+	if (!catalog.isEmpty()) {
+		const auto problem = validateBackendForPlatform(
+			catalog, backendId, device, targetPlatform);
+		if (!problem.isEmpty()) {
+			setStatus(problem);
+			return false;
+		}
+	}
+	if (!QFileInfo::exists(resolvedModel + QStringLiteral("/manifest.json")) ||
+		!copyDirectoryContents(resolvedModel,
+			productDirectory + QStringLiteral("/model"))) {
+		setStatus(QStringLiteral("publish aborted: model manifest missing or model copy failed"));
+		return false;
+	}
+	model.insert(QStringLiteral("packagePath"), QStringLiteral("model"));
+	const auto pluginDirectory =
+		model.value(QStringLiteral("pluginDirectory")).toString();
+	if (!pluginDirectory.isEmpty()) {
+		const auto resolvedPlugins = QDir::cleanPath(
+			baseDirectory.absoluteFilePath(pluginDirectory));
+		if (QFileInfo::exists(resolvedPlugins)) {
+			if (!copyDirectoryContents(resolvedPlugins,
+				binDirectory + QStringLiteral("/plugins"))) {
+				setStatus(QStringLiteral("publish aborted: plugin copy failed or conflicting plugin versions"));
+				return false;
+			}
+		} else {
+			warnings.append(QStringLiteral(
+				"plugin directory not found: %1").arg(resolvedPlugins));
+		}
+	}
+	const auto libraryName = QStringLiteral("vision-backend-%1.%2")
+		.arg(backendId, targetPlatform == QLatin1String("windows")
+			? QStringLiteral("dll") : QStringLiteral("so"));
+	if (!QFileInfo::exists(binDirectory + QStringLiteral("/plugins/%1/%2")
+		.arg(backendId, libraryName))) {
+		setStatus(QStringLiteral("publish aborted: selected backend plugin is not present in the target runtime"));
+		return false;
+	}
+	// The shell resolves pluginDirectory relative to the profile file, so
+	// products/<id>/ -> ../../bin/plugins lands in the shared runtime.
+	model.insert(QStringLiteral("pluginDirectory"),
+		QStringLiteral("../../bin/plugins"));
+	root.insert(QStringLiteral("model"), model);
+
+	auto sources = root.value(QStringLiteral("sources")).toArray();
+	for (auto index = 0; index < sources.size(); ++index) {
+		auto source = sources.at(index).toObject();
+		if (source.value(QStringLiteral("type")).toString()
+				!= QLatin1String("directory")) {
+			continue;
+		}
+		const auto sourceId = source.value(QStringLiteral("id")).toString();
+		const auto directory =
+			source.value(QStringLiteral("directory")).toString();
+		const auto resolved = QDir::cleanPath(
+			baseDirectory.absoluteFilePath(directory));
+		if (directory.isEmpty() || countFiles(resolved) == 0) {
+			setStatus(QStringLiteral("publish aborted: directory source %1 is empty or missing: %2")
+				.arg(sourceId, resolved));
+			return false;
+		}
+		if (!copyDirectoryContents(resolved, productDirectory
+			+ QStringLiteral("/assets/%1").arg(sourceId))) {
+			setStatus(QStringLiteral("publish aborted: source assets copy failed"));
+			return false;
+		}
+		source.insert(QStringLiteral("directory"),
+			QStringLiteral("assets/%1").arg(sourceId));
+		sources.replace(index, source);
+	}
+	root.insert(QStringLiteral("sources"), sources);
+
 	const auto profilePath =
 		productDirectory + QStringLiteral("/profile.json");
-	QFile file(profilePath);
-	if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+	if (!writeTextFile(profilePath,
+			QJsonDocument(root).toJson(QJsonDocument::Indented) + '\n')) {
 		setStatus(QStringLiteral("cannot write %1").arg(profilePath));
 		return false;
 	}
-	file.write(document.toJson(QJsonDocument::Indented));
-	file.write("\n");
-	setStatus(QStringLiteral("published %1").arg(profilePath));
+
+	// 3. Double-click entry script for the target platform.
+	const auto scriptBase = sanitizeFileName(name.isEmpty() ? id : name);
+	if (targetPlatform == QLatin1String("windows")) {
+		// UTF-8 BOM so cmd.exe on Chinese Windows renders the name right.
+		QByteArray script;
+		script.append("\xEF\xBB\xBF");
+		script.append("@echo off\r\n\"%~dp0bin\\visionShell.exe\" "
+			"\"%~dp0products\\");
+		script.append(id.toUtf8());
+		script.append("\\profile.json\"\r\nif errorlevel 1 pause\r\n");
+		if (!writeTextFile(targetRoot.absoluteFilePath(
+			QStringLiteral("启动-%1.cmd").arg(scriptBase)), script)) {
+			setStatus(QStringLiteral("publish aborted: cannot write Windows entry script"));
+			return false;
+		}
+	} else {
+		QByteArray script("#!/bin/sh\nhere=\"$(dirname \"$0\")\"\n"
+			"exec \"$here/bin/visionShell\" \"$here/products/");
+		script.append(id.toUtf8());
+		script.append("/profile.json\"\n");
+		const auto scriptPath = targetRoot.absoluteFilePath(
+			QStringLiteral("run-%1.sh").arg(scriptBase));
+		if (!writeTextFile(scriptPath, script)) {
+			setStatus(QStringLiteral("publish aborted: cannot write Linux entry script"));
+			return false;
+		}
+		// The executable bit only exists on Linux file systems; on a
+		// Windows host this is a no-op and the target machine needs one
+		// chmod +x (documented in the package).
+		QFile::setPermissions(scriptPath,
+			QFileDevice::ReadOwner | QFileDevice::WriteOwner
+				| QFileDevice::ExeOwner | QFileDevice::ReadGroup
+				| QFileDevice::ExeGroup | QFileDevice::ReadOther
+				| QFileDevice::ExeOther);
+	}
+
+	QString manifestError;
+	if (!visionPackage::writeManifest(targetRoot.absolutePath(), id,
+		targetPlatform, manifestError)) {
+		setStatus(manifestError);
+		return false;
+	}
+	if (!QFile::remove(publishingLock)) {
+		setStatus(QStringLiteral("publish aborted: cannot finalize package assembly marker"));
+		return false;
+	}
+	const auto warningSuffix = warnings.isEmpty() ? QString()
+		: QStringLiteral(" (%1)").arg(warnings.join(QLatin1String("; ")));
+	setStatus(QStringLiteral("published %1 package to %2%3")
+		.arg(targetPlatform, profilePath, warningSuffix));
 	return true;
+}
+
+QString DesignerBackend::runtimeTemplate(const QString& platform) const {
+	const auto exeName = platform == QLatin1String("windows")
+		? QStringLiteral("visionShell.exe") : QStringLiteral("visionShell");
+	const auto selected = runtimeOverrides_.value(platform);
+	if (!selected.isEmpty() && QFileInfo::exists(selected + QLatin1Char('/') + exeName)) {
+		return selected;
+	}
+	QDir bundled(QCoreApplication::applicationDirPath());
+	for (int level = 0; level < 8; ++level) {
+		const auto candidate = bundled.absoluteFilePath(
+			QStringLiteral("runtimeTemplates/%1").arg(platform));
+		if (QFileInfo::exists(candidate + QLatin1Char('/') + exeName)) {
+			return candidate;
+		}
+		if (!bundled.cdUp()) {
+			break;
+		}
+	}
+	const auto fromSettings = QSettings(QStringLiteral("VisionRuntime"),
+		QStringLiteral("visionDesigner"))
+		.value(QStringLiteral("runtimeTemplate/%1").arg(platform)).toString();
+	// Trust a stored override only while it still points at a real template;
+	// a stale path must fall back to build-tree auto-detection.
+	if (!fromSettings.isEmpty()
+			&& QFileInfo::exists(fromSettings + QLatin1Char('/') + exeName)) {
+		return fromSettings;
+	}
+	return detectRuntimeTemplate(platform);
+}
+
+QVariantList DesignerBackend::backendCatalog(const QString& platform) const {
+#ifdef Q_OS_WIN
+	const QString hostPlatform = QStringLiteral("windows");
+#else
+	const QString hostPlatform = QStringLiteral("linux");
+#endif
+	const auto targetPlatform = platform.isEmpty() ? hostPlatform : platform;
+	const auto root = runtimeTemplate(targetPlatform);
+	if (root.isEmpty()) {
+		return {};
+	}
+	// The manifest sits at the plugins root inside bin/.
+	const auto manifestPath = QDir(root).absoluteFilePath(
+		QStringLiteral("plugins/plugins.json"));
+	QFile file(manifestPath);
+	if (!file.open(QIODevice::ReadOnly)) {
+		return {};
+	}
+	const auto document = QJsonDocument::fromJson(file.readAll());
+	const auto backends = document.object()
+		.value(QStringLiteral("backends")).toArray();
+	QVariantList result;
+	for (const auto& entry : backends) {
+		result.append(entry.toObject().toVariantMap());
+	}
+	return result;
+}
+
+QString DesignerBackend::validateBackendForPlatform(
+		const QVariantList& catalog, const QString& backendId,
+		const QString& device, const QString& platform) {
+	for (const auto& entry : catalog) {
+		const auto backend = entry.toMap();
+		if (backend.value(QStringLiteral("id")).toString() != backendId) {
+			continue;
+		}
+		const auto devices = backend.value(QStringLiteral("devices")).toList();
+		for (const auto& deviceEntry : devices) {
+			const auto deviceMap = deviceEntry.toMap();
+			if (deviceMap.value(QStringLiteral("id")).toString() != device) {
+				continue;
+			}
+			const auto platforms = deviceMap.value(
+				QStringLiteral("platforms")).toStringList();
+			if (platforms.contains(platform)) {
+				return {};
+			}
+			return QStringLiteral("publish aborted: %1 device %2 is not "
+				"available on %3 (supported: %4)")
+				.arg(backendId, device, platform,
+					platforms.join(QLatin1String(", ")));
+		}
+		return QStringLiteral("publish aborted: unknown device %1 for "
+			"backend %2").arg(device, backendId);
+	}
+	return QStringLiteral("publish aborted: unknown backend %1")
+		.arg(backendId);
+}
+
+void DesignerBackend::setRuntimeTemplate(
+		const QString& platform, const QString& path) {
+	runtimeOverrides_.insert(platform, toLocalFile(path));
+	QSettings(QStringLiteral("VisionRuntime"),
+		QStringLiteral("visionDesigner"))
+		.setValue(QStringLiteral("runtimeTemplate/%1").arg(platform),
+			toLocalFile(path));
 }
 
 void DesignerBackend::setStatus(const QString& message) {
@@ -555,6 +989,23 @@ QString DesignerBackend::detectControlsPath() {
 			dir.absoluteFilePath(QStringLiteral("Shell/controls"));
 		if (QFileInfo::exists(
 				candidate + QStringLiteral("/NodeView.qml"))) {
+			return candidate;
+		}
+		if (!dir.cdUp()) {
+			break;
+		}
+	}
+	return {};
+}
+
+QString DesignerBackend::detectRuntimeTemplate(const QString& platform) {
+	const auto exeName = platform == QLatin1String("windows")
+		? QStringLiteral("visionShell.exe") : QStringLiteral("visionShell");
+	QDir dir(QCoreApplication::applicationDirPath());
+	for (int level = 0; level < 8; ++level) {
+		const auto candidate = dir.absoluteFilePath(
+			QStringLiteral("Shell/release/visionShell"));
+		if (QFileInfo::exists(candidate + QLatin1Char('/') + exeName)) {
 			return candidate;
 		}
 		if (!dir.cdUp()) {

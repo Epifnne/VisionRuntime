@@ -1,6 +1,7 @@
 # CMake and build outputs
 /Build/
 /Publish/
+/Samples/publish/
 /CMakeFiles/
 /CMakeCache.txt
 /CTestTestfile.cmake

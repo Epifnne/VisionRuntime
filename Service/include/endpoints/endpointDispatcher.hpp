@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include "core/result.hpp"
+#include <cstddef>
 #include <condition_variable>
 #include <deque>
 #include <functional>
@@ -24,7 +26,7 @@ namespace visionService::endpoints {
  */
 class EndpointDispatcher {
 public:
-	EndpointDispatcher();
+	explicit EndpointDispatcher(std::size_t capacity = 1024);
 	~EndpointDispatcher();
 
 	EndpointDispatcher(const EndpointDispatcher&) = delete;
@@ -32,7 +34,8 @@ public:
 	EndpointDispatcher(EndpointDispatcher&&) = delete;
 	EndpointDispatcher& operator=(EndpointDispatcher&&) = delete;
 
-	void post(std::function<void()> task);
+	[[nodiscard]] visionRuntime::core::Result<void> post(std::function<void()> task);
+	void drain();
 	void shutdown() noexcept;
 	[[nodiscard]] bool isDispatcherThread() const noexcept;
 
@@ -41,8 +44,11 @@ private:
 
 	mutable std::mutex mutex_;
 	std::condition_variable ready_;
+	std::condition_variable drained_;
 	std::deque<std::function<void()>> tasks_;
 	bool stopping_ = false;
+	bool active_ = false;
+	const std::size_t capacity_;
 	std::thread worker_;
 };
 

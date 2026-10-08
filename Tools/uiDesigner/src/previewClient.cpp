@@ -88,6 +88,15 @@ void PreviewClient::setProfile(
 		{QStringLiteral("name"), QStringLiteral("metrics.performance")},
 		{QStringLiteral("description"),
 			QStringLiteral("last batch performance counters")}});
+	commands_.append(QVariantMap{
+		{QStringLiteral("name"), QStringLiteral("session.recover")},
+		{QStringLiteral("description"), QStringLiteral("reset preview session")}});
+	for (const auto& name : {QStringLiteral("inspection.result"), QStringLiteral("source.fault")}) {
+		states_.append(QVariantMap{{QStringLiteral("name"), name}});
+		snapshots_.insert(name, name == QLatin1String("inspection.result")
+			? QStringLiteral("{\"simulation\":true,\"valid\":false,\"decision\":\"UNKNOWN\"}")
+			: QStringLiteral("{}"));
+	}
 
 	const QDir base(baseDirectory);
 	const auto sources = root.value(QStringLiteral("sources")).toArray();
@@ -182,6 +191,15 @@ bool PreviewClient::writeParameter(const QString& name, const QVariant& value) {
 }
 
 bool PreviewClient::invokeCommand(const QString& name) {
+	if (name == QLatin1String("session.recover")) {
+		running_ = false;
+		completed_ = 0;
+		failed_ = 0;
+		setLastError(QString());
+		publishState();
+		publishLive();
+		return true;
+	}
 	if (name == QLatin1String("session.start")) {
 		running_ = true;
 		publishState();

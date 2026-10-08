@@ -9,6 +9,8 @@
 #include <cstddef>
 #include <memory>
 #include <utility>
+#include <atomic>
+#include <future>
 
 namespace {
 
@@ -81,10 +83,10 @@ public:
 
 	visionRuntime::camera::CameraAcquisitionOptions lastOptions;
 	std::size_t startCount = 0;
-	std::size_t stopCount = 0;
+	std::atomic_size_t stopCount{0};
 	std::size_t waitCount = 0;
 	bool failNextStart = false;
-	bool acquiring = false;
+	std::atomic_bool acquiring{false};
 
 private:
 	visionRuntime::camera::FrameCallback callback_;
@@ -149,6 +151,44 @@ TEST(ContinuousCameraSourceTest, ForwardsContinuousAcquisitionAndLifecycle) {
 	EXPECT_EQ(devicePointer->waitCount, 2U);
 	devicePointer->emitFrame();
 	EXPECT_EQ(frameCount, 1U);
+}
+
+TEST(ContinuousCameraSourceTest, ReportsSilenceAsATerminalFault) {
+	using namespace visionRuntime;
+	auto source = camera::ContinuousCameraSource::create(
+		std::make_unique<FakeCameraDevice>(),
+		{.noFrameTimeout = std::chrono::milliseconds(20)}).value();
+	std::promise<core::Status> error;
+	auto future = error.get_future();
+	ASSERT_TRUE(source->start([&error](core::Result<vision::Frame> frame) {
+		if (!frame) {
+			error.set_value(frame.status());
+		}
+	}));
+	const auto ready = future.wait_for(std::chrono::seconds(5));
+	source->requestStop();
+	source->wait();
+	ASSERT_EQ(ready, std::future_status::ready);
+	const auto status = future.get();
+	EXPECT_EQ(status.code(), core::StatusCode::DeadlineExceeded);
+	EXPECT_TRUE(source->failureIsTerminal(status));
+	EXPECT_FALSE(source->isRunning());
+}
+
+TEST(ContinuousCameraSourceTest, StopCancelsSilenceWatchdogWithoutAnError) {
+	using namespace visionRuntime;
+	auto source = camera::ContinuousCameraSource::create(
+		std::make_unique<FakeCameraDevice>(),
+		{.noFrameTimeout = std::chrono::seconds(1)}).value();
+	std::atomic_size_t failures{0};
+	ASSERT_TRUE(source->start([&failures](core::Result<vision::Frame> frame) {
+		if (!frame) {
+			++failures;
+		}
+	}));
+	source->requestStop();
+	source->wait();
+	EXPECT_EQ(failures.load(), 0U);
 }
 
 TEST(ContinuousCameraSourceTest, AllowsRetryAfterDeviceStartFailure) {

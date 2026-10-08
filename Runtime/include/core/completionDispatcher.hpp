@@ -2,6 +2,7 @@
 
 #include "common/boundedBlockingQueue.hpp"
 #include "core/result.hpp"
+#include "logs/logger.hpp"
 
 #include <cstddef>
 #include <functional>
@@ -63,6 +64,7 @@ private:
 				try {
 					completion->delivery(std::move(completion->result));
 				} catch (...) {
+					logs::error("completion delivery threw an exception");
 				}
 			}
 		}

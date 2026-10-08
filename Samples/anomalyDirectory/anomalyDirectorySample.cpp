@@ -2,7 +2,36 @@
 
 #include <filesystem>
 #include <iostream>
+#include "sampleRuntime.hpp"
 
+namespace visionSample {
+using namespace visionRuntime;
+
+core::Result<std::unique_ptr<runtime::RuntimeSession<vision::AnomalyResult>>>
+createSampleRuntime(RuntimeOptions options) {
+	if (options.sources.size() != 1) {
+		return fail<std::unique_ptr<runtime::RuntimeSession<vision::AnomalyResult>>>(
+			"anomalyDirectory requires exactly one source");
+	}
+	auto supported = validateAnomalyPreset(options);
+	if (!supported) {
+		return core::Result<std::unique_ptr<runtime::RuntimeSession<vision::AnomalyResult>>>::failure(
+			supported.status());
+	}
+	return runtime::RuntimeFactory::createFromPreset<runtime::presets::AnomalyPreset>({
+		.source = std::move(options.sources.front()),
+		.model = {.packagePath = options.modelPackage},
+		.threshold = options.pipeline.threshold,
+		.timed = true,
+		.timingOutput = std::move(options.timingOutput),
+		.deployment = std::move(options.deployment),
+		.callback = [](executor::TaskId, const core::Result<vision::AnomalyResult>&) {},
+		.execution = {.faultPolicy = options.faultPolicy},
+	});
+}
+} // namespace visionSample
+
+#ifndef VISION_SAMPLE_SHELL
 int main(int argc, char* argv[]) {
 	if (argc != 4) {
 		std::cerr << "usage: anomalyDirectorySample <benchmark.csv> <model-package> "
@@ -15,24 +44,12 @@ int main(int argc, char* argv[]) {
 	if (!deployment) {
 		return 1;
 	}
-	auto sessionResult = runtime::RuntimeFactory::createFromPreset<
-		runtime::presets::AnomalyPreset>({
-		.source = camera::FileFrameSourceConfig{
-			.source = {
-				.directory = "image",
-			},
-		},
-		.model = {
-			.packagePath = argv[2],
-		},
-		.threshold = 2.0F,
-		.timed = true,
-		.timingOutput = benchmark::TimingOutputPath::file(
-			std::filesystem::path{argv[1]}),
-		.deployment = std::move(deployment).value(),
-		.callback = [](executor::TaskId,
-			const core::Result<vision::AnomalyResult>&) {},
-	});
+	visionSample::RuntimeOptions options;
+	options.sources.push_back(camera::FileFrameSourceConfig{.source = {.directory = "image"}});
+	options.modelPackage = argv[2];
+	options.deployment = std::move(deployment).value();
+	options.timingOutput = benchmark::TimingOutputPath::file(argv[1]);
+	auto sessionResult = visionSample::createSampleRuntime(std::move(options));
 	if (!sessionResult) {
 		return 1;
 	}
@@ -43,3 +60,4 @@ int main(int argc, char* argv[]) {
 	}
 	static_cast<void>(session->wait());
 }
+#endif

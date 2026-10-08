@@ -14,6 +14,7 @@
 #include <QString>
 #include <QStringList>
 #include <QVariantList>
+#include <QHash>
 
 namespace visionDesigner {
 
@@ -56,9 +57,32 @@ public:
 	/// Validates the profile against the schema rules and the current
 	/// endpoint universe; returns true when no error-severity issue remains.
 	Q_INVOKABLE bool validate(const QString& profileJson);
-	/// Validates, then writes <targetDirectory>/<productId>/profile.json.
+	/// Validates, then assembles a self-contained, double-clickable product
+	/// package in \p targetDirectory (see Docs/clickToRunPackagePlan.md):
+	/// bin/ runtime (copied from the platform's release template), rewritten
+	/// products/<id>/profile.json with model/plugins/assets copied in, and a
+	/// platform entry script. \p platform is "windows" or "linux"; empty
+	/// selects the host platform.
 	Q_INVOKABLE bool publish(
-		const QString& targetDirectory, const QString& jsonText);
+		const QString& targetDirectory, const QString& jsonText,
+		const QString& platform = QString());
+
+	/// Runtime template directory (publishShell release root) used when
+	/// publishing for \p platform. Explicit session selection takes precedence,
+	/// then bundled templates, persisted settings, and build-tree detection.
+	Q_INVOKABLE QString runtimeTemplate(const QString& platform) const;
+	Q_INVOKABLE void setRuntimeTemplate(
+		const QString& platform, const QString& path);
+	/// Converts a file: URL or plain path to a native local path; exposed for
+	/// the publish dialog's FolderDialog results.
+	Q_INVOKABLE QString toLocalPath(const QString& pathOrUrl) const {
+		return toLocalFile(pathOrUrl);
+	}
+	/// Backend capability manifest from a runtime template's
+	/// bin/plugins/plugins.json: [{id, displayName, devices:[{id,
+	/// platforms:[...]}]}]. Drives the backend/device pickers and the publish
+	/// platform validation. \p platform selects the template ("" = host).
+	Q_INVOKABLE QVariantList backendCatalog(const QString& platform) const;
 
 	/// Endpoint universe entry factory shared by derivation and tests.
 	[[nodiscard]] static QVariantList deriveEndpointEntries(
@@ -76,6 +100,14 @@ private:
 	void setFilePath(const QString& path);
 	[[nodiscard]] static QString toLocalFile(const QString& pathOrUrl);
 	[[nodiscard]] static QString detectControlsPath();
+	/// Walks up from the executable looking for the build tree's
+	/// Shell/release/visionShell root containing the platform's shell binary.
+	[[nodiscard]] static QString detectRuntimeTemplate(const QString& platform);
+	/// Validates backendId/device against a backend catalog for \p platform;
+	/// returns "" when acceptable, else a user-facing status message.
+	[[nodiscard]] static QString validateBackendForPlatform(
+		const QVariantList& catalog, const QString& backendId,
+		const QString& device, const QString& platform);
 
 	QString filePath_;
 	QString controlsPath_;
@@ -86,6 +118,7 @@ private:
 	/// are profile-specific and must not leak into another profile's
 	/// validation.
 	bool manifestLoaded_ = false;
+	QHash<QString, QString> runtimeOverrides_;
 };
 
 } // namespace visionDesigner

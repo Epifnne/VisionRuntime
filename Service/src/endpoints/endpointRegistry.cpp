@@ -1,6 +1,7 @@
 #include "endpoints/endpointRegistry.hpp"
 
 #include "endpoints/endpointDispatcher.hpp"
+#include "logs/logger.hpp"
 
 #include <utility>
 
@@ -318,6 +319,11 @@ core::Result<void> EndpointRegistry::publishState(std::string_view name) {
 		return failure<void>(core::StatusCode::Internal,
 			"state snapshot provider failed: " + std::string(exception.what()));
 	}
+	return publishState(name, std::move(snapshot));
+}
+
+core::Result<void> EndpointRegistry::publishState(
+	std::string_view name, StateSnapshot snapshot) {
 	std::vector<StateCallback> subscribers;
 	{
 		std::lock_guard lock(mutex_);
@@ -333,12 +339,13 @@ core::Result<void> EndpointRegistry::publishState(std::string_view name) {
 		subscribers = callbackValues(slot.subscribers);
 	}
 	if (!subscribers.empty()) {
-		dispatcher_.post(
+		return dispatcher_.post(
 			[subscribers = std::move(subscribers), snapshot = std::move(snapshot)] {
 				for (const auto& callback : subscribers) {
 					try {
 						callback(snapshot);
 					} catch (...) {
+						visionRuntime::logs::error("state subscriber threw an exception");
 					}
 				}
 			});
@@ -378,7 +385,7 @@ void EndpointRegistry::publishFrame(
 	if (!schedule) {
 		return;
 	}
-	dispatcher_.post([this, streamName = std::string(name), generation] {
+	auto posted = dispatcher_.post([this, streamName = std::string(name), generation] {
 		std::shared_ptr<visionRuntime::vision::Frame> frame;
 		std::uint32_t frameSourceId = 0;
 		std::vector<StreamCallback> subscribers;
@@ -405,9 +412,19 @@ void EndpointRegistry::publishFrame(
 			try {
 				callback(frameSourceId, *frame);
 			} catch (...) {
+				visionRuntime::logs::error("stream subscriber threw an exception");
 			}
 		}
 	});
+	if (!posted) {
+		std::lock_guard lock(mutex_);
+		const auto found = streams_.find(std::string(name));
+		if (found != streams_.end() && generation == generation_) {
+			found->second.dispatchScheduled = false;
+			found->second.pending.reset();
+			++found->second.dropped;
+		}
+	}
 }
 
 core::Result<void> EndpointRegistry::setAccessLevel(

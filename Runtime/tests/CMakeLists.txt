@@ -1,5 +1,9 @@
 include(GoogleTest)
 
+add_executable(releaseContractTest runtime/releaseContractTest.cpp)
+target_link_libraries(releaseContractTest PRIVATE visionRuntime GTest::gtest_main)
+gtest_discover_tests(releaseContractTest)
+
 foreach(backend IN ITEMS OpenVino TensorRt)
 	if(TARGET visionBackend${backend})
 		string(TOLOWER "${backend}" backendId)

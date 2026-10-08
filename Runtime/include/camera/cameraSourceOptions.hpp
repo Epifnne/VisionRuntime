@@ -26,9 +26,12 @@ struct FileSourceOptions {
 
 struct ContinuousCameraSourceOptions {
 	std::optional<double> frameRate;
+	std::optional<std::chrono::milliseconds> noFrameTimeout{};
 
 	[[nodiscard]] bool isValid() const noexcept {
-		return !frameRate || (std::isfinite(*frameRate) && *frameRate > 0.0);
+		return (!frameRate || (std::isfinite(*frameRate) && *frameRate > 0.0)) &&
+			(!noFrameTimeout || (noFrameTimeout->count() > 0 &&
+				noFrameTimeout->count() <= 86400000));
 	}
 };
 

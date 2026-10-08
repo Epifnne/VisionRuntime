@@ -8,6 +8,7 @@
 #pragma once
 
 #include "pipeline/frameRetentionPolicy.hpp"
+#include "pipeline/frameIdentity.hpp"
 #include "vision/frame.hpp"
 
 #include <atomic>
@@ -26,7 +27,8 @@ public:
 		: cameraFrame_(std::move(cameraFrame)),
 		  ownershipOptions_(ownershipOptions),
 		  executionId_(nextExecutionId_.fetch_add(1)),
-		  sourceId_(sourceId) {}
+		  sourceId_(sourceId),
+		  metadata_(cameraFrame_->metadata()) {}
 
 	PipelinePacket(const PipelinePacket&) = delete;
 	PipelinePacket& operator=(const PipelinePacket&) = delete;
@@ -35,7 +37,8 @@ public:
 		  businessFrame_(std::exchange(other.businessFrame_, std::nullopt)),
 		  ownershipOptions_(other.ownershipOptions_),
 		  executionId_(other.executionId_),
-		  sourceId_(other.sourceId_) {}
+		  sourceId_(other.sourceId_),
+		  metadata_(other.metadata_) {}
 
 	PipelinePacket& operator=(PipelinePacket&& other) noexcept {
 		if (this != &other) {
@@ -44,6 +47,7 @@ public:
 			ownershipOptions_ = other.ownershipOptions_;
 			executionId_ = other.executionId_;
 			sourceId_ = other.sourceId_;
+			metadata_ = other.metadata_;
 		}
 		return *this;
 	}
@@ -62,6 +66,10 @@ public:
 
 	void setSourceId(std::optional<std::uint32_t> sourceId) noexcept {
 		sourceId_ = sourceId;
+	}
+
+	[[nodiscard]] FrameIdentity identity() const noexcept {
+		return {executionId_, sourceId_, metadata_};
 	}
 
 	[[nodiscard]] bool hasCameraFrame() const noexcept {
@@ -112,6 +120,7 @@ private:
 	PipelineOwnershipOptions ownershipOptions_;
 	std::uint64_t executionId_ = 0;
 	std::optional<std::uint32_t> sourceId_;
+	vision::FrameMetadata metadata_;
 	inline static std::atomic_uint64_t nextExecutionId_{1};
 };
 

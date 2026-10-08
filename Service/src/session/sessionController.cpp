@@ -1,6 +1,7 @@
 #include "session/sessionController.hpp"
 
 #include <utility>
+#include <system_error>
 
 namespace visionService::session {
 
@@ -26,26 +27,38 @@ SessionLifecycle SessionController::state() const {
 core::Result<void> SessionController::configure(
 	std::unique_ptr<AnomalySession> session,
 	std::size_t sourceCount) {
+	return configureSession(adoptRuntime(std::move(session)), sourceCount);
+}
+
+core::Result<void> SessionController::configureSession(
+	std::unique_ptr<IInspectionSession> session, std::size_t sourceCount) {
+	std::lock_guard operationLock(operationMutex_);
 	if (!session) {
 		return failure(core::StatusCode::InvalidArgument,
 			"session controller requires an assembled session");
 	}
-	if (sourceCount == 0) {
+	if (sourceCount == 0 || sourceCount != session->sourceCount()) {
 		return failure(core::StatusCode::InvalidArgument,
-			"session controller requires at least one source");
+			"session controller requires matching nonzero source count");
 	}
-	waitForIdle();
+	requestStop(visionRuntime::executor::StopMode::Immediate);
+	waitForIdleImpl();
 	std::lock_guard lock(mutex_);
 	session_ = std::move(session);
 	sourceCount_ = sourceCount;
 	counters_ = {};
 	counters_.receivedPerSource.assign(sourceCount_, 0);
 	counters_.droppedPerSource.assign(sourceCount_, 0);
+	counters_.missingPerSource.assign(sourceCount_, 0);
+	lastError_.clear();
+	hasRun_ = false;
+	acquisitionStarted_ = false;
 	state_ = SessionLifecycle::Idle;
 	return core::Result<void>::success();
 }
 
 core::Result<void> SessionController::start() {
+	std::lock_guard operationLock(operationMutex_);
 	{
 		std::lock_guard lock(mutex_);
 		if (state_ == SessionLifecycle::Running) {
@@ -60,19 +73,55 @@ core::Result<void> SessionController::start() {
 			return failure(core::StatusCode::InvalidState,
 				"session has not been configured");
 		}
+		if (hasRun_) {
+			return failure(core::StatusCode::InvalidState,
+				"sessions are single-use; recover or reload the profile before restarting");
+		}
+		hasRun_ = true;
+		acquisitionStarted_ = false;
 		state_ = SessionLifecycle::Running;
 		runningSession_ = session_.get();
 		counters_ = {};
 		counters_.receivedPerSource.assign(sourceCount_, 0);
 		counters_.droppedPerSource.assign(sourceCount_, 0);
+		counters_.missingPerSource.assign(sourceCount_, 0);
 		pendingStopMode_ = visionRuntime::executor::StopMode::Graceful;
 	}
 	// The control thread is the only thread allowed to call wait().
-	controlThread_ = std::thread([this] { controlThreadMain(); });
-	// Finite sources finish on their own; a watcher notices and triggers the
-	// graceful stop so the control thread collects the summary.
-	completionWatchThread_ = std::thread([this] { completionWatchMain(); });
+	try {
+		controlThread_ = std::thread([this] { controlThreadMain(); });
+		completionWatchThread_ = std::thread([this] { completionWatchMain(); });
+	} catch (const std::system_error& exception) {
+		requestStop(visionRuntime::executor::StopMode::Immediate);
+		waitForIdleImpl();
+		{
+			std::lock_guard lock(mutex_);
+			state_ = SessionLifecycle::Idle;
+			runningSession_ = nullptr;
+		}
+		auto status = core::Status::error(core::StatusCode::ResourceExhausted,
+			std::string("cannot start session control threads: ") + exception.what());
+		noteError(status);
+		visionRuntime::logs::report(status);
+		return core::Result<void>::failure(std::move(status));
+	}
 	return core::Result<void>::success();
+}
+
+void SessionController::releaseSession() noexcept {
+	std::lock_guard operationLock(operationMutex_);
+	requestStop(visionRuntime::executor::StopMode::Immediate);
+	waitForIdleImpl();
+	std::unique_ptr<IInspectionSession> previous;
+	{
+		std::lock_guard lock(mutex_);
+		previous = std::move(session_);
+		runningSession_ = nullptr;
+		sourceCount_ = 0;
+		hasRun_ = false;
+		acquisitionStarted_ = false;
+	}
+	previous.reset();
 }
 
 void SessionController::requestStop(
@@ -93,7 +142,7 @@ SessionCounters SessionController::counters() const {
 }
 
 std::optional<SessionCounters> SessionController::liveCounters() const {
-	AnomalySession* session = nullptr;
+	IInspectionSession* session = nullptr;
 	{
 		std::lock_guard lock(mutex_);
 		if (state_ != SessionLifecycle::Running &&
@@ -115,6 +164,10 @@ std::optional<SessionCounters> SessionController::liveCounters() const {
 	counters.sourceFailures = summary.sourceFailures;
 	counters.receivedPerSource = summary.receivedPerSource;
 	counters.droppedPerSource = summary.droppedPerSource;
+	counters.missingFrames = summary.missingFrames;
+	counters.missingPerSource = summary.missingPerSource;
+	counters.rejected = summary.rejected;
+	counters.expired = summary.expired;
 	return counters;
 }
 
@@ -135,6 +188,11 @@ void SessionController::noteError(core::Status status) {
 }
 
 void SessionController::waitForIdle() noexcept {
+	std::lock_guard operationLock(operationMutex_);
+	waitForIdleImpl();
+}
+
+void SessionController::waitForIdleImpl() noexcept {
 	if (completionWatchThread_.joinable()) {
 		if (completionWatchThread_.get_id() == std::this_thread::get_id()) {
 			return;
@@ -151,25 +209,30 @@ void SessionController::waitForIdle() noexcept {
 
 void SessionController::completionWatchMain() {
 	for (;;) {
-		AnomalySession* session = nullptr;
+		IInspectionSession* session = nullptr;
 		{
 			std::lock_guard lock(mutex_);
 			if (state_ != SessionLifecycle::Running) {
 				return;
 			}
 			session = runningSession_;
+			if (!acquisitionStarted_) {
+				session = nullptr;
+			}
 		}
 		if (session == nullptr) {
-			return;
+			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+			continue;
 		}
 		bool anyRunning = false;
-		for (const auto& source : session->sources()) {
+		for (std::size_t index = 0; index < session->sourceCount(); ++index) {
+			auto* source = session->source(index);
 			if (source && source->isRunning()) {
 				anyRunning = true;
 				break;
 			}
 		}
-		if (!anyRunning) {
+		if (!anyRunning || session->stopRequested()) {
 			requestStop();
 			return;
 		}
@@ -180,7 +243,7 @@ void SessionController::completionWatchMain() {
 void SessionController::controlThreadMain() {
 	// Take ownership of the session for the whole run; requestStop() only
 	// signals through pendingStopMode_ and never touches the session.
-	std::unique_ptr<AnomalySession> session;
+	std::unique_ptr<IInspectionSession> session;
 	{
 		std::lock_guard lock(mutex_);
 		session = std::move(session_);
@@ -199,6 +262,10 @@ void SessionController::controlThreadMain() {
 		runningSession_ = nullptr;
 		state_ = SessionLifecycle::Idle;
 		return;
+	}
+	{
+		std::lock_guard lock(mutex_);
+		acquisitionStarted_ = true;
 	}
 	for (;;) {
 		std::unique_lock lock(mutex_);
@@ -222,12 +289,23 @@ void SessionController::controlThreadMain() {
 		counters_.sourceFailures = summary.sourceFailures;
 		counters_.receivedPerSource = summary.receivedPerSource;
 		counters_.droppedPerSource = summary.droppedPerSource;
+		counters_.missingFrames = summary.missingFrames;
+		counters_.missingPerSource = summary.missingPerSource;
+		counters_.rejected = summary.rejected;
+		counters_.expired = summary.expired;
+		if (!summary.lastError.empty()) {
+			lastError_ = summary.lastError;
+		}
 		session_ = std::move(session);
 		runningSession_ = nullptr;
 		state_ = SessionLifecycle::Idle;
 	}
 	if (completionCallback) {
-		completionCallback(counters());
+		try {
+			completionCallback(counters());
+		} catch (...) {
+			visionRuntime::logs::error("session completion callback threw an exception");
+		}
 	}
 }
 

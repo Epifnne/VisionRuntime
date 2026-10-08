@@ -8,6 +8,8 @@
 
 namespace visionRuntime::camera {
 
+class ICameraDevice;
+
 struct FrameSourceInfo {
 	vision::FrameSpec outputSpec;
 	std::optional<std::size_t> expectedFrameCount;
@@ -28,6 +30,9 @@ struct FrameSourceInfo {
  */
 class IFrameSource {
 public:
+	[[nodiscard]] virtual ICameraDevice* cameraDevice() const noexcept { return nullptr; }
+	[[nodiscard]] virtual bool failureIsTerminal(
+		const core::Status&) const noexcept { return false; }
 	virtual ~IFrameSource() = default;
 
 	virtual core::Result<void> start(FrameCallback callback) = 0;

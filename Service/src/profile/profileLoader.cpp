@@ -1,4 +1,5 @@
 #include "profile/profileLoader.hpp"
+#include "logs/logger.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -6,6 +7,8 @@
 #include <fstream>
 #include <string>
 #include <utility>
+#include <unordered_set>
+#include <cmath>
 
 namespace visionService::profile {
 
@@ -15,8 +18,21 @@ namespace core = visionRuntime::core;
 
 [[nodiscard]] core::Result<ProductProfile> invalid(
 	core::StatusCode code, std::string message) {
-	return core::Result<ProductProfile>::failure(
-		core::Status::error(code, std::move(message)));
+	auto status = core::Status::error(code, std::move(message));
+	visionRuntime::logs::report(status);
+	return core::Result<ProductProfile>::failure(std::move(status));
+}
+
+[[nodiscard]] std::size_t sizeValue(const nlohmann::json& object,
+	const char* field, std::size_t fallback, bool allowZero = false) {
+	const auto value = object.value(field, nlohmann::json(fallback));
+	if (!value.is_number_integer() || value.get<std::int64_t>() < 0 ||
+		(!allowZero && value.get<std::int64_t>() == 0)) {
+		throw nlohmann::json::other_error::create(501,
+			std::string(field) + " must be a " +
+				(allowZero ? "nonnegative" : "positive") + " integer", &object);
+	}
+	return value.get<std::size_t>();
 }
 
 [[nodiscard]] std::chrono::milliseconds millisecondsValue(
@@ -95,8 +111,7 @@ void parseSource(
 		source.camera.vendor = document.value("vendor", std::string{});
 		source.camera.pixelFormat =
 			document.value("pixelFormat", std::string("gray8"));
-		source.camera.maxFramesInFlight =
-			document.value("maxFramesInFlight", std::size_t{6});
+		source.camera.maxFramesInFlight = sizeValue(document, "maxFramesInFlight", 6);
 		source.camera.mode = document.value("mode", std::string("continuous"));
 		if (document.contains("exposureMicroseconds")) {
 			source.camera.exposureMicroseconds =
@@ -112,6 +127,17 @@ void parseSource(
 			document.value("triggerIntervalMilliseconds", nlohmann::json(100)));
 		source.camera.responseTimeout = millisecondsValue(
 			document.value("responseTimeoutMilliseconds", nlohmann::json(1000)));
+		if (document.contains("noFrameTimeoutMilliseconds")) {
+			const auto& timeout = document.at("noFrameTimeoutMilliseconds");
+			if (!timeout.is_number_integer() ||
+				timeout.get<std::int64_t>() <= 0 ||
+				timeout.get<std::int64_t>() > 86400000) {
+				throw nlohmann::json::other_error::create(501,
+					"noFrameTimeoutMilliseconds must be an integer in [1, 86400000]",
+					&document);
+			}
+			source.camera.noFrameTimeout = millisecondsValue(timeout);
+		}
 	} else {
 		throw nlohmann::json::other_error::create(
 			501, "source type must be directory or camera", &document);
@@ -141,6 +167,7 @@ core::Result<ProductProfile> ProfileLoader::load(
 		}
 
 		profile.id = document.at("id").get<std::string>();
+		profile.runtimeProduct = document.value("runtimeProduct", std::string{});
 		profile.name = document.value("name", std::string{});
 
 		const auto& sources = document.at("sources");
@@ -149,9 +176,20 @@ core::Result<ProductProfile> ProfileLoader::load(
 				"profile requires at least one source");
 		}
 		profile.sources.reserve(sources.size());
+		std::unordered_set<std::string> sourceIds;
 		for (const auto& sourceDocument : sources) {
 			SourceProfile source;
 			parseSource(sourceDocument, path, source);
+			if (!sourceIds.insert(source.id).second) {
+				return invalid(core::StatusCode::InvalidArgument,
+					"source ids must be unique");
+			}
+			if (source.type == "camera" &&
+				source.camera.mode != "continuous" &&
+				source.camera.mode != "timedTrigger") {
+				return invalid(core::StatusCode::InvalidArgument,
+					"camera mode must be continuous or timedTrigger");
+			}
 			profile.sources.push_back(std::move(source));
 		}
 
@@ -165,12 +203,9 @@ core::Result<ProductProfile> ProfileLoader::load(
 
 		const auto& pipeline = document.value(
 			"pipeline", nlohmann::json::object());
-		profile.pipeline.resizeShortSide =
-			pipeline.value("resizeShortSide", std::size_t{256});
-		profile.pipeline.cropWidth =
-			pipeline.value("cropWidth", std::size_t{224});
-		profile.pipeline.cropHeight =
-			pipeline.value("cropHeight", std::size_t{224});
+		profile.pipeline.resizeShortSide = sizeValue(pipeline, "resizeShortSide", 256);
+		profile.pipeline.cropWidth = sizeValue(pipeline, "cropWidth", 224);
+		profile.pipeline.cropHeight = sizeValue(pipeline, "cropHeight", 224);
 		profile.pipeline.mean = floatList(
 			pipeline.value("mean", nlohmann::json::array({0.0})), "mean");
 		profile.pipeline.standardDeviation = floatList(
@@ -178,16 +213,40 @@ core::Result<ProductProfile> ProfileLoader::load(
 			"standardDeviation");
 		profile.pipeline.threshold =
 			pipeline.value("threshold", 0.5F);
-		profile.pipeline.maxBatchSize =
-			pipeline.value("maxBatchSize", std::size_t{0});
+		profile.pipeline.maxBatchSize = sizeValue(pipeline, "maxBatchSize", 0, true);
 		profile.pipeline.flushTimeout = millisecondsValue(
 			pipeline.value("flushTimeoutMilliseconds", nlohmann::json(20)));
-		profile.pipeline.queueCapacity =
-			pipeline.value("queueCapacity", std::size_t{16});
-		profile.pipeline.stageQueueCapacity =
-			pipeline.value("stageQueueCapacity", std::size_t{1});
+		profile.pipeline.queueCapacity = sizeValue(pipeline, "queueCapacity", 16);
+		profile.pipeline.stageQueueCapacity = sizeValue(pipeline, "stageQueueCapacity", 1);
 		profile.pipeline.queueFullPolicy =
 			pipeline.value("queueFullPolicy", std::string("drop"));
+		profile.pipeline.faultPolicy =
+			pipeline.value("faultPolicy", std::string("reportAndContinue"));
+		if (profile.pipeline.faultPolicy != "reportAndContinue" &&
+			profile.pipeline.faultPolicy != "stopSession") {
+			return invalid(core::StatusCode::InvalidArgument,
+				"pipeline.faultPolicy must be reportAndContinue or stopSession");
+		}
+		if (pipeline.contains("taskTimeoutMilliseconds")) {
+			const auto& timeout = pipeline.at("taskTimeoutMilliseconds");
+			if (!timeout.is_number_integer() ||
+				timeout.get<std::int64_t>() <= 0 ||
+				timeout.get<std::int64_t>() > 86400000) {
+				return invalid(core::StatusCode::InvalidArgument,
+					"pipeline.taskTimeoutMilliseconds must be an integer in [1, 86400000]");
+			}
+			profile.pipeline.taskTimeout =
+				millisecondsValue(timeout);
+		}
+		if (!std::isfinite(profile.pipeline.threshold) ||
+			profile.pipeline.queueCapacity == 0 ||
+			profile.pipeline.stageQueueCapacity == 0 ||
+			profile.pipeline.flushTimeout.count() < 0 ||
+			(profile.pipeline.queueFullPolicy != "block" &&
+			 profile.pipeline.queueFullPolicy != "drop")) {
+			return invalid(core::StatusCode::InvalidArgument,
+				"invalid pipeline threshold, queue capacities, flush timeout or queue policy");
+		}
 
 		profile.endpoints.clear();
 		if (document.contains("endpoints")) {
@@ -203,6 +262,7 @@ core::Result<ProductProfile> ProfileLoader::load(
 		profile.uiJson = document.contains("ui")
 			? document.at("ui").dump()
 			: std::string{};
+		profile.documentJson = document.dump();
 
 		return core::Result<ProductProfile>::success(std::move(profile));
 	} catch (const std::exception& exception) {
