@@ -18,6 +18,18 @@
 `RuntimeSession<AnomalyResult>` 或 `MultiCameraSession<AnomalyResult>`，不会创建第二条默认流水线。
 profile.json 调整参数；修改 C++ 算子或业务回调后，重新编译对应产品 Shell。
 
+新增声明式产品入口：`ProductApplicationFactory` 返回业务 session 与
+`BusinessExports`。Service 自动注册声明的参数、命令、结构化状态和图像流，
+Designer 导入同一声明生成的 manifest 后提供字段选择与绑定校验。
+CLI 与产品 Shell 链接同一个 `visionProductApplication` 静态库，属于同进程方案 A，
+不扫描源码、不引入 IPC。完整可运行示例见
+[businessExports](../Samples/businessExports/README.md)。
+
+接口声明应独立于业务初始化：`visionProductContract` 只包含描述信息，
+`vision_export_product()` 自动在构建阶段生成 manifest；`createApplication()` 才创建
+真实业务并绑定同一声明。导出不要求相机、模型或图片资源可用。
+套件中的 manifest 自动被 Designer 发现，运行时校验声明与实际绑定一致。
+
 ### 1.2 两条使用路线按定制程度选择
 
 - **重定制（自定义算子、机械臂联动、特殊结果处理）→ 产品专属 Shell 或终端 exe**：
@@ -34,9 +46,29 @@ profile.json 调整参数；修改 C++ 算子或业务回调后，重新编译�
 
 ### 1.4 单模型约束（现状）
 
-一个产品 = 一条流水线 = 一个模型。`ProductProfile.model` 是产品级单例，所有相机共享同一
+默认异常检测装配路径：一个产品 = 一条流水线 = 一个模型。`ProductProfile.model` 是产品级单例，所有相机共享同一
 preprocess/backend/postprocess 并合批推理。多模型（不同相机不同模型）或"部分相机不推理"
 需要改造 profile schema + assembler 路由 + designer 打包，属框架级功能，见第 5 节展望。
+
+声明式产品路径不要求算法返回 `AnomalyResult`：使用
+`adoptProductRuntime<MyResult>()` 接入自定义结果，通过 `StateSchema<MyResult>` 声明
+对外字段。仅跑 OpenCV 的产品可在声明 `runtimeProduct` 后省略 `model`；
+Designer 验证/发布也支持这类产品。多执行器/多模型路由仍由业务 session 自行组装，
+不会由导出声明自动推导算法拓扑。
+
+新增底层事件检测路径：`EventTriggerSource` 接受带工件/检测/拍照/视角身份的
+外部采集请求；`EventInspectionSession::addRoute<T>()` 可为各视角配置不同结果类型的
+pipeline，仅在汇总适配器处转换成 OK/NG。全部必需视角返回才完成，错误或缺图超时为
+FAULT；相机响应超时后采集源锁故障，需重建，防止迟到帧串工件。
+红外监听、去抖、传送带延时和编码器跟踪仍在 sample/业务层。
+`adoptEventInspectionSession()` 将生命周期、帧流、中立结果、采集故障和帧统计接入
+Service；业务 `IInspectionSession` 包装层拥有监听器/延时调度器并转发接口。
+事件会话等待外部信号时仍为运行中，不要求伪装成连续 `IFrameSource`。
+GUI 相机曝光/增益可用，但禁止无检测身份的裸 `softwareTrigger`；
+`session.recover` 重建业务和采集源，清空待处理工件、定时任务及计数。
+CLI 与 Shell 共享同一产品工厂，示例及运行方法见
+[eventInspection](../Samples/eventInspection/README.md)。
+这不是默认 profile 的多模型路由，也不会自动生成 DAG 或 PLC 通信。
 
 ### 1.5 GUI 边界：监控与调参，不接业务逻辑
 

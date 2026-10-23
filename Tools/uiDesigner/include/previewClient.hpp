@@ -45,7 +45,8 @@ public:
 	/// Loads a profile for preview; baseDirectory resolves relative
 	/// directory-source paths (typically the profile file's directory).
 	Q_INVOKABLE void setProfile(
-		const QString& profileJson, const QString& baseDirectory);
+		const QString& profileJson, const QString& baseDirectory,
+		const QVariantList& exportedEndpoints = {});
 	Q_INVOKABLE QVariant readParameter(const QString& name);
 	Q_INVOKABLE bool writeParameter(const QString& name, const QVariant& value);
 	Q_INVOKABLE bool invokeCommand(const QString& name);

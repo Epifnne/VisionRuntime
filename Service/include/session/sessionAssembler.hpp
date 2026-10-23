@@ -31,6 +31,7 @@ struct AssembledSession {
 	std::unique_ptr<IInspectionSession> session;
 	/// One entry per profile source, in source order; null for directory sources.
 	std::vector<camera::ICameraDevice*> cameraDevices;
+	std::vector<bool> directTriggers;
 	/// Owns the source-id and stream-name pairs used to fan frames out to the
 	/// registered Stream endpoints before the session consumes them.
 	std::shared_ptr<std::vector<std::pair<std::uint32_t, std::string>>>

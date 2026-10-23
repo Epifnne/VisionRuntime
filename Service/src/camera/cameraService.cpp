@@ -49,7 +49,7 @@ CameraService::enumerate() const {
 core::Result<void> CameraService::registerCameraEndpoints(
 	std::size_t sourceIndex,
 	std::string sourceId,
-	visionRuntime::camera::ICameraDevice* device) {
+	visionRuntime::camera::ICameraDevice* device, bool allowsDirectTrigger) {
 	static_cast<void>(sourceIndex);
 	const auto exposureName = parameterName(sourceId, "exposureMicroseconds");
 	const auto gainName = parameterName(sourceId, "gain");
@@ -145,6 +145,10 @@ core::Result<void> CameraService::registerCameraEndpoints(
 				return failure(core::StatusCode::InvalidState,
 					"camera device is not attached: " + sourceId);
 			}
+			if (!found->second.allowsDirectTrigger) {
+				return failure(core::StatusCode::Unsupported,
+					"event acquisition requires a correlated business capture request");
+			}
 			return found->second.device->softwareTrigger();
 		},
 	});
@@ -153,7 +157,7 @@ core::Result<void> CameraService::registerCameraEndpoints(
 	}
 
 	std::lock_guard lock(mutex_);
-	devices_[sourceId] = DeviceEntry{device};
+	devices_[sourceId] = DeviceEntry{device, allowsDirectTrigger};
 	return core::Result<void>::success();
 }
 

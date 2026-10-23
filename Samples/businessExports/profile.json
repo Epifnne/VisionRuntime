@@ -1,0 +1,43 @@
+{
+  "schemaVersion": {"major": 1, "minor": 0},
+  "id": "businessExports",
+  "name": "OpenCV Business Exports",
+  "runtimeProduct": "businessExports",
+  "sources": [
+    {
+      "id": "side",
+      "type": "directory",
+      "directory": "images",
+      "extensions": [".pgm"],
+      "loop": false,
+      "frameIntervalMilliseconds": 100
+    }
+  ],
+  "endpoints": [
+    {"name": "session.start"},
+    {"name": "session.stop"},
+    {"name": "session.recover", "access": "engineer"},
+    {"name": "stream.side"},
+    {"name": "measure.minimumBrightness"},
+    {"name": "measure.result"},
+    {"name": "measure.reset"}
+  ],
+  "ui": {
+    "pages": [
+      {
+        "id": "inspection",
+        "title": "OpenCV Measurement",
+        "layout": "column",
+        "children": [
+          {"type": "imageView", "endpoint": "stream.side", "height": 200},
+          {"type": "statNumber", "endpoint": "measure.result", "field": "brightness"},
+          {"type": "statNumber", "endpoint": "measure.result", "field": "accepted"},
+          {"type": "parameterForm", "endpoint": "measure.minimumBrightness"},
+          {"type": "commandButton", "endpoint": "session.start"},
+          {"type": "commandButton", "endpoint": "session.recover"},
+          {"type": "commandButton", "endpoint": "measure.reset"}
+        ]
+      }
+    ]
+  }
+}

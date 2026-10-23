@@ -50,6 +50,17 @@ Item {
 		return result;
 	}
 
+	function stateFields() {
+		window.revision;
+		var all = designerBackend.endpoints;
+		for (var i = 0; i < all.length; ++i) {
+			if (panel.node && all[i].name === panel.node.endpoint) {
+				return all[i].fields || {};
+			}
+		}
+		return {};
+	}
+
 	ScrollView {
 		anchors.fill: parent
 		clip: true
@@ -154,6 +165,7 @@ Item {
 						onActivated: function(index) {
 							if (panel.node) {
 								panel.node.endpoint = model[index];
+								delete panel.node.field;
 								window.commitDoc();
 							}
 						}
@@ -192,6 +204,7 @@ Item {
 						Layout.fillWidth: true
 						visible: panel.node
 							&& panel.node.type === "statNumber"
+							&& Object.keys(panel.stateFields()).length === 0
 						enabled: visible
 						placeholderText: "JSON 字段名，如 completed"
 						text: {
@@ -205,6 +218,23 @@ Item {
 								panel.node.field = text;
 								window.commitDoc();
 							}
+						}
+					}
+
+					ComboBox {
+						Layout.fillWidth: true
+						visible: panel.node
+							&& panel.node.type === "statNumber"
+							&& Object.keys(panel.stateFields()).length > 0
+						enabled: visible
+						model: [""].concat(Object.keys(panel.stateFields()))
+						currentIndex: {
+							var found = model.indexOf(panel.node ? panel.node.field || "" : "");
+							return found >= 0 ? found : 0;
+						}
+						onActivated: function(index) {
+							panel.node.field = model[index];
+							window.commitDoc();
 						}
 					}
 

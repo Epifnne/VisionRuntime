@@ -4,6 +4,8 @@
 #include "logs/logger.hpp"
 
 #include <utility>
+#include <unordered_set>
+#include <cmath>
 
 namespace visionService::endpoints {
 
@@ -51,6 +53,14 @@ core::Result<void> EndpointRegistry::checkNameAvailable(
 }
 
 core::Result<void> EndpointRegistry::registerParameter(ParameterEndpoint endpoint) {
+	const auto& descriptor = endpoint.descriptor;
+	if ((descriptor.minimum && !std::isfinite(*descriptor.minimum)) ||
+		(descriptor.maximum && !std::isfinite(*descriptor.maximum)) ||
+		(descriptor.minimum && descriptor.maximum &&
+			*descriptor.minimum > *descriptor.maximum)) {
+		return failure<void>(core::StatusCode::InvalidArgument,
+			"parameter range must be finite and ordered: " + descriptor.name);
+	}
 	if (!endpoint.read) {
 		return failure<void>(core::StatusCode::InvalidArgument,
 			"parameter endpoint requires a read callback");
@@ -86,6 +96,13 @@ core::Result<void> EndpointRegistry::registerState(StateEndpoint endpoint) {
 	if (!endpoint.current) {
 		return failure<void>(core::StatusCode::InvalidArgument,
 			"state endpoint requires a snapshot provider");
+	}
+	std::unordered_set<std::string> fields;
+	for (const auto& field : endpoint.fields) {
+		if (field.name.empty() || !fields.insert(field.name).second) {
+			return failure<void>(core::StatusCode::InvalidArgument,
+				"state field names must be nonempty and unique: " + endpoint.name);
+		}
 	}
 	std::lock_guard lock(mutex_);
 	auto available = checkNameAvailable(endpoint.name);
@@ -203,6 +220,10 @@ core::Result<void> EndpointRegistry::writeParameter(
 	double numeric = 0.0;
 	if (std::holds_alternative<double>(value)) {
 		numeric = std::get<double>(value);
+		if (!std::isfinite(numeric)) {
+			return failure<void>(core::StatusCode::InvalidArgument,
+				"numeric parameter must be finite: " + std::string(name));
+		}
 	} else if (std::holds_alternative<std::int64_t>(value)) {
 		numeric = static_cast<double>(std::get<std::int64_t>(value));
 	} else {
@@ -482,7 +503,7 @@ std::vector<StateDescriptor> EndpointRegistry::states() const {
 		static_cast<void>(name);
 		result.push_back(StateDescriptor{
 			slot.endpoint.name, slot.endpoint.description,
-			slot.endpoint.accessLevel});
+			slot.endpoint.accessLevel, slot.endpoint.fields});
 	}
 	return result;
 }

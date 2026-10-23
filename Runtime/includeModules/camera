@@ -1,6 +1,7 @@
 #pragma once
 
 #include "camera/cameraSourceOptions.hpp"
+#include "camera/eventTriggerSource.hpp"
 #include "camera/cameraTypes.hpp"
 #include "camera/frameSourceConfig.hpp"
 #include "camera/frameSourceFactory.hpp"

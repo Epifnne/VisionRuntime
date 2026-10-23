@@ -63,6 +63,20 @@ TEST(ProfileLoaderTest, ValidatesFaultPolicyAndDeadline) {
 	}
 }
 
+TEST(ProfileLoaderTest, EventTriggerRequiresBusinessOwnedRuntime) {
+	TemporaryProfile fixture;
+	for (const bool business : {false, true}) {
+		const auto path = fixture.write(std::string(R"({
+			"schemaVersion":{"major":1},"id":"events",)") +
+			(business ? R"("runtimeProduct":"events",)" : "") +
+			R"("sources":[{"id":"top","type":"camera","mode":"eventTrigger"}],
+			"model":{"packagePath":".","backendId":"fake","device":"CPU","pluginDirectory":"plugins"}})");
+		auto profile = ProfileLoader::load(path);
+		EXPECT_EQ(static_cast<bool>(profile), business);
+		if (profile) { EXPECT_EQ(profile->sources[0].camera.mode, "eventTrigger"); }
+	}
+}
+
 TEST(ProfileLoaderTest, ParsesDirectoryAndCameraSources) {
 	TemporaryProfile fixture;
 	const auto path = fixture.write(R"({

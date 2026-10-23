@@ -2,6 +2,43 @@
 
 ## 产品专属运行时补充
 
+### 事件驱动多视角示例
+
+[eventInspection](../Samples/eventInspection/README.md) 演示业务层红外事件与
+不同延时拍照、不同结果类型的 pipeline 路由及工件汇总。
+执行 `Samples/buildShell.cmd eventInspection`（或示例的 `build.cmd`）即可构建
+共享业务库、CLI、Shell 与纯契约 manifest，并更新仓库根 `Publish/release`。
+在该目录使用 `run-cli.cmd` 验证，或 `design.cmd` 编辑/发布双相机界面。
+可用 `VISION_SHELL_BUILD_DIR` 复用已有构建树；最终输出不在 Build 子目录。
+可选 `publishEventInspectionSample` 另输出 CLI-only 示例到
+`Publish/examples/eventInspection`。
+框架不监听红外、不计算传送带延时，也不内置 PLC 协议。
+
+### 声明式业务项目：构建时导出，无需启动业务
+
+`Samples/buildShell.cmd businessExports`（或双击
+`Samples/businessExports/build.cmd`）现在复用同一条构建/暂存/部署流程。
+Qt MSVC kit 可从 `QTDIR` 与常见安装目录自动发现，环境变量配置仍优先。
+Windows 脚本使用 UTF-8 编译器输出并优先使用 Visual Studio 自带的 CMake，避免本地化 MSVC
+包含文件输出识别错误导致头文件依赖丢失。已有构建树若曾漏记依赖，
+修改公共 C++ 接口后需清理重编译，不能混用旧对象文件。
+受影响的旧构建树应先清理，再给共享脚本追加 `--fresh`，重新检测编译器元数据。
+
+业务项目把接口放入独立 `visionProductContract` 描述库，
+`vision_export_product()` 在正常构建时运行专用描述生成器，自动产出
+`<产品id>.manifest.json`。生成器不链接实际业务实现，不初始化相机、模型、
+算法或运行会话；缺少现场资源不影响导出。接口/配置变化自动重新生成，
+错误阻止构建和打包。运行时使用同一声明绑定实现，并校验端点契约一致性。
+
+套件自动包含起始配置、同名 manifest 和显式声明的起始资源；
+`design.cmd`/`design.sh` 打开配置时自动发现绑定，无需手动导出/导入。
+声明式示例还提供 `run-cli.cmd`/`run-cli.sh`，CLI 与 Shell 共用业务库。
+Designer 最终发布也保留端点 manifest。纯 OpenCV 产品不需要模型/后端插件。
+示例与自定义项目接入方式见
+[businessExports](../Samples/businessExports/README.md)。
+
+以下旧 sample 入口仍然兼容：
+
 使用 sample 自组装流水线或业务回调时，先运行 `Samples/buildShell.cmd <sample>`
 （Windows MSVC x64，脚本顶部配置 Qt/VS 路径）或 `sh Samples/buildShell.sh <sample>`。
 不传参数默认 `anomalyDirectory`；直接更新 `Publish/release/`。

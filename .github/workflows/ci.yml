@@ -21,7 +21,7 @@ jobs:
           -DTHIRDPARTY_DIRECTORY="${{ github.workspace }}/Thirdparty"
           -P cmake/bootstrapDependencies.cmake
       - name: Configure
-        run: cmake --preset windows-msvc-ci-debug -DVISION_BUILD_SERVICE=ON
+        run: cmake --preset windows-msvc-ci-debug -DVISION_BUILD_SERVICE=ON -DVISION_BUILD_SAMPLES=ON
       - name: Build
         run: cmake --build --preset windows-msvc-ci-debug
       - name: Test
@@ -39,7 +39,7 @@ jobs:
           -DTHIRDPARTY_DIRECTORY="${{ github.workspace }}/Thirdparty"
           -P cmake/bootstrapDependencies.cmake
       - name: Configure
-        run: cmake --preset linux-gnu-debug -DVISION_BUILD_SERVICE=ON
+        run: cmake --preset linux-gnu-debug -DVISION_BUILD_SERVICE=ON -DVISION_BUILD_SAMPLES=ON
       - name: Build
         run: cmake --build --preset linux-gnu-debug
       - name: Test
@@ -47,6 +47,10 @@ jobs:
 
   desktop-qt:
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        product: [generic, businessExports, eventInspection]
     steps:
       - uses: actions/checkout@v4
       - uses: seanmiddleditch/gha-setup-ninja@v5
@@ -62,12 +66,25 @@ jobs:
           -DTHIRDPARTY_DIRECTORY="${{ github.workspace }}/Thirdparty"
           -P cmake/bootstrapDependencies.cmake
       - name: Configure desktop
-        run: >-
-          cmake -S . -B Build/Desktop-CI -G Ninja
-          -DCMAKE_BUILD_TYPE=Release -DVISION_CAMERA_SDK=NONE
-          -DVISION_BUILD_SERVICE=ON -DVISION_BUILD_SHELL=ON
-          -DVISION_BUILD_DESIGNER=ON
+        shell: pwsh
+        run: |
+          $productOptions = @()
+          if ('${{ matrix.product }}' -ne 'generic') {
+            $productOptions += '-DVISION_PRODUCT_APPLICATION=${{ github.workspace }}/Samples/${{ matrix.product }}'
+          }
+          cmake -S . -B Build/Desktop-CI -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release -DVISION_CAMERA_SDK=NONE `
+            -DVISION_BUILD_SERVICE=ON -DVISION_BUILD_SHELL=ON `
+            -DVISION_BUILD_DESIGNER=ON @productOptions
+      - name: Build desktop and tests
+        run: cmake --build Build/Desktop-CI --parallel 4
       - name: Build desktop and design package
-        run: cmake --build Build/Desktop-CI --target visionShell publishDesigner
-      - name: Verify designer publication contracts
-        run: ctest --test-dir Build/Desktop-CI -R visionDesignerSelftest --output-on-failure
+        shell: pwsh
+        run: |
+          if ('${{ matrix.product }}' -eq 'generic') {
+            cmake --build Build/Desktop-CI --target publishShell publishDesigner --parallel 4
+          } else {
+            cmake --build Build/Desktop-CI --target publishSampleShell --parallel 4
+          }
+      - name: Test runtime, service, Shell and Designer contracts
+        run: ctest --test-dir Build/Desktop-CI --output-on-failure --no-tests=error

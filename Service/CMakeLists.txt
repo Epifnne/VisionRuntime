@@ -2,6 +2,8 @@ add_library(visionService STATIC
 	src/camera/cameraService.cpp
 	src/endpoints/endpointDispatcher.cpp
 	src/endpoints/endpointRegistry.cpp
+	src/exports/businessExports.cpp
+	src/exports/exportContract.cpp
 	src/manifest/manifestExporter.cpp
 	src/metrics/metricsAggregator.cpp
 	src/profile/profileLoader.cpp
@@ -32,9 +34,10 @@ target_include_directories(visionService
 target_link_libraries(visionService
 	PUBLIC
 		visionRuntime
-	PRIVATE
 		nlohmann_json::nlohmann_json
 )
+
+include(cmake/visionProductExports.cmake)
 
 # Manifest dump utility: prints the endpoint registry manifest JSON for a
 # product profile. visionDesigner consumes this file as its endpoint universe.

@@ -9,11 +9,16 @@
 namespace visionService::manifest {
 
 std::string exportManifest(const endpoints::EndpointRegistry& registry) {
+	return exportManifest(EndpointDescriptions{
+		registry.parameters(), registry.commands(), registry.states(), registry.streams()});
+}
+
+std::string exportManifest(const EndpointDescriptions& descriptions) {
 	nlohmann::json document;
-	document["schemaVersion"] = {{"major", 1}, {"minor", 0}};
+	document["schemaVersion"] = {{"major", 1}, {"minor", 1}};
 	document["endpoints"] = nlohmann::json::array();
 
-	for (const auto& parameter : registry.parameters()) {
+	for (const auto& parameter : descriptions.parameters) {
 		nlohmann::json entry;
 		entry["name"] = parameter.name;
 		entry["kind"] = std::string(endpoints::endpointKindName(
@@ -35,7 +40,7 @@ std::string exportManifest(const endpoints::EndpointRegistry& registry) {
 		document["endpoints"].push_back(std::move(entry));
 	}
 
-	for (const auto& command : registry.commands()) {
+	for (const auto& command : descriptions.commands) {
 		nlohmann::json entry;
 		entry["name"] = command.name;
 		entry["kind"] = std::string(endpoints::endpointKindName(
@@ -48,7 +53,7 @@ std::string exportManifest(const endpoints::EndpointRegistry& registry) {
 		document["endpoints"].push_back(std::move(entry));
 	}
 
-	for (const auto& state : registry.states()) {
+	for (const auto& state : descriptions.states) {
 		nlohmann::json entry;
 		entry["name"] = state.name;
 		entry["kind"] = std::string(endpoints::endpointKindName(
@@ -58,10 +63,24 @@ std::string exportManifest(const endpoints::EndpointRegistry& registry) {
 		if (!state.description.empty()) {
 			entry["description"] = state.description;
 		}
+		if (!state.fields.empty()) {
+			entry["fields"] = nlohmann::json::object();
+			for (const auto& field : state.fields) {
+				nlohmann::json descriptor{
+					{"valueType", std::string(endpoints::parameterTypeName(field.type))}};
+				if (!field.description.empty()) {
+					descriptor["description"] = field.description;
+				}
+				if (!field.unit.empty()) {
+					descriptor["unit"] = field.unit;
+				}
+				entry["fields"][field.name] = std::move(descriptor);
+			}
+		}
 		document["endpoints"].push_back(std::move(entry));
 	}
 
-	for (const auto& stream : registry.streams()) {
+	for (const auto& stream : descriptions.streams) {
 		nlohmann::json entry;
 		entry["name"] = stream.name;
 		entry["kind"] = std::string(endpoints::endpointKindName(

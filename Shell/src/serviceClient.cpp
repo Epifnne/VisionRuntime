@@ -69,6 +69,8 @@ class ServiceClient::Impl {
 public:
 	explicit Impl(visionService::ProductRuntimeFactory factory = {})
 		: service(std::move(factory)) {}
+	explicit Impl(visionService::ProductApplicationFactory factory)
+		: service(std::move(factory)) {}
 	visionService::VisionService service;
 	QString lastError;
 	QHash<quint32, QImage> latestFrames;
@@ -80,6 +82,9 @@ ServiceClient::ServiceClient(QObject* parent)
 	: QObject(parent), impl_(std::make_unique<Impl>()) {}
 
 ServiceClient::ServiceClient(visionService::ProductRuntimeFactory factory, QObject* parent)
+	: QObject(parent), impl_(std::make_unique<Impl>(std::move(factory))) {}
+
+ServiceClient::ServiceClient(visionService::ProductApplicationFactory factory, QObject* parent)
 	: QObject(parent), impl_(std::make_unique<Impl>(std::move(factory))) {}
 
 ServiceClient::~ServiceClient() {
@@ -126,6 +131,15 @@ QVariantList ServiceClient::states() const {
 		map["name"] = QString::fromStdString(descriptor.name);
 		map["description"] = QString::fromStdString(descriptor.description);
 		map["accessLevel"] = static_cast<int>(descriptor.accessLevel);
+		QVariantMap fields;
+		for (const auto& field : descriptor.fields) {
+			fields.insert(QString::fromStdString(field.name), QVariantMap{
+				{"valueType", QString::fromStdString(std::string(
+					visionService::endpoints::parameterTypeName(field.type)))},
+				{"description", QString::fromStdString(field.description)},
+				{"unit", QString::fromStdString(field.unit)}});
+		}
+		map["fields"] = fields;
 		result.append(map);
 	}
 	return result;

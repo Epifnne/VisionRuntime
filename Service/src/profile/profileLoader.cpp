@@ -186,20 +186,26 @@ core::Result<ProductProfile> ProfileLoader::load(
 			}
 			if (source.type == "camera" &&
 				source.camera.mode != "continuous" &&
-				source.camera.mode != "timedTrigger") {
+				source.camera.mode != "timedTrigger" &&
+				!(source.camera.mode == "eventTrigger" && !profile.runtimeProduct.empty())) {
 				return invalid(core::StatusCode::InvalidArgument,
-					"camera mode must be continuous or timedTrigger");
+					"camera mode must be continuous, timedTrigger, or eventTrigger for a custom product");
 			}
 			profile.sources.push_back(std::move(source));
 		}
 
-		const auto& model = document.at("model");
-		profile.model.packagePath =
-			profileRelativePath(path, model.at("packagePath"));
-		profile.model.backendId = model.at("backendId").get<std::string>();
-		profile.model.device = model.at("device").get<std::string>();
-		profile.model.pluginDirectory =
-			profileRelativePath(path, model.at("pluginDirectory"));
+		if (document.contains("model")) {
+			const auto& model = document.at("model");
+			profile.model.packagePath =
+				profileRelativePath(path, model.at("packagePath"));
+			profile.model.backendId = model.at("backendId").get<std::string>();
+			profile.model.device = model.at("device").get<std::string>();
+			profile.model.pluginDirectory =
+				profileRelativePath(path, model.at("pluginDirectory"));
+		} else if (profile.runtimeProduct.empty()) {
+			return invalid(core::StatusCode::InvalidArgument,
+				"model is required unless runtimeProduct selects a custom product");
+		}
 
 		const auto& pipeline = document.value(
 			"pipeline", nlohmann::json::object());

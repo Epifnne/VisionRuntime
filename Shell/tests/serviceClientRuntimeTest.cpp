@@ -1,6 +1,9 @@
 #include "serviceClient.hpp"
 #include "camera/fileSource.hpp"
 #include "runtime/runtimeFactory.hpp"
+#ifdef VISION_BUSINESS_TEST_PROFILE
+#include "exports/productEntry.hpp"
+#endif
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 #include <QCoreApplication>
@@ -12,6 +15,7 @@
 #include <filesystem>
 #include <fstream>
 #include <thread>
+#include <vector>
 
 namespace {
 using namespace visionRuntime;
@@ -108,6 +112,59 @@ TEST(ServiceClientRuntimeTest, RecoveryRetainsBusinessCallbacksAndReconnectsGuiO
 	EXPECT_EQ(business, 12U);
 	EXPECT_GT(frames, firstFrames);
 }
+
+#ifdef VISION_BUSINESS_TEST_PROFILE
+TEST(ServiceClientRuntimeTest, DeclaredOpenCvFieldsParametersAndCommandsBindWithoutAnomalyResults) {
+	visionShell::ServiceClient client(visionProduct::createApplication);
+	ASSERT_TRUE(client.loadProfile(QString::fromUtf8(VISION_BUSINESS_TEST_PROFILE)));
+	bool hasFields = false;
+	for (const auto& endpoint : client.states()) {
+		const auto descriptor = endpoint.toMap();
+		if (descriptor.value("name").toString() == "measure.result") {
+			const auto fields = descriptor.value("fields").toMap();
+			hasFields = fields.contains("brightness") && fields.contains("accepted");
+			EXPECT_EQ(fields.value("brightness").toMap().value("unit").toString(), "gray");
+		}
+	}
+	ASSERT_TRUE(hasFields);
+	ASSERT_TRUE(client.writeParameter("measure.minimumBrightness", 10.0));
+	EXPECT_EQ(client.readParameter("measure.minimumBrightness").toDouble(), 10.0);
+	std::vector<double> brightness;
+	QObject::connect(&client, &visionShell::ServiceClient::stateChanged, &client,
+		[&](const QString& name, const QString& payload) {
+			if (name == "measure.result") {
+				const auto result = nlohmann::json::parse(payload.toStdString());
+				if (result["valid"] == true) {
+					brightness.push_back(result["brightness"].get<double>());
+					EXPECT_EQ(result["accepted"], true);
+				}
+			}
+		});
+	auto awaitResults = [&](std::size_t count) {
+		const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+		while (std::chrono::steady_clock::now() < deadline) {
+			QCoreApplication::processEvents();
+			if (brightness.size() == count &&
+				client.stateSnapshot("session.state").contains("\"idle\"")) {
+				return true;
+			}
+			std::this_thread::sleep_for(std::chrono::milliseconds(2));
+		}
+		return false;
+	};
+	ASSERT_TRUE(client.invokeCommand("session.start"));
+	ASSERT_TRUE(awaitResults(2));
+	EXPECT_EQ(brightness, (std::vector<double>{20.0, 200.0}));
+	ASSERT_TRUE(client.invokeCommand("measure.reset"));
+	const auto reset = nlohmann::json::parse(client.stateSnapshot("measure.result").toStdString());
+	EXPECT_EQ(reset["valid"], false);
+	ASSERT_TRUE(client.invokeCommand("session.recover"));
+	ASSERT_TRUE(client.writeParameter("measure.minimumBrightness", 10.0));
+	ASSERT_TRUE(client.invokeCommand("session.start"));
+	ASSERT_TRUE(awaitResults(4));
+	EXPECT_EQ(brightness, (std::vector<double>{20.0, 200.0, 20.0, 200.0}));
+}
+#endif
 } // namespace
 
 int main(int argc, char** argv) {

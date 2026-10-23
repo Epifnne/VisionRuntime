@@ -32,6 +32,39 @@ received/dropped 统计；image/ 复用 `anomalyDirectory/image` 的灰度 BMP
 score 检查阈值判定。单通道 `toTensor` 只接受 Gray8 帧，目录源必须用灰度
 图（PPM/P6 会被解码成 BGR 三通道导致逐帧预处理失败）。
 
+### Shell 编译与 Designer 工作流
+
+按仓库约定，先配置 Qt MSVC kit，然后运行：
+
+```bat
+Samples\buildShell.cmd anomalyTensorRtMulti
+```
+
+该入口以 MSVC Release 构建，并直接替换 `Publish/release/` 设计工具包。
+`runtimeTemplates/windows/visionShell.exe` 链接本示例运行时，配套
+TensorRT/CUDA/Qt 依赖；`profiles/anomalyTensorRtMulti.json` 是起始配置。
+它不是已经设计完界面、密封后的最终产品包。
+
+构建本身不复制模型和图片。构建完成后，将本示例的 `model/` 复制到
+`Publish/release/profiles/model/`，将 `image/` 中的 BMP 分配到
+`profiles/camera1/`、`profiles/camera2/`（本地各 40 张），作为两路独立
+模拟相机。起始配置中的模型和目录路径都相对于 profile，插件指向
+`../runtimeTemplates/windows/plugins`。每次替换设计工具包后需重新补齐资源。
+
+双击 `Publish/release/design.cmd`，自行在 Designer 中设计界面并发布最终
+产品。用户项目和最终产品应保存到设计工具包之外，以免下次编译覆盖。
+编译完成并补齐资源后，可先验收运行时：
+
+```bat
+cd Publish\release
+.\runtimeTemplates\windows\visionShell.exe --check profiles\anomalyTensorRtMulti.json
+.\runtimeTemplates\windows\visionShell.exe --smoke 10 profiles\anomalyTensorRtMulti.json
+```
+
+预处理缓冲池同时覆盖阶段队列和正在推理的 batch，避免 Release 全速
+回放时耗尽池容量。本示例一轮检测会在 20 秒后自动结束，可再次启动。
+目标机器仍需兼容的 NVIDIA GPU 和驱动，engine 必须与 GPU/TensorRT 版本兼容。
+
 ## 文件
 
 - `profile.json`：产品参数（preprocess 形状/归一化、阈值、`maxBatchSize`、

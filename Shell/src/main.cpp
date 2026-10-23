@@ -1,6 +1,10 @@
 #include "serviceClient.hpp"
 #include "frameImageProvider.hpp"
 #include "releaseManifest.hpp"
+#ifdef VISION_BUSINESS_APPLICATION
+#include "exports/productEntry.hpp"
+#include "profile/profileLoader.hpp"
+#endif
 #ifdef VISION_SAMPLE_SHELL
 #include "productShell.hpp"
 #endif
@@ -89,7 +93,29 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-#ifdef VISION_SAMPLE_SHELL
+#ifdef VISION_BUSINESS_APPLICATION
+	if (parser.isSet(exportOption)) {
+		auto profile = visionService::profile::ProfileLoader::load(profilePath.toStdString());
+		if (!profile) {
+			qCritical().noquote() << QString::fromStdString(profile.status().toString());
+			return 3;
+		}
+		auto manifest = visionProduct::describeApplication(profile.value());
+		if (!manifest) {
+			qCritical().noquote() << QString::fromStdString(manifest.status().toString());
+			return 3;
+		}
+		QSaveFile output(parser.value(exportOption));
+		const auto data = QByteArray::fromStdString(manifest.value());
+		if (!output.open(QIODevice::WriteOnly) || output.write(data) != data.size() ||
+			!output.commit()) {
+			qCritical() << "Cannot write endpoint manifest:" << output.errorString();
+			return 3;
+		}
+		return 0;
+	}
+	visionShell::ServiceClient serviceClient(visionProduct::createApplication);
+#elif defined(VISION_SAMPLE_SHELL)
 	visionShell::ServiceClient serviceClient(visionSample::createProductRuntime);
 #else
 	visionShell::ServiceClient serviceClient;

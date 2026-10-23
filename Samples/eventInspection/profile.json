@@ -1,0 +1,36 @@
+{
+  "schemaVersion": {"major": 1, "minor": 0},
+  "id": "eventInspection",
+  "name": "Event-driven Multi-view Inspection",
+  "runtimeProduct": "eventInspection",
+  "sources": [
+    {"id": "top", "type": "camera", "role": "Top brightness", "mode": "eventTrigger"},
+    {"id": "side", "type": "camera", "role": "Side edges", "mode": "eventTrigger"}
+  ],
+  "simulation": {"topDelayMilliseconds": 10, "sideDelayMilliseconds": 70},
+  "ui": {
+    "pages": [{
+      "id": "inspection", "title": "Event Inspection", "layout": "column",
+      "children": [
+        {"type": "row", "fillWidth": true, "height": 240, "children": [
+          {"type": "imageView", "endpoint": "stream.top", "fillWidth": true, "fillHeight": true},
+          {"type": "imageView", "endpoint": "stream.side", "fillWidth": true, "fillHeight": true}
+        ]},
+        {"type": "row", "children": [
+          {"type": "statNumber", "endpoint": "workpiece.result", "field": "workpieceId"},
+          {"type": "statNumber", "endpoint": "workpiece.result", "field": "okCount"},
+          {"type": "statNumber", "endpoint": "workpiece.result", "field": "ngCount"},
+          {"type": "statNumber", "endpoint": "workpiece.result", "field": "faultCount"}
+        ]},
+        {"type": "stateCard", "endpoint": "workpiece.result", "title": "Workpiece Result"},
+        {"type": "stateCard", "endpoint": "source.fault", "title": "Acquisition Fault"},
+        {"type": "stateCard", "endpoint": "session.summary", "title": "Frame Counters"},
+        {"type": "row", "children": [
+          {"type": "commandButton", "endpoint": "session.start", "label": "Start"},
+          {"type": "commandButton", "endpoint": "session.stop", "label": "Stop"},
+          {"type": "commandButton", "endpoint": "session.recover", "label": "Clear and Recover"}
+        ]}
+      ]
+    }]
+  }
+}

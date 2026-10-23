@@ -74,6 +74,13 @@ struct StateDescriptor {
 	std::string name;
 	std::string description;
 	AccessLevel accessLevel = AccessLevel::Operator;
+	struct Field {
+		std::string name;
+		ParameterType type = ParameterType::Text;
+		std::string description;
+		std::string unit;
+	};
+	std::vector<Field> fields;
 };
 
 struct StateEndpoint {
@@ -81,6 +88,7 @@ struct StateEndpoint {
 	std::string description;
 	AccessLevel accessLevel = AccessLevel::Operator;
 	std::function<StateSnapshot()> current;
+	std::vector<StateDescriptor::Field> fields;
 };
 
 struct StreamDescriptor {

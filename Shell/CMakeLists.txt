@@ -44,6 +44,17 @@ if(BUILD_TESTING)
 	target_include_directories(serviceClientRuntimeTest PRIVATE include)
 	target_link_libraries(serviceClientRuntimeTest PRIVATE
 		visionService Qt6::Quick GTest::gtest nlohmann_json::nlohmann_json)
+	if(VISION_PRODUCT_APPLICATION AND VISION_APPLICATION_ID STREQUAL "businessExports")
+		target_link_libraries(serviceClientRuntimeTest PRIVATE visionProductApplication)
+		target_compile_definitions(serviceClientRuntimeTest PRIVATE
+			VISION_BUSINESS_TEST_PROFILE="${VISION_PRODUCT_APPLICATION}/profile.json")
+	endif()
+	if(VISION_PRODUCT_APPLICATION AND VISION_APPLICATION_ID STREQUAL "eventInspection")
+		target_sources(serviceClientRuntimeTest PRIVATE tests/eventServiceClientTest.cpp)
+		target_link_libraries(serviceClientRuntimeTest PRIVATE visionProductApplication)
+		target_compile_definitions(serviceClientRuntimeTest PRIVATE
+			VISION_EVENT_TEST_PROFILE="${VISION_PRODUCT_APPLICATION}/profile.json")
+	endif()
 	include(GoogleTest)
 	gtest_discover_tests(serviceClientRuntimeTest DISCOVERY_MODE PRE_TEST)
 endif()
@@ -58,12 +69,25 @@ if(VISION_PRODUCT_SAMPLE)
 		VISION_SAMPLE_SHELL=1 VISION_PRODUCT_ID="${VISION_PRODUCT_SAMPLE}")
 	include("${PROJECT_SOURCE_DIR}/Samples/common/productPublish.cmake")
 endif()
+if(VISION_PRODUCT_APPLICATION)
+	target_link_libraries(visionShell PRIVATE visionProductApplication)
+	target_compile_definitions(visionShell PRIVATE VISION_BUSINESS_APPLICATION=1)
+	if(NOT TARGET visionProductManifest)
+		message(FATAL_ERROR "Business project must call vision_export_product")
+	endif()
+	add_dependencies(visionShell visionProductManifest)
+	include("${PROJECT_SOURCE_DIR}/Samples/common/productPublish.cmake")
+endif()
 if(WIN32 AND VISION_CAMERA_SDK STREQUAL "HIK_MVS")
 	_vision_deploy_hik_mvs_runtime(visionShell)
 endif()
+set(SHELL_RUNTIME_PRODUCT "${VISION_PRODUCT_SAMPLE}")
+if(VISION_PRODUCT_APPLICATION)
+	set(SHELL_RUNTIME_PRODUCT "${VISION_APPLICATION_ID}")
+endif()
 file(GENERATE
 	OUTPUT "$<TARGET_FILE_DIR:visionShell>/runtime-version.json"
-	CONTENT "{\n  \"runtimeVersion\": \"${PROJECT_VERSION}\",\n  \"productRuntime\": \"${VISION_PRODUCT_SAMPLE}\",\n  \"platform\": \"${CMAKE_SYSTEM_NAME}\",\n  \"architecture\": \"${CMAKE_SYSTEM_PROCESSOR}\",\n  \"compiler\": \"${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}\",\n  \"configuration\": \"$<CONFIG>\",\n  \"cameraSdk\": \"${VISION_CAMERA_SDK}\"\n}\n"
+	CONTENT "{\n  \"runtimeVersion\": \"${PROJECT_VERSION}\",\n  \"productRuntime\": \"${SHELL_RUNTIME_PRODUCT}\",\n  \"platform\": \"${CMAKE_SYSTEM_NAME}\",\n  \"architecture\": \"${CMAKE_SYSTEM_PROCESSOR}\",\n  \"compiler\": \"${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}\",\n  \"configuration\": \"$<CONFIG>\",\n  \"cameraSdk\": \"${VISION_CAMERA_SDK}\"\n}\n"
 )
 
 # Ensure OpenVINO plugin is built if requested

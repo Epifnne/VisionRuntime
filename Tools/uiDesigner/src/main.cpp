@@ -441,6 +441,90 @@ int runSelfTest(visionDesigner::DesignerBackend& backend) {
 			QStringLiteral("preview session.stop command"));
 	}
 
+	// Custom product fields come from the real export manifest, not inferred model conventions.
+	{
+		auto manifestEntries = QJsonArray::fromVariantList(universe);
+		manifestEntries.append(QJsonObject{
+			{"name", "measure.result"}, {"kind", "state"},
+			{"fields", QJsonObject{{"width", QJsonObject{
+				{"valueType", "decimal"}, {"unit", "mm"}}},
+				{"accepted", QJsonObject{{"valueType", "flag"}}}}}});
+		const auto manifestPath = workDirectory + QStringLiteral("/business-manifest.json");
+		QFile manifestFile(manifestPath);
+		const auto manifestBytes = QJsonDocument(QJsonObject{
+			{"schemaVersion", QJsonObject{{"major", 1}, {"minor", 1}}},
+			{"endpoints", manifestEntries}}).toJson();
+		const bool opened = manifestFile.open(QIODevice::WriteOnly);
+		check(opened && manifestFile.write(manifestBytes) == manifestBytes.size(),
+			QStringLiteral("write business manifest"));
+		manifestFile.close();
+		check(backend.loadManifest(manifestPath).isEmpty(),
+			QStringLiteral("import declared business fields"));
+		auto custom = publishRootObject;
+		custom.remove(QStringLiteral("model"));
+		custom.insert(QStringLiteral("runtimeProduct"), QStringLiteral("business-test"));
+		auto exposed = custom.value(QStringLiteral("endpoints")).toArray();
+		exposed.append(QJsonObject{{"name", "measure.result"}});
+		custom.insert(QStringLiteral("endpoints"), exposed);
+		auto withField = [&](const QString& field) {
+			auto profile = custom;
+			appendNode(profile, 0, QJsonObject{
+				{"type", "statNumber"}, {"endpoint", "measure.result"}, {"field", field}});
+			return QString::fromUtf8(QJsonDocument(profile).toJson());
+		};
+		check(backend.validate(withField(QStringLiteral("width"))),
+			QStringLiteral("model-free product binds a declared measurement field"));
+		check(backend.validate(withField(QStringLiteral("accepted"))),
+			QStringLiteral("boolean business field can be displayed"));
+		check(!backend.validate(withField(QStringLiteral("missing"))),
+			QStringLiteral("undeclared business field is rejected"));
+		visionDesigner::PreviewClient preview;
+		preview.setProfile(withField(QStringLiteral("width")), workDirectory, backend.endpoints());
+		const auto simulated = QJsonDocument::fromJson(
+			preview.stateSnapshot(QStringLiteral("measure.result")).toUtf8()).object();
+		check(simulated.value(QStringLiteral("simulation")).toBool() &&
+			simulated.contains(QStringLiteral("width")) &&
+			simulated.value(QStringLiteral("width")).isNull(),
+			QStringLiteral("custom preview exposes fields without fabricating measurements"));
+		check(!backend.loadProfile(profilePath).isEmpty(),
+			QStringLiteral("restore asset base for model-free publication"));
+		custom.insert(QStringLiteral("id"), QStringLiteral("business-model-free"));
+		custom.insert(QStringLiteral("runtimeProduct"), QStringLiteral("sample-business"));
+		const auto modelFreeRoot = workDirectory + QStringLiteral("/publish-model-free");
+		check(backend.publish(modelFreeRoot, QString::fromUtf8(QJsonDocument(custom).toJson())),
+			QStringLiteral("publish a declared product without a model or selected backend"));
+		const auto modelFreeProfile = QJsonDocument::fromJson(backend.loadProfile(
+			modelFreeRoot + QStringLiteral("/products/business-model-free/profile.json"))
+				.toUtf8()).object();
+		check(!modelFreeProfile.isEmpty() && !modelFreeProfile.contains(QStringLiteral("model")),
+			QStringLiteral("publication does not fabricate a model configuration"));
+		backend.deriveEndpoints(QString::fromUtf8(QJsonDocument(modelFreeProfile).toJson()));
+		bool discoveredField = false;
+		for (const auto& endpoint : backend.endpoints()) {
+			const auto entry = endpoint.toMap();
+			if (entry.value(QStringLiteral("name")).toString() == "measure.result") {
+				discoveredField = entry.value(QStringLiteral("fields")).toMap().contains("width");
+			}
+		}
+		check(discoveredField,
+			QStringLiteral("opening a published profile automatically discovers its manifest fields"));
+		auto wrongProduct = modelFreeProfile;
+		wrongProduct.insert(QStringLiteral("runtimeProduct"), QStringLiteral("another-business"));
+		backend.deriveEndpoints(QString::fromUtf8(QJsonDocument(wrongProduct).toJson()));
+		check(backend.endpoints().isEmpty() &&
+			backend.statusMessage().contains(QStringLiteral("another product")),
+			QStringLiteral("a mismatched sidecar clears stale bindings instead of falling back"));
+		QFile malformedManifest(modelFreeRoot +
+			QStringLiteral("/products/business-model-free/profile.manifest.json"));
+		const bool wroteMalformed = malformedManifest.open(QIODevice::WriteOnly | QIODevice::Truncate) &&
+			malformedManifest.write("{") == 1;
+		malformedManifest.close();
+		check(wroteMalformed, QStringLiteral("write malformed sidecar fixture"));
+		backend.deriveEndpoints(QString::fromUtf8(QJsonDocument(modelFreeProfile).toJson()));
+		check(backend.endpoints().isEmpty(),
+			QStringLiteral("a malformed sidecar cannot retain or fabricate bindings"));
+	}
+
 	if (previousTemplate.isValid()) {
 		settings.setValue(settingsKey, previousTemplate);
 	} else {

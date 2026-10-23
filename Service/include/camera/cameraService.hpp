@@ -39,11 +39,12 @@ public:
 	[[nodiscard]] core::Result<void> registerCameraEndpoints(
 		std::size_t sourceIndex,
 		std::string sourceId,
-		visionRuntime::camera::ICameraDevice* device);
+		visionRuntime::camera::ICameraDevice* device, bool allowsDirectTrigger = true);
 
 private:
 	struct DeviceEntry {
 		visionRuntime::camera::ICameraDevice* device = nullptr;
+		bool allowsDirectTrigger = true;
 	};
 
 	endpoints::EndpointRegistry& registry_;

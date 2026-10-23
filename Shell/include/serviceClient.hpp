@@ -28,6 +28,8 @@ public:
 	explicit ServiceClient(QObject* parent = nullptr);
 	explicit ServiceClient(visionService::ProductRuntimeFactory factory,
 		QObject* parent = nullptr);
+	explicit ServiceClient(visionService::ProductApplicationFactory factory,
+		QObject* parent = nullptr);
 	~ServiceClient() override;
 
 	[[nodiscard]] QVariantList parameters() const;

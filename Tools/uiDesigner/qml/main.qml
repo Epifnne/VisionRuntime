@@ -237,7 +237,8 @@ ApplicationWindow {
 	}
 
 	function enterPreview() {
-		serviceClient.setProfile(currentJson(), designerBackend.fileDirectory);
+		serviceClient.setProfile(currentJson(), designerBackend.fileDirectory,
+			designerBackend.endpoints);
 		previewPane.reload();
 		window.previewMode = true;
 	}

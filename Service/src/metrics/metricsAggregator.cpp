@@ -85,51 +85,67 @@ visionRuntime::executor::FrameOutcomeCallback<
 		const visionRuntime::pipeline::FrameIdentity& identity,
 		std::optional<visionRuntime::executor::TaskId> taskId,
 		const visionRuntime::core::Result<visionRuntime::vision::AnomalyResult>& result) {
-		using visionRuntime::executor::FrameOutcome;
-		const auto deliveredAt = benchmark::Clock::now();
-		const auto capturedAt = identity.metadata.capturedAt;
-		const std::optional<double> latency =
-			capturedAt != benchmark::Clock::time_point{} && deliveredAt >= capturedAt
-			? std::optional<double>(benchmark::elapsedMilliseconds(capturedAt, deliveredAt))
-			: std::nullopt;
-		nlohmann::json payload{
-			{"outcome", outcome == FrameOutcome::Completed ? "completed" :
-				outcome == FrameOutcome::Dropped ? "dropped" : "rejected"},
-			{"executionId", identity.executionId},
-			{"sequenceNumber", identity.metadata.sequenceNumber},
-			{"capturedAtNanoseconds", std::chrono::duration_cast<std::chrono::nanoseconds>(
-				identity.metadata.capturedAt.time_since_epoch()).count()},
-			{"valid", static_cast<bool>(result)},
-			{"decision", "UNKNOWN"}, {"score", nullptr},
-			{"sourceId", identity.sourceId ? nlohmann::json(*identity.sourceId) : nlohmann::json(nullptr)},
-			{"taskId", taskId ? nlohmann::json(*taskId) : nlohmann::json(nullptr)}};
-		payload["latencyMilliseconds"] =
-			latency ? nlohmann::json(*latency) : nlohmann::json(nullptr);
-		payload["deliveredAtNanoseconds"] = std::chrono::duration_cast<std::chrono::nanoseconds>(
-			deliveredAt.time_since_epoch()).count();
-		if (result) {
-			payload["score"] = result->score;
-			payload["threshold"] = result->threshold;
-			payload["decision"] = visionRuntime::vision::anomalyDecisionName(result->decision);
-		} else {
-			payload["errorCode"] = visionRuntime::core::statusCodeName(result.status().code());
-			payload["error"] = result.status().toString();
-			std::lock_guard lock(errorMutex_);
-			lastPipelineError_ = result.status().toString();
-		}
-		const auto text = payload.dump();
-		{
-			std::lock_guard lock(payloadMutex_);
-			resultPayload_ = text;
-			if (latency) {
-				deliveryLatencies_.observe(*latency);
-			}
-		}
-		auto published = registry_.publishState("inspection.result", {0, text});
-		if (!published) {
-			visionRuntime::logs::report(published.status());
-		}
+		observeOutcome(outcome, identity, taskId, result.status(), result ? &result.value() : nullptr);
 	};
+}
+
+void MetricsAggregator::observeOutcome(visionRuntime::executor::FrameOutcome outcome,
+	const visionRuntime::pipeline::FrameIdentity& identity,
+	std::optional<visionRuntime::executor::TaskId> taskId,
+	const visionRuntime::core::Status& status,
+	const visionRuntime::vision::AnomalyResult* anomaly) {
+	using visionRuntime::executor::FrameOutcome;
+	const auto deliveredAt = benchmark::Clock::now();
+	const auto capturedAt = identity.metadata.capturedAt;
+	const std::optional<double> latency =
+		capturedAt != benchmark::Clock::time_point{} && deliveredAt >= capturedAt
+		? std::optional<double>(benchmark::elapsedMilliseconds(capturedAt, deliveredAt))
+		: std::nullopt;
+	nlohmann::json payload{
+		{"outcome", outcome == FrameOutcome::Completed ? "completed" :
+			outcome == FrameOutcome::Dropped ? "dropped" : "rejected"},
+		{"executionId", identity.executionId},
+		{"sequenceNumber", identity.metadata.sequenceNumber},
+		{"capturedAtNanoseconds", std::chrono::duration_cast<std::chrono::nanoseconds>(
+			identity.metadata.capturedAt.time_since_epoch()).count()},
+		{"valid", status.isOk()},
+		{"decision", "UNKNOWN"}, {"score", nullptr},
+		{"sourceId", identity.sourceId ? nlohmann::json(*identity.sourceId) : nlohmann::json(nullptr)},
+		{"taskId", taskId ? nlohmann::json(*taskId) : nlohmann::json(nullptr)}};
+	payload["latencyMilliseconds"] =
+		latency ? nlohmann::json(*latency) : nlohmann::json(nullptr);
+	if (identity.metadata.capture) {
+		const auto& capture = *identity.metadata.capture;
+		payload["workpieceId"] = capture.workpieceId;
+		payload["inspectionId"] = capture.inspectionId;
+		payload["captureId"] = capture.captureId;
+		payload["viewId"] = capture.viewId;
+	}
+	payload["deliveredAtNanoseconds"] = std::chrono::duration_cast<std::chrono::nanoseconds>(
+		deliveredAt.time_since_epoch()).count();
+	if (anomaly) {
+		payload["score"] = anomaly->score;
+		payload["threshold"] = anomaly->threshold;
+		payload["decision"] = visionRuntime::vision::anomalyDecisionName(anomaly->decision);
+	}
+	if (!status) {
+		payload["errorCode"] = visionRuntime::core::statusCodeName(status.code());
+		payload["error"] = status.toString();
+		std::lock_guard lock(errorMutex_);
+		lastPipelineError_ = status.toString();
+	}
+	const auto text = payload.dump();
+	{
+		std::lock_guard lock(payloadMutex_);
+		resultPayload_ = text;
+		if (latency) {
+			deliveryLatencies_.observe(*latency);
+		}
+	}
+	auto published = registry_.publishState("inspection.result", {0, text});
+	if (!published) {
+		visionRuntime::logs::report(published.status());
+	}
 }
 
 void MetricsAggregator::observeSourceFault(const visionRuntime::camera::SourceFault& fault) {
@@ -237,7 +253,8 @@ std::string MetricsAggregator::performancePayload() const {
 
 std::string MetricsAggregator::summaryPayloadForController() const {
 	std::lock_guard lock(payloadMutex_);
-	if (!liveSummaryPayload_.empty()) {
+	if (!liveSummaryPayload_.empty() &&
+		sessionController_.state() != session::SessionLifecycle::Idle) {
 		return liveSummaryPayload_;
 	}
 	return summaryPayload(sessionController_.counters(), lastPipelineError());

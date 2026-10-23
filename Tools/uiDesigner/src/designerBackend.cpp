@@ -225,6 +225,12 @@ QString DesignerBackend::loadManifest(const QString& path) {
 	}
 	const auto entries = document.object()
 		.value(QStringLiteral("endpoints")).toArray();
+	const auto version = document.object().value(QStringLiteral("schemaVersion")).toObject();
+	if (!version.isEmpty() && version.value(QStringLiteral("major")).toInt(-1) != 1) {
+		const auto message = QStringLiteral("unsupported endpoint manifest schema major version");
+		setStatus(message);
+		return message;
+	}
 	if (entries.isEmpty()) {
 		const auto message = QStringLiteral("manifest has no endpoints array");
 		setStatus(message);
@@ -232,8 +238,35 @@ QString DesignerBackend::loadManifest(const QString& path) {
 	}
 	QVariantList universe;
 	universe.reserve(entries.size());
+	QSet<QString> names;
+	const QSet<QString> kinds{"parameter", "command", "state", "stream"};
+	const QSet<QString> valueTypes{"decimal", "integer", "flag", "text"};
 	for (const auto& entry : entries) {
-		universe.append(entry.toObject().toVariantMap());
+		const auto endpoint = entry.toObject();
+		const auto name = endpoint.value(QStringLiteral("name")).toString();
+		const auto kind = endpoint.value(QStringLiteral("kind")).toString();
+		bool valid = !name.isEmpty() && !names.contains(name) && kinds.contains(kind);
+		if (kind == QLatin1String("parameter")) {
+			valid = valid && valueTypes.contains(
+				endpoint.value(QStringLiteral("valueType")).toString());
+		}
+		if (endpoint.contains(QStringLiteral("fields"))) {
+			valid = valid && kind == QLatin1String("state") &&
+				endpoint.value(QStringLiteral("fields")).isObject();
+			const auto fields = endpoint.value(QStringLiteral("fields")).toObject();
+			for (auto field = fields.constBegin(); field != fields.constEnd(); ++field) {
+				valid = valid && !field.key().isEmpty() && field.value().isObject() &&
+					valueTypes.contains(field.value().toObject()
+						.value(QStringLiteral("valueType")).toString());
+			}
+		}
+		if (!valid) {
+			const auto message = QStringLiteral("invalid or duplicate manifest endpoint: %1").arg(name);
+			setStatus(message);
+			return message;
+		}
+		names.insert(name);
+		universe.append(endpoint.toVariantMap());
 	}
 	endpoints_ = universe;
 	manifestLoaded_ = true;
@@ -244,6 +277,43 @@ QString DesignerBackend::loadManifest(const QString& path) {
 }
 
 void DesignerBackend::deriveEndpoints(const QString& profileJson) {
+	endpoints_.clear();
+	manifestLoaded_ = false;
+	emit endpointsChanged();
+	const auto profile = QJsonDocument::fromJson(profileJson.toUtf8()).object();
+	const auto product = profile.value(QStringLiteral("runtimeProduct")).toString();
+	if (!product.isEmpty() && visionPackage::safeId(product)) {
+#ifdef Q_OS_WIN
+		const auto platform = QStringLiteral("windows");
+#else
+		const auto platform = QStringLiteral("linux");
+#endif
+		const auto profileFile = QFileInfo(filePath_);
+		const QStringList candidates{
+			profileFile.absoluteDir().filePath(
+				profileFile.completeBaseName() + QStringLiteral(".manifest.json")),
+			profileFile.absoluteDir().filePath(product + QStringLiteral(".manifest.json")),
+			QDir(runtimeTemplate(platform)).filePath(product + QStringLiteral(".manifest.json")),
+			QDir(QCoreApplication::applicationDirPath()).filePath(product + QStringLiteral(".manifest.json"))};
+		for (const auto& candidate : candidates) {
+			if (!QFileInfo::exists(candidate)) {
+				continue;
+			}
+			QFile file(candidate);
+			if (!file.open(QIODevice::ReadOnly)) {
+				setStatus(QStringLiteral("cannot read product manifest: %1").arg(candidate));
+				return;
+			}
+			const auto declared = QJsonDocument::fromJson(file.readAll()).object()
+				.value(QStringLiteral("runtimeProduct")).toString();
+			if (!declared.isEmpty() && declared != product) {
+				setStatus(QStringLiteral("manifest belongs to another product: %1").arg(candidate));
+				return;
+			}
+			static_cast<void>(loadManifest(candidate));
+			return;
+		}
+	}
 	QString error;
 	auto universe = deriveEndpointEntries(profileJson, &error);
 	if (!error.isEmpty()) {
@@ -451,12 +521,14 @@ bool DesignerBackend::validate(const QString& profileJson) {
 
 	// Model and pipeline.
 	const auto model = root.value(QStringLiteral("model")).toObject();
-	if (model.value(QStringLiteral("packagePath")).toString().isEmpty()) {
+	const bool customWithoutModel = !root.value(QStringLiteral("runtimeProduct"))
+		.toString().isEmpty() && !root.contains(QStringLiteral("model"));
+	if (!customWithoutModel && model.value(QStringLiteral("packagePath")).toString().isEmpty()) {
 		issues.append(makeIssue(QStringLiteral("model"),
 			QStringLiteral("model.packagePath must not be empty"),
 			QStringLiteral("error")));
 	}
-	if (model.value(QStringLiteral("backendId")).toString().isEmpty()) {
+	if (!customWithoutModel && model.value(QStringLiteral("backendId")).toString().isEmpty()) {
 		issues.append(makeIssue(QStringLiteral("model"),
 			QStringLiteral("model.backendId must not be empty"),
 			QStringLiteral("error")));
@@ -565,6 +637,14 @@ bool DesignerBackend::validate(const QString& profileJson) {
 				issues.append(makeIssue(path,
 					QStringLiteral("%1 requires a %2 endpoint, %3 is %4")
 						.arg(type, kinds.value(type), endpoint, kind),
+					QStringLiteral("error")));
+			}
+			const auto fields = found->value(QStringLiteral("fields")).toMap();
+			const auto field = node.value(QStringLiteral("field")).toString();
+			if (type == QLatin1String("statNumber") && !field.isEmpty() &&
+				!fields.isEmpty() && !fields.contains(field)) {
+				issues.append(makeIssue(path,
+					QStringLiteral("state field is not exported: %1.%2").arg(endpoint, field),
 					QStringLiteral("error")));
 			}
 			if (!exposed.isEmpty() && !exposed.contains(endpoint)) {
@@ -712,65 +792,67 @@ bool DesignerBackend::publish(
 		return false;
 	}
 	auto model = root.value(QStringLiteral("model")).toObject();
-	const auto packagePath =
-		model.value(QStringLiteral("packagePath")).toString();
-	const auto resolvedModel = QDir::cleanPath(
-		baseDirectory.absoluteFilePath(packagePath));
-	if (packagePath.isEmpty() || !QFileInfo::exists(resolvedModel)) {
-		setStatus(QStringLiteral("publish aborted: model package not found: "
-			"%1").arg(resolvedModel));
-		return false;
-	}
-	// Validate the backend/device against the target platform's plugin
-	// manifest (e.g. NPU is Linux-only) before copying anything.
-	const auto backendId =
-		model.value(QStringLiteral("backendId")).toString();
-	const auto device = model.value(QStringLiteral("device")).toString();
-	const auto catalog = backendCatalog(targetPlatform);
-	if (!catalog.isEmpty()) {
-		const auto problem = validateBackendForPlatform(
-			catalog, backendId, device, targetPlatform);
-		if (!problem.isEmpty()) {
-			setStatus(problem);
+	if (root.contains(QStringLiteral("model"))) {
+		const auto packagePath =
+			model.value(QStringLiteral("packagePath")).toString();
+		const auto resolvedModel = QDir::cleanPath(
+			baseDirectory.absoluteFilePath(packagePath));
+		if (packagePath.isEmpty() || !QFileInfo::exists(resolvedModel)) {
+			setStatus(QStringLiteral("publish aborted: model package not found: "
+				"%1").arg(resolvedModel));
 			return false;
 		}
-	}
-	if (!QFileInfo::exists(resolvedModel + QStringLiteral("/manifest.json")) ||
-		!copyDirectoryContents(resolvedModel,
-			productDirectory + QStringLiteral("/model"))) {
-		setStatus(QStringLiteral("publish aborted: model manifest missing or model copy failed"));
-		return false;
-	}
-	model.insert(QStringLiteral("packagePath"), QStringLiteral("model"));
-	const auto pluginDirectory =
-		model.value(QStringLiteral("pluginDirectory")).toString();
-	if (!pluginDirectory.isEmpty()) {
-		const auto resolvedPlugins = QDir::cleanPath(
-			baseDirectory.absoluteFilePath(pluginDirectory));
-		if (QFileInfo::exists(resolvedPlugins)) {
-			if (!copyDirectoryContents(resolvedPlugins,
-				binDirectory + QStringLiteral("/plugins"))) {
-				setStatus(QStringLiteral("publish aborted: plugin copy failed or conflicting plugin versions"));
+		// Validate the backend/device against the target platform's plugin
+		// manifest (e.g. NPU is Linux-only) before copying anything.
+		const auto backendId =
+			model.value(QStringLiteral("backendId")).toString();
+		const auto device = model.value(QStringLiteral("device")).toString();
+		const auto catalog = backendCatalog(targetPlatform);
+		if (!catalog.isEmpty()) {
+			const auto problem = validateBackendForPlatform(
+				catalog, backendId, device, targetPlatform);
+			if (!problem.isEmpty()) {
+				setStatus(problem);
 				return false;
 			}
-		} else {
-			warnings.append(QStringLiteral(
-				"plugin directory not found: %1").arg(resolvedPlugins));
 		}
+		if (!QFileInfo::exists(resolvedModel + QStringLiteral("/manifest.json")) ||
+			!copyDirectoryContents(resolvedModel,
+				productDirectory + QStringLiteral("/model"))) {
+			setStatus(QStringLiteral("publish aborted: model manifest missing or model copy failed"));
+			return false;
+		}
+		model.insert(QStringLiteral("packagePath"), QStringLiteral("model"));
+		const auto pluginDirectory =
+			model.value(QStringLiteral("pluginDirectory")).toString();
+		if (!pluginDirectory.isEmpty()) {
+			const auto resolvedPlugins = QDir::cleanPath(
+				baseDirectory.absoluteFilePath(pluginDirectory));
+			if (QFileInfo::exists(resolvedPlugins)) {
+				if (!copyDirectoryContents(resolvedPlugins,
+					binDirectory + QStringLiteral("/plugins"))) {
+					setStatus(QStringLiteral("publish aborted: plugin copy failed or conflicting plugin versions"));
+					return false;
+				}
+			} else {
+				warnings.append(QStringLiteral(
+					"plugin directory not found: %1").arg(resolvedPlugins));
+			}
+		}
+		const auto libraryName = QStringLiteral("vision-backend-%1.%2")
+			.arg(backendId, targetPlatform == QLatin1String("windows")
+				? QStringLiteral("dll") : QStringLiteral("so"));
+		if (!QFileInfo::exists(binDirectory + QStringLiteral("/plugins/%1/%2")
+			.arg(backendId, libraryName))) {
+			setStatus(QStringLiteral("publish aborted: selected backend plugin is not present in the target runtime"));
+			return false;
+		}
+		// The shell resolves pluginDirectory relative to the profile file, so
+		// products/<id>/ -> ../../bin/plugins lands in the shared runtime.
+		model.insert(QStringLiteral("pluginDirectory"),
+			QStringLiteral("../../bin/plugins"));
+		root.insert(QStringLiteral("model"), model);
 	}
-	const auto libraryName = QStringLiteral("vision-backend-%1.%2")
-		.arg(backendId, targetPlatform == QLatin1String("windows")
-			? QStringLiteral("dll") : QStringLiteral("so"));
-	if (!QFileInfo::exists(binDirectory + QStringLiteral("/plugins/%1/%2")
-		.arg(backendId, libraryName))) {
-		setStatus(QStringLiteral("publish aborted: selected backend plugin is not present in the target runtime"));
-		return false;
-	}
-	// The shell resolves pluginDirectory relative to the profile file, so
-	// products/<id>/ -> ../../bin/plugins lands in the shared runtime.
-	model.insert(QStringLiteral("pluginDirectory"),
-		QStringLiteral("../../bin/plugins"));
-	root.insert(QStringLiteral("model"), model);
 
 	auto sources = root.value(QStringLiteral("sources")).toArray();
 	for (auto index = 0; index < sources.size(); ++index) {
@@ -806,6 +888,17 @@ bool DesignerBackend::publish(
 			QJsonDocument(root).toJson(QJsonDocument::Indented) + '\n')) {
 		setStatus(QStringLiteral("cannot write %1").arg(profilePath));
 		return false;
+	}
+	if (manifestLoaded_) {
+		const QJsonObject endpointManifest{
+			{"schemaVersion", QJsonObject{{"major", 1}, {"minor", 1}}},
+			{"runtimeProduct", root.value(QStringLiteral("runtimeProduct"))},
+			{"endpoints", QJsonArray::fromVariantList(endpoints_)}};
+		if (!writeTextFile(productDirectory + QStringLiteral("/profile.manifest.json"),
+			QJsonDocument(endpointManifest).toJson())) {
+			setStatus(QStringLiteral("cannot write product endpoint manifest"));
+			return false;
+		}
 	}
 
 	// 3. Double-click entry script for the target platform.

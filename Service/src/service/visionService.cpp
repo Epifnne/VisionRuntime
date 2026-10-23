@@ -4,6 +4,7 @@
 #include "manifest/manifestExporter.hpp"
 #include "profile/profileLoader.hpp"
 #include "session/sessionAssembler.hpp"
+#include "exports/exportContract.hpp"
 
 #include <chrono>
 #include <utility>
@@ -50,19 +51,33 @@ VisionService::~VisionService() {
 	shutdown();
 }
 
+VisionService::VisionService(ProductApplicationFactory applicationFactory)
+	: VisionService(ProductRuntimeFactory{}) {
+	applicationFactory_ = std::move(applicationFactory);
+}
+
 core::Result<void> VisionService::loadProfile(
 	const std::filesystem::path& path) {
 	if (dispatcher_.isDispatcherThread()) {
 		return failure(core::StatusCode::InvalidState,
 			"load/recover must run outside endpoint subscription callbacks");
 	}
+	auto loaded = loadProfileImpl(path);
+	if (!loaded) {
+		visionRuntime::logs::report(loaded.status());
+		shutdown();
+	}
+	return loaded;
+}
+
+core::Result<void> VisionService::loadProfileImpl(const std::filesystem::path& path) {
 	shutdown();
 	auto profile = profile::ProfileLoader::load(path);
 	if (!profile) {
 		return failure(profile.status().code(),
 			std::string(profile.status().message()));
 	}
-	if (!runtimeFactory_ && !profile->runtimeProduct.empty()) {
+	if (!runtimeFactory_ && !applicationFactory_ && !profile->runtimeProduct.empty()) {
 		auto status = core::Status::error(core::StatusCode::Unsupported,
 			"profile requires product Shell runtime: " + profile->runtimeProduct);
 		visionRuntime::logs::report(status);
@@ -88,13 +103,30 @@ core::Result<void> VisionService::loadProfile(
 		};
 	auto sourceFaultObserver = [this](const auto& fault) { metrics_.observeSourceFault(fault); };
 	auto assembled = [&]() -> core::Result<session::AssembledSession> {
-		if (!runtimeFactory_) {
+		if (!runtimeFactory_ && !applicationFactory_) {
 			return session::SessionAssembler::assemble(profile_, registry_,
 				metrics_.timingObserver(), metrics_.batchObserver(),
 				observeOutcome, sourceFaultObserver);
 		}
 		auto runtime = [&]() -> core::Result<std::unique_ptr<session::IInspectionSession>> {
 			try {
+				if (applicationFactory_) {
+					auto application = applicationFactory_(profile_);
+					if (!application) {
+						return core::Result<std::unique_ptr<session::IInspectionSession>>::failure(
+							application.status());
+					}
+					productExports_ = std::make_unique<exports::BusinessExports>(
+						std::move(application->exports));
+					expectedProductManifest_ = std::move(application->expectedManifest);
+					auto exported = productExports_->registerWith(registry_);
+					if (!exported) {
+						return core::Result<std::unique_ptr<session::IInspectionSession>>::failure(
+							exported.status());
+					}
+					return core::Result<std::unique_ptr<session::IInspectionSession>>::success(
+						std::move(application->session));
+				}
 				return runtimeFactory_(profile_, registry_);
 			} catch (const std::exception& exception) {
 				auto status = core::Status::error(core::StatusCode::Internal,
@@ -108,8 +140,18 @@ core::Result<void> VisionService::loadProfile(
 			visionRuntime::logs::report(runtime.status());
 			return core::Result<session::AssembledSession>::failure(runtime.status());
 		}
+		session::SessionObservers observers;
+		observers.sourceFault = sourceFaultObserver;
+		if (applicationFactory_) {
+			observers.outcome = [this](auto kind, const auto& identity, auto taskId,
+				const auto& status) {
+				metrics_.observeOutcome(kind, identity, taskId, status);
+			};
+		} else {
+			observers.result = observeOutcome;
+		}
 		return session::SessionAssembler::bindRuntime(std::move(runtime).value(),
-			profile_, registry_, {.result = observeOutcome, .sourceFault = sourceFaultObserver});
+			profile_, registry_, std::move(observers));
 	}();
 	if (!assembled) {
 		return failure(assembled.status().code(),
@@ -126,7 +168,8 @@ core::Result<void> VisionService::loadProfile(
 
 	for (std::size_t index = 0; index < profile_.sources.size(); ++index) {
 		auto cameraEndpoints = cameraService_.registerCameraEndpoints(
-			index, profile_.sources[index].id, assembled->cameraDevices[index]);
+			index, profile_.sources[index].id, assembled->cameraDevices[index],
+			assembled->directTriggers.empty() || assembled->directTriggers[index]);
 		if (!cameraEndpoints) {
 			return cameraEndpoints;
 		}
@@ -135,6 +178,13 @@ core::Result<void> VisionService::loadProfile(
 	auto exposed = applyEndpointExposure();
 	if (!exposed) {
 		return exposed;
+	}
+	if (!expectedProductManifest_.empty()) {
+		auto compatible = exports::validateExportContract(
+			expectedProductManifest_, exportManifest());
+		if (!compatible) {
+			return compatible;
+		}
 	}
 
 	profileLoaded_ = true;
@@ -160,7 +210,11 @@ const profile::ProductProfile& VisionService::profile() const noexcept {
 }
 
 std::string VisionService::exportManifest() const {
-	return manifest::exportManifest(registry_);
+	auto document = nlohmann::json::parse(manifest::exportManifest(registry_));
+	if (!expectedProductManifest_.empty()) {
+		document["runtimeProduct"] = profile_.runtimeProduct;
+	}
+	return document.dump(2);
 }
 
 void VisionService::shutdown() noexcept {
@@ -171,16 +225,21 @@ void VisionService::shutdown() noexcept {
 	sessionController_.requestStop(
 		visionRuntime::executor::StopMode::Immediate);
 	sessionController_.waitForIdle();
+	if (productExports_) {
+		productExports_->disconnect();
+	}
 	dispatcher_.drain();
 	registry_.clear();
 	sessionController_.releaseSession();
+	productExports_.reset();
+	expectedProductManifest_.clear();
 	profileLoaded_ = false;
 	timedPipeline_ = nullptr;
 }
 
 void VisionService::metricsPublishSummary() noexcept {
-	metrics_.publishSessionState();
 	metrics_.publishSummary();
+	metrics_.publishSessionState();
 }
 
 core::Result<void> VisionService::registerCoreEndpoints() {

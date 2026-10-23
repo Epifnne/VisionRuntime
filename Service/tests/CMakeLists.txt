@@ -1,5 +1,9 @@
 include(GoogleTest)
 
+add_executable(businessExportsTest service/businessExportsTest.cpp)
+target_link_libraries(businessExportsTest PRIVATE visionService GTest::gtest_main)
+gtest_discover_tests(businessExportsTest)
+
 add_executable(runtimeAdoptionTest service/runtimeAdoptionTest.cpp)
 target_link_libraries(runtimeAdoptionTest PRIVATE
 	visionService GTest::gtest_main nlohmann_json::nlohmann_json)

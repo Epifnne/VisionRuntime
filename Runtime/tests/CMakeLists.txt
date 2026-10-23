@@ -1,5 +1,9 @@
 include(GoogleTest)
 
+add_executable(eventInspectionTest runtime/eventInspectionTest.cpp)
+target_link_libraries(eventInspectionTest PRIVATE visionRuntime GTest::gtest_main)
+gtest_discover_tests(eventInspectionTest)
+
 add_executable(releaseContractTest runtime/releaseContractTest.cpp)
 target_link_libraries(releaseContractTest PRIVATE visionRuntime GTest::gtest_main)
 gtest_discover_tests(releaseContractTest)

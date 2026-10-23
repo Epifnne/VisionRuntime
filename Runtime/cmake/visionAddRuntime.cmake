@@ -47,10 +47,12 @@ function(vision_add_runtime targetName)
 		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/config/configLoader.cpp
 		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/config/modelPackageLoader.cpp
 		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/camera/continuousCameraSource.cpp
+		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/camera/eventTriggerSource.cpp
 		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/camera/fileSource.cpp
 		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/camera/frameSourceFactory.cpp
 		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/camera/timedTriggerSource.cpp
 		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/logs/logger.cpp
+		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/runtime/eventInspectionSession.cpp
 		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/postprocess/anomalyThresholdPostprocessor.cpp
 		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/preprocess/frameNodes/cvCenterCropNode.cpp
 		${VISION_RUNTIME_SOURCE_DIRECTORY}/src/preprocess/frameNodes/cvResizeNode.cpp

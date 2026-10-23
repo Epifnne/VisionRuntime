@@ -35,8 +35,16 @@ set "BUILD=%ROOT%\Build\SampleShell\%SAMPLE%"
 if defined VISION_SHELL_BUILD_DIR set "BUILD=%VISION_SHELL_BUILD_DIR%"
 pushd "%ROOT%"
 if errorlevel 1 exit /b 1
+if not defined QT_DIR if defined QTDIR if exist "%QTDIR%\lib\Qt6Core.lib" set "QT_DIR=%QTDIR%"
 if not defined QT_DIR (
-	echo ERROR: Set QT_DIR at the top of this script, or set VISION_SHELL_QT_DIR.
+	for /d %%R in ("%SystemDrive%\Qt\6.*" "D:\Qt\6.*" "D:\Qt-OpenSource\6.*") do (
+		for /d %%Q in ("%%~fR\msvc*_64") do (
+			if exist "%%~fQ\lib\Qt6Core.lib" set "QT_DIR=%%~fQ"
+		)
+	)
+)
+if not defined QT_DIR (
+	echo ERROR: No Qt6 MSVC kit found. Set QT_DIR or VISION_SHELL_QT_DIR.
 	echo It must point to a Qt6 MSVC kit, e.g. C:\Qt\6.10.1\msvc2022_64.
 	goto failed
 )
@@ -66,6 +74,14 @@ if not exist "%VCVARS64%" (
 call "%VCVARS64%"
 if errorlevel 1 goto failed
 :msvcReady
+rem Keep Ninja header-dependency detection independent of the Windows display language.
+set "VSLANG=1033"
+rem MSVC without an English language pack still emits localized include traces.
+for /f "tokens=2 delims=:" %%C in ('chcp') do set "ORIGINAL_CODEPAGE=%%C"
+chcp 65001 >nul
+rem Use the matching VS CMake when available, including localized MSVC dependency support.
+set "CMAKE_EXE=cmake"
+if defined VSINSTALLDIR if exist "%VSINSTALLDIR%\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" set "CMAKE_EXE=%VSINSTALLDIR%\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
 where cl.exe >nul 2>nul
 if errorlevel 1 (
 	echo ERROR: MSVC environment initialization did not provide cl.exe.
@@ -81,10 +97,12 @@ if errorlevel 1 (
 )
 set "QT_OPTION="
 if defined QT_DIR set QT_OPTION=-DCMAKE_PREFIX_PATH="%QT_DIR%"
+set PRODUCT_OPTION=-DVISION_PRODUCT_SAMPLE="%SAMPLE%" -DVISION_PRODUCT_APPLICATION=
+if exist "%ROOT%\Samples\%SAMPLE%\application.cmake" set PRODUCT_OPTION=-DVISION_PRODUCT_SAMPLE= -DVISION_PRODUCT_APPLICATION="%ROOT%\Samples\%SAMPLE%"
 echo Building %SAMPLE%: MSVC x64, Ninja, Release
 echo Build directory: %BUILD%
 if defined QT_DIR echo Qt MSVC kit: %QT_DIR%
-cmake -S "%ROOT%" -B "%BUILD%" -G Ninja -DCMAKE_C_COMPILER=cl.exe -DCMAKE_CXX_COMPILER=cl.exe -DCMAKE_BUILD_TYPE=Release -DVISION_PRODUCT_SAMPLE="%SAMPLE%" -DVISION_BUILD_DESIGNER=ON -DVISION_BUILD_SAMPLES=OFF %QT_OPTION% %EXTRA%
+"%CMAKE_EXE%" -S "%ROOT%" -B "%BUILD%" -G Ninja -DCMAKE_C_COMPILER=cl.exe -DCMAKE_CXX_COMPILER=cl.exe -DCMAKE_BUILD_TYPE=Release %PRODUCT_OPTION% -DVISION_BUILD_SERVICE=ON -DVISION_BUILD_SHELL=ON -DVISION_BUILD_DESIGNER=ON -DVISION_BUILD_SAMPLES=OFF %QT_OPTION% %EXTRA%
 if errorlevel 1 (
 	echo Check QT_DIR and installed backend/camera SDK prerequisites. Qt must be an MSVC kit.
 	goto failed
@@ -94,24 +112,29 @@ for %%C in ("%COMPILER%") do if /i not "%%~nxC"=="cl.exe" (
 	echo ERROR: Windows product Shell requires MSVC.
 	goto failed
 )
-cmake --build "%BUILD%" --config Release --target publishSampleShell --parallel "%JOBS%"
+"%CMAKE_EXE%" --build "%BUILD%" --config Release --target publishSampleShell --parallel "%JOBS%"
 if errorlevel 1 goto failed
-echo Design kit updated: %ROOT%\Publish\release
-echo Open Publish\release\design.cmd to assemble and publish the final GUI product.
+for /f "tokens=2 delims==" %%P in ('findstr /b /c:"VISION_DESIGN_KIT_ROOT:PATH=" "%BUILD%\CMakeCache.txt"') do set "PUBLISH_ROOT=%%P"
+echo Design kit updated: %PUBLISH_ROOT%\release
+echo Open "%PUBLISH_ROOT%\release\design.cmd" to assemble and publish the final GUI product.
+if defined ORIGINAL_CODEPAGE chcp %ORIGINAL_CODEPAGE% >nul
 popd
 exit /b 0
 :failed
 echo ERROR: Shell build or publication failed. The previous package was not replaced.
+if defined ORIGINAL_CODEPAGE chcp %ORIGINAL_CODEPAGE% >nul
 popd
 exit /b 1
 :help
 echo Usage: buildShell.cmd [sample] [CMake configure options]
 echo Default sample: anomalyDirectory
-echo Samples: anomalyDirectory, anomalyHikMvs, anomalyHikMvsMulti, anomalyTensorRtMulti
-echo Configure QT_DIR and optional VCVARS64 at the top of this script.
+echo Samples: eventInspection, businessExports, anomalyDirectory, anomalyHikMvs, anomalyHikMvsMulti, anomalyTensorRtMulti
+echo Qt is detected from QTDIR or common Qt install directories.
+echo Override QT_DIR and optional VCVARS64 at the top of this script if needed.
 echo Environment overrides: VISION_SHELL_QT_DIR, VISION_SHELL_VCVARS64,
 echo VISION_SHELL_BUILD_DIR, VISION_SHELL_JOBS
 echo Requirements: CMake 3.25+, Ninja, MSVC x64, Qt6 MSVC, selected backend SDK.
 echo Output: Publish\release. This replaces the previous design kit after a successful build.
 echo No model or image package is required until final publication in Designer.
+echo Declarative products automatically generate and bundle their endpoint manifest.
 exit /b 0

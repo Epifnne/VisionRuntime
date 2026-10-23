@@ -2,8 +2,24 @@
 
 ## Unreleased - v1.0 release hardening
 
+- Added externally requested, bounded software-trigger acquisition with capture
+  identities, per-view typed pipeline adapters and inspection-level aggregation.
+  Missing/overdue/error views produce FAULT; camera response timeouts latch the
+  source to prevent late-frame reassociation. Infrared/conveyor policy remains
+  in the shared CLI/Shell `Samples/eventInspection` product, published outside Build.
+  Service result telemetry preserves optional workpiece/inspection/capture IDs.
+- Connected event sessions to Service lifecycle, additive frame/outcome/fault
+  observers, camera controls and frame statistics; exposed separate workpiece
+  counters in Runtime. Waiting for a trigger no longer looks like completion.
+  Passive wait, terminal-fault shutdown and recovery-from-empty are supported;
+  uncorrelated GUI software triggers are explicitly rejected. The event product
+  exports its manifest at build time and includes a two-view starter GUI.
+
 ### Added
 
+- Native builds automatically generate product endpoint manifests from a separate declaration library, without constructing the business runtime. One-click product kits bundle/discover manifests, optional starter assets and a shared-core CLI; Service checks runtime bindings against the declared contract.
+- Declarative `ProductApplication` / `BusinessExports` for shared CLI and product-Shell business libraries, including typed scalar parameters, commands, schema-described state publication and owned image streams.
+- Result-independent product runtime adoption, model-free custom profiles, manifest 1.1 state-field metadata and Designer field selection/validation. `Samples/businessExports` demonstrates an OpenCV-only product with a common CLI/GUI core.
 - Capture-to-delivery task deadlines for serial, staged-parallel and batch executors, including bounded waiting for a blocked submission and rejection of late success.
 - Correlated frame outcome observers for single-source RuntimeSession, MultiCameraSession and VisionService; Service exposes `inspection.result`, `source.fault`, and explicit `session.recover`.
 - Configurable report-and-continue/stop-session fault policy; terminating acquisition errors stop the session. Optional continuous-camera silence watchdog and separate acquisition-sequence-gap counters.

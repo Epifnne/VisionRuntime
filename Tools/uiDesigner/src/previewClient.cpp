@@ -48,7 +48,8 @@ QString PreviewClient::lastError() const { return lastError_; }
 QString PreviewClient::uiJson() const { return uiJson_; }
 
 void PreviewClient::setProfile(
-	const QString& profileJson, const QString& baseDirectory) {
+	const QString& profileJson, const QString& baseDirectory,
+	const QVariantList& exportedEndpoints) {
 	running_ = false;
 	completed_ = 0;
 	failed_ = 0;
@@ -60,6 +61,7 @@ void PreviewClient::setProfile(
 	streamIds_.clear();
 	sources_.clear();
 	parameterValues_.clear();
+	snapshots_.clear();
 
 	const auto document = QJsonDocument::fromJson(profileJson.toUtf8());
 	const auto root = document.object();
@@ -170,6 +172,37 @@ void PreviewClient::setProfile(
 		++index;
 	}
 
+	for (const auto& value : exportedEndpoints) {
+		auto endpoint = value.toMap();
+		const auto name = endpoint.value(QStringLiteral("name")).toString();
+		const auto kind = endpoint.value(QStringLiteral("kind")).toString();
+		const auto hasName = [&name](const QVariantList& entries) {
+			for (const auto& entry : entries) {
+				if (entry.toMap().value(QStringLiteral("name")).toString() == name) {
+					return true;
+				}
+			}
+			return false;
+		};
+		if (kind == QLatin1String("state") && !hasName(states_)) {
+			states_.append(endpoint);
+			QJsonObject snapshot{{QStringLiteral("simulation"), true}};
+			const auto fields = endpoint.value(QStringLiteral("fields")).toMap();
+			for (auto field = fields.constBegin(); field != fields.constEnd(); ++field) {
+				snapshot.insert(field.key(), QJsonValue::Null);
+			}
+			snapshots_.insert(name, compactJson(snapshot));
+		} else if (kind == QLatin1String("parameter") && !hasName(parameters_)) {
+			const auto type = endpoint.value(QStringLiteral("valueType")).toString();
+			endpoint.insert(QStringLiteral("type"), type);
+			parameters_.append(endpoint);
+			parameterValues_.insert(name, type == QLatin1String("flag") ? QVariant(false) :
+				type == QLatin1String("text") ? QVariant(QString()) :
+				endpoint.value(QStringLiteral("minimum"), 0));
+		} else if (kind == QLatin1String("command") && !hasName(commands_)) {
+			commands_.append(endpoint);
+		}
+	}
 	setLastError(QString());
 	publishState();
 	publishLive();
@@ -222,6 +255,12 @@ bool PreviewClient::invokeCommand(const QString& name) {
 			++completed_;
 		}
 		return true;
+	}
+	for (const auto& command : commands_) {
+		if (command.toMap().value(QStringLiteral("name")).toString() == name) {
+			setLastError(QStringLiteral("business command is not executed in simulated preview: %1").arg(name));
+			return false;
+		}
 	}
 	setLastError(QStringLiteral("unknown command: %1").arg(name));
 	return false;

@@ -1,5 +1,5 @@
 set(VISION_SAMPLE_CAMERA OPTIONAL)
 set(VISION_SAMPLE_DEFAULT_BACKEND tensorrt)
-set(VISION_SAMPLE_SOURCES [=[{"id":"files0","type":"directory","directory":"image","extensions":[".bmp"],"loop":true},{"id":"files1","type":"directory","directory":"image","extensions":[".bmp"],"loop":true}]=])
+set(VISION_SAMPLE_SOURCES [=[{"id":"files0","type":"directory","directory":"camera1","extensions":[".bmp"],"loop":true},{"id":"files1","type":"directory","directory":"camera2","extensions":[".bmp"],"loop":true}]=])
 set(VISION_SAMPLE_SOURCE_IDS files0 files1)
 set(VISION_SAMPLE_RESIZE 224)

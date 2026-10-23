@@ -14,6 +14,7 @@
 #include "profile/productProfile.hpp"
 #include "session/sessionController.hpp"
 #include "session/sessionAssembler.hpp"
+#include "exports/productApplication.hpp"
 
 #include <filesystem>
 #include <memory>
@@ -34,6 +35,7 @@ using ProductRuntimeFactory = std::function<core::Result<
 class VisionService {
 public:
 	explicit VisionService(ProductRuntimeFactory runtimeFactory = {});
+	explicit VisionService(ProductApplicationFactory applicationFactory);
 	~VisionService();
 
 	VisionService(const VisionService&) = delete;
@@ -61,6 +63,7 @@ public:
 	void metricsPublishSummary() noexcept;
 
 private:
+	[[nodiscard]] core::Result<void> loadProfileImpl(const std::filesystem::path& path);
 	[[nodiscard]] core::Result<void> registerCoreEndpoints();
 	[[nodiscard]] core::Result<void> applyEndpointExposure();
 
@@ -71,6 +74,9 @@ private:
 	metrics::MetricsAggregator metrics_;
 	profile::ProductProfile profile_;
 	ProductRuntimeFactory runtimeFactory_;
+	ProductApplicationFactory applicationFactory_;
+	std::unique_ptr<exports::BusinessExports> productExports_;
+	std::string expectedProductManifest_;
 	bool profileLoaded_ = false;
 	std::filesystem::path profilePath_;
 	std::shared_ptr<std::vector<std::pair<std::uint32_t, std::string>>>

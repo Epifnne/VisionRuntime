@@ -47,6 +47,11 @@ public:
 	timingObserver();
 	[[nodiscard]] visionRuntime::benchmark::BatchPerformanceObserver
 	batchObserver();
+	void observeOutcome(visionRuntime::executor::FrameOutcome outcome,
+		const visionRuntime::pipeline::FrameIdentity& identity,
+		std::optional<visionRuntime::executor::TaskId> taskId,
+		const visionRuntime::core::Status& status,
+		const visionRuntime::vision::AnomalyResult* anomaly = nullptr);
 	[[nodiscard]] visionRuntime::executor::FrameOutcomeCallback<
 		visionRuntime::vision::AnomalyResult> resultObserver();
 	void observeSourceFault(const visionRuntime::camera::SourceFault& fault);

@@ -56,6 +56,40 @@ The command also generates `model.bin` and `model.build.json`. FP32 weights are 
 - `vision-modelc` translates ONNX to OpenVINO IR and emits artifact hashes and port information in its build record.
 - `anomalyDirectorySample` folder anomaly detection example with per-image score and OK/NG output.
 
+## Mock YOLO Routing Sample
+
+[yoloRouting](Samples/yoloRouting/README.md) demonstrates a custom operator that
+routes simulated detection boxes to object classification callbacks, defect
+annotations, and cropped text ROIs with an explicit OCR placeholder. It runs
+without models or inference plugins and returns a combined, owned per-frame
+result through the existing asynchronous runtime. Enable
+`VISION_BUILD_SAMPLES=ON` or build the sample as a standalone consumer.
+
+## Declarative Business Applications
+
+[businessExports](Samples/businessExports/README.md) demonstrates a model-free
+OpenCV product whose CLI and product Shell link the same business library.
+The project declares parameters, commands, typed result fields and image streams
+through a pure export contract; builds automatically generate a manifest without
+initializing business resources, and Service binds and validates the same
+declarations at runtime. `Samples\buildShell.cmd businessExports` produces a
+ready-to-design kit with automatic manifest discovery. Use `VISION_PRODUCT_APPLICATION` to select the
+product library for the Shell. Existing sample/runtime factories remain supported.
+
+## Event-driven Multi-view Inspection
+
+[eventInspection](Samples/eventInspection/README.md) demonstrates infrared-style
+business events, delayed captures at different conveyor positions, heterogeneous
+OpenCV pipeline results, and workpiece-level OK/NG/FAULT aggregation.
+`EventTriggerSource` accepts bounded, correlated software-trigger requests;
+`EventInspectionSession` routes views and rejects late/duplicate results.
+Sensor listening, debounce, conveyor timing and PLC transport stay in business
+code. `Samples\buildShell.cmd eventInspection` builds a shared CLI/Shell product
+and publishes its Designer kit to root `Publish/release`. The event adapter
+connects lifecycle, image streams, outcomes, faults and statistics to Service.
+Recovery starts from empty; raw GUI triggers are rejected for correlated cameras.
+This does not add automatic event scheduling to the default profile assembler.
+
 ## TensorRT Plugin
 
 OpenVINO and TensorRT are implemented as independent C ABI plugins and loaded through the model package plus deployment configuration.
@@ -366,6 +400,12 @@ Build\MSVC-HikMvs\bin\anomalyHikMvsSample.exe <model-package> <deployment.json>
 The MVS client must be closed first because Runtime opens the camera exclusively. The first-frame hardware validation output was `score=5.45422, threshold=2, decision=NG`.
 
 CTest covers camera build profiles, core result types, Tensor views, buffer pools, SPSC queues, serial/parallel/batch executors, backpressure and cancellation, Pipeline lifetimes, directory image decoding, preprocessing, anomaly postprocessing, backend plugin loading, model package loading, deployment configuration, and v1 release contracts. Test counts depend on enabled service, GUI, and vendor targets; use `ctest -N` in the selected build rather than a historical count.
+
+GitHub Actions enables the model-free samples in both Windows MSVC and Linux GNU
+jobs. The Windows Qt matrix builds and tests the generic Shell, `businessExports`,
+and `eventInspection`, including their desktop publication targets. TensorRT,
+OpenVINO, camera SDKs, GPU engines, and local replay assets are not CI prerequisites;
+validate those separately on machines with the matching SDKs and hardware.
 
 ## v1.0 Contract and Release Gates
 

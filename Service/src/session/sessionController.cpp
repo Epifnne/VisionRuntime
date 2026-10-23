@@ -224,15 +224,7 @@ void SessionController::completionWatchMain() {
 			std::this_thread::sleep_for(std::chrono::milliseconds(5));
 			continue;
 		}
-		bool anyRunning = false;
-		for (std::size_t index = 0; index < session->sourceCount(); ++index) {
-			auto* source = session->source(index);
-			if (source && source->isRunning()) {
-				anyRunning = true;
-				break;
-			}
-		}
-		if (!anyRunning || session->stopRequested()) {
+		if (!session->isRunning() || session->stopRequested()) {
 			requestStop();
 			return;
 		}

@@ -113,6 +113,10 @@ struct SourceBuild {
 [[nodiscard]] core::Result<SourceBuild> buildCameraSource(
 	const profile::SourceProfile& sourceProfile) {
 	const auto& cameraProfile = sourceProfile.camera;
+	if (cameraProfile.mode == "eventTrigger") {
+		return failure<SourceBuild>(core::StatusCode::Unsupported,
+			"eventTrigger requires a product-owned event inspection session");
+	}
 	auto pixelFormat = parsePixelFormat(cameraProfile.pixelFormat);
 	if (!pixelFormat) {
 		return failure<SourceBuild>(pixelFormat.status().code(),
@@ -399,8 +403,7 @@ core::Result<AssembledSession> SessionAssembler::bindRuntime(
 	AssembledSession assembled;
 	assembled.sourceCount = session->sourceCount();
 	for (std::size_t index = 0; index < assembled.sourceCount; ++index) {
-		auto* source = session->source(index);
-		if (!source) {
+		if (!session->hasSource(index)) {
 			return failure<AssembledSession>(core::StatusCode::InvalidArgument,
 				"adopted runtime contains a null source");
 		}
@@ -414,7 +417,8 @@ core::Result<AssembledSession> SessionAssembler::bindRuntime(
 			return core::Result<AssembledSession>::failure(registered.status());
 		}
 		bindings->emplace_back(id, name);
-		assembled.cameraDevices.push_back(source->cameraDevice());
+		assembled.cameraDevices.push_back(session->cameraDevice(index));
+		assembled.directTriggers.push_back(session->allowsDirectTrigger(index));
 	}
 	observers.frame = [&registry, bindings](std::uint32_t id, const vision::Frame& frame) {
 		auto view = vision::Frame::create(frame.buffer(), frame.width(), frame.height(),

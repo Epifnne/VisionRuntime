@@ -1,5 +1,6 @@
 #pragma once
 
+#include "runtime/eventInspectionSession.hpp"
 #include "runtime/multiCameraSession.hpp"
 #include "runtime/presets/anomalyPreset.hpp"
 #include "runtime/runtimeFactory.hpp"

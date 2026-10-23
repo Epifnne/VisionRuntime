@@ -1,6 +1,7 @@
 #pragma once
 
 #include "vision/anomalyResult.hpp"
+#include "vision/captureIdentity.hpp"
 #include "vision/classificationResult.hpp"
 #include "vision/detectionResult.hpp"
 #include "vision/frame.hpp"

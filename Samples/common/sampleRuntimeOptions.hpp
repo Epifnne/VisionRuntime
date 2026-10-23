@@ -92,7 +92,9 @@ createPipeline(const RuntimeOptions& options, bool tuneBackend = false) {
 		.then(preprocess::CvCenterCrop({options.pipeline.cropWidth, options.pipeline.cropHeight}))
 		.then(preprocess::ToTensor({
 			.tensorName = manifest.inputs.front().name,
-			.bufferCount = options.deployment.executor.stageQueueCapacity + 2,
+			// The active inference batch retains buffers outside the stage queue.
+			.bufferCount = options.deployment.executor.stageQueueCapacity +
+				options.pipeline.maxBatchSize + 2,
 			.channels = options.pipeline.imageChannels}))
 		.then(preprocess::Normalize({
 			.mean = options.pipeline.mean,
