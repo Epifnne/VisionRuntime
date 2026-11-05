@@ -11,6 +11,7 @@
 #include "pipeline/frameIdentity.hpp"
 #include "vision/frame.hpp"
 
+#include <any>
 #include <atomic>
 #include <cstdint>
 #include <optional>
@@ -38,7 +39,8 @@ public:
 		  ownershipOptions_(other.ownershipOptions_),
 		  executionId_(other.executionId_),
 		  sourceId_(other.sourceId_),
-		  metadata_(other.metadata_) {}
+		  metadata_(other.metadata_),
+		  payload_(std::exchange(other.payload_, std::any{})) {}
 
 	PipelinePacket& operator=(PipelinePacket&& other) noexcept {
 		if (this != &other) {
@@ -48,6 +50,7 @@ public:
 			executionId_ = other.executionId_;
 			sourceId_ = other.sourceId_;
 			metadata_ = other.metadata_;
+			payload_ = std::exchange(other.payload_, std::any{});
 		}
 		return *this;
 	}
@@ -66,6 +69,16 @@ public:
 
 	void setSourceId(std::optional<std::uint32_t> sourceId) noexcept {
 		sourceId_ = sourceId;
+	}
+
+	template<typename T>
+	void setPayload(T value) {
+		payload_ = std::move(value);
+	}
+
+	template<typename T>
+	[[nodiscard]] const T* payload() const noexcept {
+		return std::any_cast<T>(&payload_);
 	}
 
 	[[nodiscard]] FrameIdentity identity() const noexcept {
@@ -104,6 +117,7 @@ public:
 	void finishPostprocess() noexcept {
 		cameraFrame_.reset();
 		businessFrame_.reset();
+		payload_.reset();
 	}
 
 	[[nodiscard]] std::optional<vision::Frame> takeCameraFrame() noexcept {
@@ -121,6 +135,7 @@ private:
 	std::uint64_t executionId_ = 0;
 	std::optional<std::uint32_t> sourceId_;
 	vision::FrameMetadata metadata_;
+	std::any payload_;
 	inline static std::atomic_uint64_t nextExecutionId_{1};
 };
 

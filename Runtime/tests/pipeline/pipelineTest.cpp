@@ -19,6 +19,37 @@ namespace {
 
 using TensorMap = visionRuntime::preprocess::TensorMap;
 
+struct InvocationPayload {
+	int value;
+};
+
+class ReleasingPreprocessor final : public visionRuntime::preprocess::IPreprocessor {
+public:
+	visionRuntime::core::Result<visionRuntime::preprocess::PreparedInput> process(
+		visionRuntime::pipeline::PipelinePacket packet) override {
+		packet.completeImagePreparation();
+		return visionRuntime::core::Result<visionRuntime::preprocess::PreparedInput>::success(
+			visionRuntime::preprocess::PreparedInput(std::move(packet), {}));
+	}
+};
+
+class PayloadPostprocessor final : public visionRuntime::postprocess::IPostprocessor<int> {
+public:
+	visionRuntime::core::Result<int> process(
+		const TensorMap&,
+		const visionRuntime::vision::TransformContext&,
+		const visionRuntime::pipeline::PipelinePacket& packet) override {
+		const auto* payload = packet.payload<InvocationPayload>();
+		if (!payload || packet.hasCameraFrame()) {
+			return visionRuntime::core::Result<int>::failure(
+				visionRuntime::core::Status::error(
+					visionRuntime::core::StatusCode::InvalidState,
+					"payload missing or camera frame not released"));
+		}
+		return visionRuntime::core::Result<int>::success(payload->value);
+	}
+};
+
 class RecordingPreprocessor final : public visionRuntime::preprocess::IPreprocessor {
 public:
 	explicit RecordingPreprocessor(std::vector<std::string>& calls) : calls_(calls) {}
@@ -179,6 +210,42 @@ TEST(PipelineTest, RunsLinearStagesInOrder) {
 	ASSERT_TRUE(result);
 	EXPECT_EQ(result.value(), 42);
 	EXPECT_EQ(calls, (std::vector<std::string>{"preprocess", "inference", "postprocess"}));
+}
+
+TEST(PipelineTest, CarriesPayloadAcrossStagesAndBatchAfterFrameRelease) {
+	using namespace visionRuntime;
+	std::vector<std::string> calls;
+	pipeline::PipelineBuilder<int> builder;
+	builder
+		.setPreprocessor(std::make_unique<ReleasingPreprocessor>())
+		.setBackend(std::make_unique<RecordingBackend>(calls))
+		.setPostprocessor(std::make_unique<PayloadPostprocessor>());
+	auto built = builder.build();
+	ASSERT_TRUE(built);
+
+	pipeline::PipelinePacket packet({});
+	packet.setPayload(InvocationPayload{42});
+	auto result = built->run(std::move(packet));
+	ASSERT_TRUE(result);
+	EXPECT_EQ(result.value(), 42);
+
+	std::vector<preprocess::PreparedInput> inputs;
+	for (const int value : {11, 22}) {
+		pipeline::PipelinePacket batchPacket({});
+		batchPacket.setPayload(InvocationPayload{value});
+		auto prepared = built->preprocess(std::move(batchPacket));
+		ASSERT_TRUE(prepared);
+		inputs.push_back(std::move(prepared).value());
+	}
+	auto outputs = built->inferBatch(std::move(inputs));
+	ASSERT_TRUE(outputs);
+	ASSERT_EQ(outputs->size(), 2);
+	auto first = built->postprocess(std::move(outputs.value()[0]));
+	auto second = built->postprocess(std::move(outputs.value()[1]));
+	ASSERT_TRUE(first);
+	ASSERT_TRUE(second);
+	EXPECT_EQ(first.value(), 11);
+	EXPECT_EQ(second.value(), 22);
 }
 
 TEST(PipelineTest, StopsAfterBackendFailureAndAddsStageContext) {

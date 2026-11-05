@@ -210,6 +210,8 @@ Business Frame
 - 相机 Frame 在 `AfterImagePreparation` 释放。
 - 裁剪图、复制图或业务显示图在 `AfterPostprocess` 释放。
 
+`PipelinePacket::setPayload(value)` 可为每次调用携带一个业务对象，例如工件编号和检测参数；再次设置会替换原对象。后续阶段可用 `payload<T>()` 获取只读指针，未设置或类型不匹配时返回 `nullptr`。payload 随 Packet 移动，并显式清空源 Packet 的 payload；图像准备阶段释放 Frame 不会清除 payload，`finishPostprocess()` 则同时释放图像并重置 payload。未调用 finish 时，Packet 销毁也会释放 payload。payload 不会自动进入最终结果，类型必须可复制；返回的指针不能在 payload 替换、finish、Packet 移动或销毁后继续使用。
+
 在当前节点链中，`ToTensorNode` 写完最终池化 Tensor 后调用 `completeImagePreparation()` 并释放工作 Frame，因此后续 `NormalizeNode` 不再持有中间图像 Buffer。Tensor 自身持有张量池 lease，直到推理阶段不再引用该 Tensor 时自动归还槽位。
 
 `BusinessFramePool` 按固定宽高、像素格式和 row stride 预分配业务图像。前处理直接写入取得的业务 Frame，随后同一地址通过 move 传递到推理和后处理，避免阶段间再次复制。

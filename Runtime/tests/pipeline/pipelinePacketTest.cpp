@@ -4,6 +4,8 @@
 
 #include <gtest/gtest.h>
 
+#include <memory>
+#include <string>
 #include <type_traits>
 #include <utility>
 
@@ -12,6 +14,10 @@ namespace {
 static_assert(!std::is_copy_constructible_v<visionRuntime::pipeline::PipelinePacket>);
 static_assert(!std::is_copy_assignable_v<visionRuntime::pipeline::PipelinePacket>);
 static_assert(std::is_nothrow_move_constructible_v<visionRuntime::pipeline::PipelinePacket>);
+static_assert(std::is_nothrow_move_assignable_v<visionRuntime::pipeline::PipelinePacket>);
+static_assert(std::is_same_v<decltype(
+	std::declval<const visionRuntime::pipeline::PipelinePacket&>().payload<int>()),
+	const int*>);
 static_assert(!std::is_copy_constructible_v<visionRuntime::vision::Frame>);
 static_assert(std::is_nothrow_move_constructible_v<visionRuntime::vision::Frame>);
 
@@ -25,6 +31,11 @@ visionRuntime::vision::Frame acquireFrame(
 		std::move(buffer).value(), 4, 4, visionRuntime::vision::PixelFormat::Bgr8);
 	return frame ? std::move(frame).value() : visionRuntime::vision::Frame{};
 }
+
+struct InspectionPayload {
+	std::string workpieceId;
+	int threshold;
+};
 
 } // namespace
 
@@ -147,6 +158,94 @@ TEST(PipelinePacketTest, CarriesOptionalSourceIdThroughMoves) {
 
 	moved.setSourceId(std::nullopt);
 	EXPECT_FALSE(moved.sourceId().has_value());
+}
+
+TEST(PipelinePacketTest, RetrievesAndReplacesTypedPayload) {
+	using namespace visionRuntime;
+	pipeline::PipelinePacket packet({});
+	const auto& constPacket = packet;
+	EXPECT_EQ(constPacket.payload<InspectionPayload>(), nullptr);
+
+	InspectionPayload payload{"part-001", 7};
+	packet.setPayload(payload);
+	payload.workpieceId = "changed";
+	const auto* stored = constPacket.payload<InspectionPayload>();
+	ASSERT_NE(stored, nullptr);
+	EXPECT_EQ(stored->workpieceId, "part-001");
+	EXPECT_EQ(stored->threshold, 7);
+	EXPECT_EQ(constPacket.payload<std::string>(), nullptr);
+
+	packet.setPayload(std::string("replacement"));
+	EXPECT_EQ(constPacket.payload<InspectionPayload>(), nullptr);
+	ASSERT_NE(constPacket.payload<std::string>(), nullptr);
+	EXPECT_EQ(*constPacket.payload<std::string>(), "replacement");
+}
+
+TEST(PipelinePacketTest, MovesPayloadWithPacketConstructionAndAssignment) {
+	using namespace visionRuntime;
+	pipeline::PipelinePacket source({}, {}, std::uint32_t{7});
+	source.setPayload(InspectionPayload{"part-002", 9});
+	const auto executionId = source.executionId();
+
+	pipeline::PipelinePacket constructed(std::move(source));
+	EXPECT_EQ(source.payload<InspectionPayload>(), nullptr);
+	ASSERT_NE(constructed.payload<InspectionPayload>(), nullptr);
+	EXPECT_EQ(constructed.payload<InspectionPayload>()->workpieceId, "part-002");
+	EXPECT_EQ(constructed.executionId(), executionId);
+
+	pipeline::PipelinePacket assigned({});
+	assigned.setPayload(std::string("previous"));
+	assigned = std::move(constructed);
+	EXPECT_EQ(constructed.payload<InspectionPayload>(), nullptr);
+	EXPECT_EQ(assigned.payload<std::string>(), nullptr);
+	ASSERT_NE(assigned.payload<InspectionPayload>(), nullptr);
+	EXPECT_EQ(assigned.payload<InspectionPayload>()->threshold, 9);
+	EXPECT_EQ(assigned.executionId(), executionId);
+	EXPECT_EQ(assigned.sourceId(), std::uint32_t{7});
+}
+
+TEST(PipelinePacketTest, KeepsPayloadAfterImagePreparationAndResetsAtFinish) {
+	using namespace visionRuntime;
+	auto cameraPoolResult = camera::FrameBufferPool::create(1, 48);
+	auto businessPoolResult = camera::FrameBufferPool::create(1, 48);
+	ASSERT_TRUE(cameraPoolResult);
+	ASSERT_TRUE(businessPoolResult);
+	auto cameraPool = std::move(cameraPoolResult).value();
+	auto businessPool = std::move(businessPoolResult).value();
+	std::weak_ptr<std::string> weakPayload;
+	{
+		pipeline::PipelinePacket packet(acquireFrame(cameraPool));
+		auto value = std::make_shared<std::string>("part-003");
+		weakPayload = value;
+		packet.setPayload(value);
+		value.reset();
+
+		packet.completeImagePreparation(acquireFrame(businessPool));
+		EXPECT_EQ(cameraPool.available(), 1U);
+		ASSERT_NE(packet.payload<std::shared_ptr<std::string>>(), nullptr);
+		EXPECT_EQ(**packet.payload<std::shared_ptr<std::string>>(), "part-003");
+
+		packet.finishPostprocess();
+		EXPECT_EQ(businessPool.available(), 1U);
+		EXPECT_EQ(packet.payload<std::shared_ptr<std::string>>(), nullptr);
+		EXPECT_TRUE(weakPayload.expired());
+		packet.finishPostprocess();
+		EXPECT_EQ(packet.payload<std::shared_ptr<std::string>>(), nullptr);
+	}
+	EXPECT_TRUE(weakPayload.expired());
+}
+
+TEST(PipelinePacketTest, ReleasesPayloadOnDestructionWithoutFinish) {
+	using namespace visionRuntime;
+	std::weak_ptr<int> weakPayload;
+	{
+		pipeline::PipelinePacket packet({});
+		auto value = std::make_shared<int>(42);
+		weakPayload = value;
+		packet.setPayload(std::move(value));
+		EXPECT_FALSE(weakPayload.expired());
+	}
+	EXPECT_TRUE(weakPayload.expired());
 }
 
 TEST(BusinessFramePoolTest, AcquiresFramesWithFixedPaddedLayout) {
