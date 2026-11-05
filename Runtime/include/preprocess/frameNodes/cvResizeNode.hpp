@@ -39,6 +39,7 @@ private:
 class CvResizeNode final : public IPreprocessNode {
 public:
 	explicit CvResizeNode(CvResizeOptions options) : options_(options) {}
+	[[nodiscard]] std::string_view name() const noexcept override { return "CvResizeNode"; }
 	[[nodiscard]] core::Result<void> process(PreprocessContext& context) override;
 
 private:

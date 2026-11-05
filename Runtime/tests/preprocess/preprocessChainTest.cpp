@@ -11,7 +11,10 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
+#include <string>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -110,6 +113,48 @@ TEST(PreprocessChainTest, MaterializesThenNormalizesInPlace) {
 	EXPECT_FLOAT_EQ(values[0], 14.5F);
 	EXPECT_FLOAT_EQ(values[4], 4.5F);
 	EXPECT_FLOAT_EQ(values[8], 1.4F);
+}
+
+TEST(PreprocessChainTest, ReportsBuiltInNodeNamesAndOrder) {
+	using namespace visionRuntime;
+	auto chain = PreprocessBuilder::start<vision::Frame>()
+		.then(CvResize::shortSide(2))
+		.then(CvCenterCrop({2, 2}))
+		.then(ToTensor())
+		.then(Normalize())
+		.build();
+	ASSERT_TRUE(chain);
+	std::vector<preprocess::NodeTiming> timings;
+	auto prepared = chain.value()->processWithTiming(
+		pipeline::PipelinePacket(makeFrame()),
+		[&](const preprocess::NodeTiming& timing) { timings.push_back(timing); });
+	ASSERT_TRUE(prepared);
+	ASSERT_EQ(timings.size(), 4);
+	const std::string names[]{"CvResizeNode", "CvCenterCropNode", "ToTensorNode", "NormalizeNode"};
+	for (std::size_t index = 0; index < timings.size(); ++index) {
+		EXPECT_EQ(timings[index].index, index);
+		EXPECT_EQ(timings[index].name, names[index]);
+		EXPECT_GE(timings[index].milliseconds, 0);
+		EXPECT_TRUE(timings[index].status.isOk());
+	}
+}
+
+TEST(PreprocessChainTest, TimingObserverExceptionsDoNotChangeProcessing) {
+	using namespace visionRuntime;
+	auto chain = PreprocessBuilder::start<vision::Frame>()
+		.then(CvCenterCrop({2, 2}))
+		.then(ToTensor())
+		.build();
+	ASSERT_TRUE(chain);
+	int observed = 0;
+	auto prepared = chain.value()->processWithTiming(
+		pipeline::PipelinePacket(makeFrame()),
+		[&](const preprocess::NodeTiming&) {
+			++observed;
+			throw std::runtime_error("observer failure");
+		});
+	EXPECT_TRUE(prepared);
+	EXPECT_EQ(observed, 2);
 }
 
 TEST(PreprocessChainTest, MaterializesAndNormalizesSingleChannelFrame) {

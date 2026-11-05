@@ -31,11 +31,21 @@ if(NOT GIT_EXECUTABLE)
 	message(FATAL_ERROR "GIT_EXECUTABLE is required")
 endif()
 
+if(OPENCV_CONTRIB_ONLY)
+	cloneDependency(
+		"OpenCV contrib 4.14.0"
+		"https://github.com/opencv/opencv_contrib.git"
+		"a8e9acd62cabd30419dba83007f2ac0d07de5e2c"
+		"${THIRDPARTY_DIRECTORY}/opencv_contrib/4.14.0"
+	)
+	return()
+endif()
+
 cloneDependency(
-	"OpenCV 4.12.0"
+	"OpenCV 4.14.0"
 	"https://github.com/opencv/opencv.git"
-	"49486f61fb25722cbcf586b7f4320921d46fb38e"
-	"${THIRDPARTY_DIRECTORY}/opencv/4.12.0"
+	"0654a42e19215ef25b1d367d822f3c630447e7c7"
+	"${THIRDPARTY_DIRECTORY}/opencv/4.14.0"
 )
 cloneDependency(
 	"GoogleTest 1.17.0"

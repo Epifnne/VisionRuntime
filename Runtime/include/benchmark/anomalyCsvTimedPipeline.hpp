@@ -15,6 +15,7 @@
 #include <optional>
 #include <ostream>
 #include <sstream>
+#include <string>
 #include <utility>
 
 namespace visionRuntime::benchmark {
@@ -62,7 +63,7 @@ public:
 			output->stream_ = &output->file_;
 			output->csv_ = true;
 			*output->stream_ << "sequence,score,threshold,result,pre_ms,"
-				"infer_ms,post_ms,stage_ms,wait_ms,latency_ms\n";
+				"infer_ms,post_ms,stage_ms,wait_ms,latency_ms,node_timings\n";
 		}
 		return core::Result<std::shared_ptr<AnomalyCsvTimingOutput>>::success(
 			std::move(output));
@@ -72,34 +73,45 @@ public:
 		std::uint64_t sequenceNumber,
 		const core::Result<vision::AnomalyResult>& result,
 		const PipelineDurations& durations) {
-		if (!result) {
-			return;
-		}
-
 		std::ostringstream line;
 		if (csv_) {
-			line << sequenceNumber << ',' << std::setprecision(9)
-				<< result->score << ',' << result->threshold << ','
-				<< vision::anomalyDecisionName(result->decision)
-				<< ',' << std::fixed << std::setprecision(3)
+			line << sequenceNumber << ',';
+			if (result) {
+				line << std::setprecision(9)
+					<< result->score << ',' << result->threshold << ','
+					<< vision::anomalyDecisionName(result->decision);
+			} else {
+				line << ",,ERROR";
+			}
+			line << ',' << std::fixed << std::setprecision(3)
 				<< durations.preprocessMilliseconds << ','
 				<< durations.inferenceMilliseconds << ','
 				<< durations.postprocessMilliseconds << ','
 				<< durations.stageMilliseconds << ','
 				<< durations.waitMilliseconds << ','
-				<< durations.latencyMilliseconds << '\n';
+				<< durations.latencyMilliseconds << ',';
+			writeCsvField(line, nodeTimingsText(durations));
+			line << '\n';
 		} else {
-			line << "sequence: " << sequenceNumber
-				<< " | score: " << std::setprecision(9) << result->score
-				<< " | threshold: " << result->threshold
-				<< " | result: " << vision::anomalyDecisionName(result->decision)
-				<< " | pre: " << std::fixed << std::setprecision(3)
+			line << "sequence: " << sequenceNumber;
+			if (result) {
+				line << " | score: " << std::setprecision(9) << result->score
+					<< " | threshold: " << result->threshold
+					<< " | result: " << vision::anomalyDecisionName(result->decision);
+			} else {
+				line << " | result: ERROR (" << result.status().toString() << ')';
+			}
+			line << " | pre: " << std::fixed << std::setprecision(3)
 				<< durations.preprocessMilliseconds << " ms"
 				<< " | infer: " << durations.inferenceMilliseconds << " ms"
 				<< " | post: " << durations.postprocessMilliseconds << " ms"
 				<< " | stage: " << durations.stageMilliseconds << " ms"
 				<< " | wait: " << durations.waitMilliseconds << " ms"
-				<< " | latency: " << durations.latencyMilliseconds << " ms\n";
+				<< " | latency: " << durations.latencyMilliseconds << " ms";
+			if (!durations.nodeTimings.empty()) {
+				line << " | nodes: " << nodeTimingsText(durations);
+			}
+			line << '\n';
 		}
 		std::scoped_lock lock(mutex_);
 		*stream_ << line.str();
@@ -133,6 +145,32 @@ public:
 private:
 	AnomalyCsvTimingOutput() = default;
 
+	[[nodiscard]] static std::string nodeTimingsText(const PipelineDurations& durations) {
+		std::ostringstream text;
+		text << std::fixed << std::setprecision(3);
+		bool first = true;
+		for (const auto& node : durations.nodeTimings) {
+			if (!first) {
+				text << "; ";
+			}
+			first = false;
+			text << node.index << ':' << node.name << '=' << node.milliseconds
+				<< " ms [" << node.status.toString() << ']';
+		}
+		return text.str();
+	}
+
+	static void writeCsvField(std::ostream& stream, const std::string& value) {
+		stream << '"';
+		for (const char character : value) {
+			if (character == '"') {
+				stream << '"';
+			}
+			stream << character;
+		}
+		stream << '"';
+	}
+
 	std::ofstream file_;
 	std::ostream* stream_ = &std::cout;
 	bool csv_ = false;
@@ -160,7 +198,7 @@ private:
 	return core::Result<std::unique_ptr<VisionPipeline>>::success(
 		std::make_unique<TimedPipeline<vision::AnomalyResult>>(
 			std::move(pipeline),
-			[sharedOutput = std::move(sharedOutput)](
+			[sharedOutput](
 				std::uint64_t sequenceNumber,
 				const core::Result<vision::AnomalyResult>& result,
 				const PipelineDurations& durations) {

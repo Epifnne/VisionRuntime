@@ -13,6 +13,7 @@
 #include <functional>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -35,12 +36,49 @@ public:
 		pipeline::Pipeline<ResultType> pipeline,
 		PipelineTimingObserver<ResultType> observer,
 		BatchPerformanceObserver batchObserver = {})
-		: pipeline_(std::move(pipeline)), observer_(std::move(observer)),
+		: pipeline_(std::make_unique<pipeline::Pipeline<ResultType>>(std::move(pipeline))),
+		  observer_(std::move(observer)),
 		  batchObserver_(std::move(batchObserver)) {}
+
+	// Monolithic OpenCV pipelines report execution in postprocessMilliseconds;
+	// they have no model inference or staged-executor interface.
+	TimedPipeline(
+		std::unique_ptr<pipeline::IVisionPipeline<ResultType>> pipeline,
+		PipelineTimingObserver<ResultType> observer,
+		BatchPerformanceObserver batchObserver = {})
+		: directPipeline_(std::move(pipeline)), observer_(std::move(observer)),
+		  batchObserver_(std::move(batchObserver)) {
+		if (!directPipeline_) {
+			throw std::invalid_argument("TimedPipeline requires a nonnull pipeline");
+		}
+	}
 
 	[[nodiscard]] core::Result<ResultType> run(
 		pipeline::PipelinePacket packet) override {
 		const auto executionId = packet.executionId();
+		if (directPipeline_) {
+			const auto started = Clock::now();
+			const auto* frame = packet.cameraFrame();
+			{
+				std::lock_guard lock(mutex_);
+				if (!batchStarted_) { batchStarted_ = started; }
+				timings_.emplace(executionId, TimingState{
+					frame ? frame->metadata().sequenceNumber : 0, started, {}});
+			}
+			auto result = [&]() {
+				try {
+					return directPipeline_->run(std::move(packet));
+				} catch (const std::exception& exception) {
+					auto status = core::Status::error(core::StatusCode::Internal,
+						std::string("timed monolithic pipeline threw: ") + exception.what());
+					logs::report(status);
+					return core::Result<ResultType>::failure(std::move(status));
+				}
+			}();
+			updateDuration(executionId, &PipelineDurations::postprocessMilliseconds, started);
+			finishExecution(executionId, result);
+			return result;
+		}
 		auto prepared = preprocess(std::move(packet));
 		if (!prepared) {
 			auto result = core::Result<ResultType>::failure(prepared.status());
@@ -60,6 +98,10 @@ public:
 
 	[[nodiscard]] core::Result<preprocess::PreparedInput> preprocess(
 		pipeline::PipelinePacket packet) override {
+		if (!pipeline_) {
+			return core::Result<preprocess::PreparedInput>::failure(core::Status::error(
+				core::StatusCode::Unsupported, "monolithic timed pipeline requires run()"));
+		}
 		const auto executionId = packet.executionId();
 		const auto* frame = packet.cameraFrame();
 		const auto sequenceNumber = frame == nullptr
@@ -75,9 +117,20 @@ public:
 			timings_.emplace(executionId, TimingState{
 				sequenceNumber, pipelineStarted, {}});
 		}
-		auto prepared = pipeline_.preprocess(std::move(packet));
+		std::vector<preprocess::NodeTiming> nodeTimings;
+		auto prepared = pipeline_->preprocessWithTiming(std::move(packet),
+			[&nodeTimings](const preprocess::NodeTiming& timing) {
+				nodeTimings.push_back(timing);
+			});
 		updateDuration(executionId, &PipelineDurations::preprocessMilliseconds,
 			preprocessStarted);
+		{
+			std::lock_guard lock(mutex_);
+			auto timing = timings_.find(executionId);
+			if (timing != timings_.end()) {
+				timing->second.durations.nodeTimings = std::move(nodeTimings);
+			}
+		}
 		if (!prepared) {
 			// Staged executors (batch) skip run() and never call
 			// finishExecution for failed preprocess; account the failure
@@ -91,22 +144,30 @@ public:
 
 	[[nodiscard]] core::Result<pipeline::InferenceOutput> infer(
 		preprocess::PreparedInput input) override {
+		if (!pipeline_) {
+			return core::Result<pipeline::InferenceOutput>::failure(core::Status::error(
+				core::StatusCode::Unsupported, "monolithic timed pipeline requires run()"));
+		}
 		const auto executionId = input.packet().executionId();
 		const auto started = Clock::now();
-		auto output = pipeline_.infer(std::move(input));
+		auto output = pipeline_->infer(std::move(input));
 		updateDuration(executionId, &PipelineDurations::inferenceMilliseconds, started);
 		return output;
 	}
 
 	[[nodiscard]] core::Result<std::vector<pipeline::InferenceOutput>> inferBatch(
 		std::vector<preprocess::PreparedInput> inputs) override {
+		if (!pipeline_) {
+			return core::Result<std::vector<pipeline::InferenceOutput>>::failure(core::Status::error(
+				core::StatusCode::Unsupported, "monolithic timed pipeline requires run()"));
+		}
 		std::vector<std::uint64_t> executionIds;
 		executionIds.reserve(inputs.size());
 		for (const auto& input : inputs) {
 			executionIds.push_back(input.packet().executionId());
 		}
 		const auto started = Clock::now();
-		auto outputs = pipeline_.inferBatch(std::move(inputs));
+		auto outputs = pipeline_->inferBatch(std::move(inputs));
 		// Every member waited for the whole batch inference; record the full
 		// wall time per member (latency view). Throughput is reported by the
 		// batch observer, not by dividing this duration.
@@ -130,9 +191,13 @@ public:
 
 	[[nodiscard]] core::Result<ResultType> postprocess(
 		pipeline::InferenceOutput output) override {
+		if (!pipeline_) {
+			return core::Result<ResultType>::failure(core::Status::error(
+				core::StatusCode::Unsupported, "monolithic timed pipeline requires run()"));
+		}
 		const auto executionId = output.packet().executionId();
 		const auto started = Clock::now();
-		auto result = pipeline_.postprocess(std::move(output));
+		auto result = pipeline_->postprocess(std::move(output));
 		updateDuration(executionId, &PipelineDurations::postprocessMilliseconds, started);
 		return result;
 	}
@@ -147,7 +212,7 @@ public:
 			if (found == timings_.end()) {
 				return;
 			}
-			timing.emplace(found->second);
+			timing.emplace(std::move(found->second));
 			timings_.erase(found);
 		}
 		timing->durations.latencyMilliseconds = elapsedMilliseconds(
@@ -243,7 +308,8 @@ private:
 		}
 	}
 
-	pipeline::Pipeline<ResultType> pipeline_;
+	std::unique_ptr<pipeline::Pipeline<ResultType>> pipeline_;
+	std::unique_ptr<pipeline::IVisionPipeline<ResultType>> directPipeline_;
 	PipelineTimingObserver<ResultType> observer_;
 	BatchPerformanceObserver batchObserver_;
 	mutable std::mutex mutex_;

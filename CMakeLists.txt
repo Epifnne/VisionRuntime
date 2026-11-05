@@ -43,6 +43,14 @@ if(PROJECT_IS_TOP_LEVEL)
 			-P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/bootstrapDependencies.cmake
 		VERBATIM
 	)
+	add_custom_target(bootstrapOpenCvCudaDependencies
+		COMMAND ${CMAKE_COMMAND}
+			-DGIT_EXECUTABLE=${GIT_EXECUTABLE}
+			-DTHIRDPARTY_DIRECTORY=${CMAKE_CURRENT_SOURCE_DIR}/Thirdparty
+			-DOPENCV_CONTRIB_ONLY=ON
+			-P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/bootstrapDependencies.cmake
+		VERBATIM
+	)
 endif()
 
 include(cmake/visionDependencies.cmake)
@@ -89,6 +97,9 @@ if(PROJECT_IS_TOP_LEVEL)
 			add_subdirectory(Samples/businessExports)
 		endif()
 		add_subdirectory(Samples/yoloRouting)
+		if(VISION_WITH_OPENCV_CUDA)
+			add_subdirectory(Samples/openCvCuda)
+		endif()
 		if(VISION_BUILD_TENSORRT_PLUGIN)
 			add_subdirectory(Samples/anomalyTensorRtMulti)
 		endif()

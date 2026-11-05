@@ -34,6 +34,7 @@ private:
 
 class ToTensorNode final : public IPreprocessNode {
 public:
+	[[nodiscard]] std::string_view name() const noexcept override { return "ToTensorNode"; }
 	[[nodiscard]] core::Result<void> process(PreprocessContext& context) override;
 	[[nodiscard]] std::size_t availableBuffers() const;
 

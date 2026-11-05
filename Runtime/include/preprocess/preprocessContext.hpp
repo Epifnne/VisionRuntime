@@ -6,6 +6,7 @@
 #include "vision/transformContext.hpp"
 
 #include <optional>
+#include <string_view>
 #include <utility>
 
 namespace visionRuntime::preprocess {
@@ -33,6 +34,9 @@ struct PreprocessContext {
 class IPreprocessNode {
 public:
 	virtual ~IPreprocessNode() = default;
+	[[nodiscard]] virtual std::string_view name() const noexcept {
+		return "CustomNode";
+	}
 	[[nodiscard]] virtual core::Result<void> process(PreprocessContext& context) = 0;
 };
 

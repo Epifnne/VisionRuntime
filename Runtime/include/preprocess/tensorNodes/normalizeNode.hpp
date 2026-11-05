@@ -33,6 +33,7 @@ private:
 
 class NormalizeNode final : public IPreprocessNode {
 public:
+	[[nodiscard]] std::string_view name() const noexcept override { return "NormalizeNode"; }
 	[[nodiscard]] core::Result<void> process(PreprocessContext& context) override;
 
 private:

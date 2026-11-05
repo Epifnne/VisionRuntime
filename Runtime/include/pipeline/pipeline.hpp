@@ -30,8 +30,15 @@ public:
 
 	[[nodiscard]] core::Result<preprocess::PreparedInput> preprocess(
 		PipelinePacket packet) override {
+		return preprocessWithTiming(std::move(packet), {});
+	}
+
+	[[nodiscard]] core::Result<preprocess::PreparedInput> preprocessWithTiming(
+		PipelinePacket packet, const preprocess::NodeTimingObserver& observer) {
 		try {
-			auto prepared = preprocessor_->process(std::move(packet));
+			auto prepared = observer
+				? preprocessor_->processWithTiming(std::move(packet), observer)
+				: preprocessor_->process(std::move(packet));
 			if (!prepared) {
 				return core::Result<preprocess::PreparedInput>::failure(
 					prepared.status().withContext("preprocess"));

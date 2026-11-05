@@ -113,7 +113,7 @@ for %%C in ("%COMPILER%") do if /i not "%%~nxC"=="cl.exe" (
 	goto failed
 )
 "%CMAKE_EXE%" --build "%BUILD%" --config Release --target publishSampleShell --parallel "%JOBS%"
-if errorlevel 1 goto failed
+if not "%errorlevel%"=="0" goto failed
 for /f "tokens=2 delims==" %%P in ('findstr /b /c:"VISION_DESIGN_KIT_ROOT:PATH=" "%BUILD%\CMakeCache.txt"') do set "PUBLISH_ROOT=%%P"
 echo Design kit updated: %PUBLISH_ROOT%\release
 echo Open "%PUBLISH_ROOT%\release\design.cmd" to assemble and publish the final GUI product.

@@ -22,6 +22,8 @@ public:
 
 	[[nodiscard]] core::Result<PreparedInput> process(
 		pipeline::PipelinePacket packet) override;
+	[[nodiscard]] core::Result<PreparedInput> processWithTiming(
+		pipeline::PipelinePacket packet, const NodeTimingObserver& observer) override;
 
 private:
 	std::vector<std::unique_ptr<IPreprocessNode>> nodes_;

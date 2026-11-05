@@ -64,6 +64,13 @@ checks the primary artifact; OpenVINO validates weights when compiling the model
 
 ## Build and Deployment
 
+Backend plugin sources live under `Runtime/plugins/backend/`: `openvino/` and
+`tensorrt/` contain the implementations, while `pluginSupport.hpp`, `exports.map`
+and `plugins.json` provide backend-only support and capability metadata.
+`Runtime/plugins/CMakeLists.txt` dispatches to the backend subdirectory, leaving
+room for other plugin categories such as cameras. This source layout does not
+change the runtime deployment layout described below.
+
 Enable independently with `VISION_BUILD_OPENVINO_PLUGIN` and
 `VISION_BUILD_TENSORRT_PLUGIN`. The vendor-neutral host has no inference platform
 cache variable. Windows TensorRT requires MSVC and `CUDAToolkit_ROOT`.

@@ -21,8 +21,8 @@
 - `PipelinePacket` 仅含 cameraFrame_/businessFrame_/executionId_，无 source 标识（Runtime/include/pipeline/pipelinePacket.hpp:98）。
 - ABI `VisionRuntimeTensorView` 有 dimensions+rank，可表达 batch 维（Runtime/include/backends/backendPluginApi.h:55）；host 侧 `PluginInferenceBackend::infer` 直接透传 TensorMap（Runtime/src/backends/pluginInferenceBackend.cpp:283）。
 - anomaly preset manifest 校验硬编码 `input.shape == {1,1,224,224}`（Runtime/include/runtime/presets/anomalyPreset.hpp:164）；`ToTensor` 硬编码 batch=1（Runtime/src/preprocess/frameNodes/toTensorNode.cpp:85）。
-- OpenVINO 插件：create 时原样编译模型，单 InferRequest + mutex（Runtime/plugins/openvino/openVinoPlugin.cpp:94,102）。
-- TensorRT 插件：infer 时已调用 `setInputShape(dimensions)` + `enqueueV3`，动态 shape 通路已存在，瓶颈只在 engine optimization profile 的 maxBatch（Runtime/plugins/tensorrt/tensorRtPlugin.cpp:173）。
+- OpenVINO 插件：create 时原样编译模型，单 InferRequest + mutex（Runtime/plugins/backend/openvino/openVinoPlugin.cpp:94,102）。
+- TensorRT 插件：infer 时已调用 `setInputShape(dimensions)` + `enqueueV3`，动态 shape 通路已存在，瓶颈只在 engine optimization profile 的 maxBatch（Runtime/plugins/backend/tensorrt/tensorRtPlugin.cpp:173）。
 - vendor 回归测试已验证动态 N 可传递（[2,1,4,5]，Runtime/tests/backends/vendorPluginTest.cpp:61）。
 - 测试模板：Runtime/tests/executor/pipelineExecutorTest.cpp（executor/FrameExecutor 全套）、vendorPluginTest.cpp、anomalyPresetTest.cpp。
 - CMake 为显式源文件清单：Runtime/cmake/visionAddRuntime.cmake:45、Runtime/tests/CMakeLists.txt:182。
@@ -58,7 +58,7 @@
 10. 测试：anomalyPresetTest.cpp 增加 N>1 manifest 用例；preprocessChainTest.cpp 不动。
 
 ### Phase 5 — OpenVINO 动态 batch（依赖 4；与 Phase 6 并行）
-11. `Runtime/plugins/openvino/openVinoPlugin.cpp`：create 时在编译前对单输入模型 reshape 为动态 batch（`ov_model_reshape`，batch 维设 dynamic），再 compile；保留单 InferRequest + mutex。
+11. `Runtime/plugins/backend/openvino/openVinoPlugin.cpp`：create 时在编译前对单输入模型 reshape 为动态 batch（`ov_model_reshape`，batch 维设 dynamic），再 compile；保留单 InferRequest + mutex。
 12. 配置项：插件 create config 增加可选 `dynamicBatch`/`maxBatchSize`（读现有插件 config 解析处一并扩展）。
 13. 回归：vendorPluginTest.cpp 增加 [N,1,224,224]（N=2/4）infer 用例。
 

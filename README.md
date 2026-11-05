@@ -56,6 +56,18 @@ The command also generates `model.bin` and `model.build.json`. FP32 weights are 
 - `vision-modelc` translates ONNX to OpenVINO IR and emits artifact hashes and port information in its build record.
 - `anomalyDirectorySample` folder anomaly detection example with per-image score and OK/NG output.
 
+## Optional OpenCV CUDA (No Model)
+
+[openCvCuda](Samples/openCvCuda/README.md) runs model-free threshold inspection
+through the existing OpenCV pipeline and Runtime on an NVIDIA GPU. Enable
+`VISION_WITH_OPENCV_CUDA`, install matching OpenCV contrib 4.14.0 with
+`bootstrapOpenCvCudaDependencies`, and explicitly set
+`VISION_OPENCV_CUDA_ARCH_BIN`. Products can link `Vision::OpenCvCuda` for the
+CUDA image-processing modules. Support defaults to OFF; missing CUDA capabilities
+fail explicitly rather than falling back to CPU. The sample includes a real GPU
+self-test and hardware tests. Existing CPU examples are unchanged.
+The bundled OpenCV dependency is updated to 4.14.0 for both CPU and CUDA builds.
+
 ## Mock YOLO Routing Sample
 
 [yoloRouting](Samples/yoloRouting/README.md) demonstrates a custom operator that
@@ -75,6 +87,17 @@ initializing business resources, and Service binds and validates the same
 declarations at runtime. `Samples\buildShell.cmd businessExports` produces a
 ready-to-design kit with automatic manifest discovery. Use `VISION_PRODUCT_APPLICATION` to select the
 product library for the Shell. Existing sample/runtime factories remain supported.
+
+## Native Tube Inspection Product
+
+[tubeInspection](Samples/tubeInspection/README.md) combines the existing tube
+surface-candidate and hose-contour algorithms as two native OpenCV pipelines in
+one product. Source roles or `surface_` / `hose_` filename prefixes select the
+pipeline explicitly. Its CLI and Qt Shell share the same application library;
+the starter Designer UI includes source images, annotated results and review
+reasons. Run `Samples\tubeInspection\build.cmd` to build its isolated design kit
+under `Publish\tubeInspection\release`. Deployment does not require Python or
+inference plugins.
 
 ## Event-driven Multi-view Inspection
 
@@ -371,7 +394,7 @@ The project supports MSVC, MinGW, and x86_64 Linux without vcpkg. Third-party de
 
 Before the first configuration, the `bootstrapDependencies` target can download or verify OpenCV, GoogleTest, nlohmann/json, and spdlog at pinned commits. MinGW/GCC sources enable `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion`, while MSVC sources enable `/W4 /permissive-`.
 
-The directory image source builds the minimal `core`, `imgproc`, and `imgcodecs` modules from the `Thirdparty/opencv/4.12.0` source. The first build compiles these modules and takes noticeably longer than subsequent incremental builds.
+The directory image source builds the minimal `core`, `imgproc`, and `imgcodecs` modules from the `Thirdparty/opencv/4.14.0` source by default. Optional CUDA builds add GPU image-processing modules. The first build compiles these modules and takes noticeably longer than subsequent incremental builds.
 
 ## Build and Test
 

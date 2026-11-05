@@ -19,13 +19,23 @@ Thirdparty/
 
 | 依赖 | 版本 | 源码地址 | 固定提交 |
 | --- | --- | --- | --- |
-| OpenCV | 4.12.0 | `git@github.com:opencv/opencv.git` | `49486f61fb25722cbcf586b7f4320921d46fb38e` |
+| OpenCV | 4.14.0 | `https://github.com/opencv/opencv.git` | `0654a42e19215ef25b1d367d822f3c630447e7c7` |
+| OpenCV contrib (optional CUDA) | 4.14.0 | `https://github.com/opencv/opencv_contrib.git` | `a8e9acd62cabd30419dba83007f2ac0d07de5e2c` |
 | GoogleTest | 1.17.0 | `git@github.com:google/googletest.git` | `52eb8108c5bdec04579160ae17225d66034bd723` |
 | nlohmann/json | 3.12.0 | `https://github.com/nlohmann/json.git` | `55f93686c01528224f448c19128836e7df245f72` |
 | spdlog | 1.15.3 | `https://github.com/gabime/spdlog.git` | `6fa36017cfd5731d617e1a934f0e5ea9c4445b13` |
 | OpenVINO | 2026.2.1 | `https://pypi.org/project/openvino/2026.2.1/` | PyPI 2026.2.1 platform wheel |
 | TensorRT | 10.16.1.11 | NVIDIA TensorRT Developer Zone GA ZIP | Windows amd64 CUDA 13.2 package |
 | Hikrobot MVS | 4.8.1 | 海康机器人 MVS 官方开发包 | 厂商版本 4.8.1 |
+
+Optional OpenCV CUDA support uses
+`Thirdparty\opencv_contrib\4.14.0` and a locally installed NVIDIA CUDA Toolkit
+including NPP. Build `bootstrapOpenCvCudaDependencies` from a CPU-only
+configuration to fetch the pinned contrib sources. Then enable
+`VISION_WITH_OPENCV_CUDA=ON`, set `VISION_OPENCV_CUDA_ARCH_BIN`, and point
+`CUDAToolkit_ROOT` at the Toolkit. `VISION_OPENCV_CONTRIB_ROOT` can override the
+contrib directory. See [the GPU sample](../Samples/openCvCuda/README.md) for
+build, runtime, and deployment requirements.
 
 OpenVINO 使用平台隔离目录，CMake 会按目标平台自动查找：
 

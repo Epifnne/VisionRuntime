@@ -316,6 +316,14 @@ OpenCV 仅存在于 `FileSource` 的 `.cpp` 实现和私有链接依赖中，不
 
 `benchmark::TimedPipeline<ResultType>` 装饰具体 `pipeline::Pipeline<ResultType>`，测量 preprocess、inference、postprocess 的纯执行时间。`stage` 为三阶段执行时间之和，`wait` 为阶段队列等待时间，`latency` 为任务从 preprocess 开始到结果完成的端到端延迟。批次指标记录 wall-clock 总耗时、完成/失败数和 FPS。标准输出使用带阶段名的可读文本，文件输出保持 CSV。
 
+使用 `PreprocessChain` 时，原有计时回调的 `PipelineDurations::nodeTimings` 还会按执行顺序返回每个内部节点的 `index`（从 0 开始）、`name`、`milliseconds` 和 `status`。内置节点使用 `CvResizeNode`、`CvCenterCropNode`、`ToTensorNode`、`NormalizeNode` 名称；自定义 `IPreprocessNode` 无需修改即可计时，默认名为 `CustomNode`，可覆盖 `name() const noexcept` 返回可读名称。同名节点通过序号区分。失败或抛异常的节点也会记录，尚未执行的节点不会生成记录；异常仍由 Pipeline 转换为原有阶段错误。
+
+节点时间仅覆盖各自的 `process()` 调用，不累计前序节点，也不重复加到 `stage`；预处理阶段时间仍包含调度和计时记录开销。记录按每次执行隔离，适用于串行、分阶段和批推理路径；批推理中的节点耗时仍逐帧记录，不按批平均。普通 Pipeline 不启用节点计时。非链式 `IPreprocessor` 保持兼容，默认节点列表为空；若内部也有节点，可覆盖 `processWithTiming()` 并通知传入的 observer。仅暴露 `run()` 的黑盒流水线不会自动获得内部节点明细。
+
+异常检测文本输出追加 `nodes: 0:CvResizeNode=0.123 ms [Ok]; ...`。CSV 保留原有列的顺序，并在末尾追加固定列 `node_timings`，使用同样的文本格式且按 CSV 规则转义；没有节点时该列为空。失败帧也输出一行，`result` 为 `ERROR`，score/threshold 留空，已执行节点及其失败状态仍保留。
+
+也可传入 `unique_ptr<IVisionPipeline<ResultType>>` 包装单体 OpenCV 管线：仅通过 `run()` 执行，整个执行时间记入 `postprocessMilliseconds`，preprocess/inference 为零，不支持分阶段或 batch executor。具名算法内部节点由业务自行计时，例如 `Samples/tubeInspection` 的 `tube.timing`；此计时不包含采集、解码和执行器入口排队。
+
 ## 4. 依赖规则
 
 ```text

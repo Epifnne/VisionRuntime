@@ -3,7 +3,7 @@ add_library(visionProductContract STATIC businessContract.cpp)
 target_link_libraries(visionProductContract PUBLIC visionService)
 target_link_libraries(visionProductApplication PUBLIC visionProductContract PRIVATE opencv_core)
 target_include_directories(visionProductApplication SYSTEM PRIVATE
-	"${PROJECT_SOURCE_DIR}/Thirdparty/opencv/4.12.0/modules/core/include"
+	"${PROJECT_SOURCE_DIR}/Thirdparty/opencv/4.14.0/modules/core/include"
 	"${CMAKE_BINARY_DIR}")
 set_property(TARGET visionProductApplication PROPERTY VISION_PRODUCT_ID businessExports)
 set_property(TARGET visionProductApplication PROPERTY VISION_PRODUCT_PROFILE_ASSETS

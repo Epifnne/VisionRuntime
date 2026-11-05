@@ -10,7 +10,7 @@ target_link_libraries(${eventContract} PUBLIC visionService)
 add_library(${eventApplication} STATIC businessApplication.cpp)
 target_link_libraries(${eventApplication} PUBLIC ${eventContract} PRIVATE opencv_core)
 target_include_directories(${eventApplication} SYSTEM PRIVATE
-	"${PROJECT_SOURCE_DIR}/Thirdparty/opencv/4.12.0/modules/core/include" "${CMAKE_BINARY_DIR}")
+	"${PROJECT_SOURCE_DIR}/Thirdparty/opencv/4.14.0/modules/core/include" "${CMAKE_BINARY_DIR}")
 set_property(TARGET ${eventApplication} PROPERTY VISION_PRODUCT_ID eventInspection)
 add_executable(eventInspectionSample main.cpp)
 target_link_libraries(eventInspectionSample PRIVATE ${eventApplication})
@@ -21,7 +21,7 @@ if(eventApplication STREQUAL "visionProductApplication")
 		PROFILE "${CMAKE_CURRENT_SOURCE_DIR}/profile.json" CLI eventInspectionSample)
 endif()
 target_include_directories(eventInspectionSample SYSTEM PRIVATE
-	"${PROJECT_SOURCE_DIR}/Thirdparty/opencv/4.12.0/modules/core/include"
+	"${PROJECT_SOURCE_DIR}/Thirdparty/opencv/4.14.0/modules/core/include"
 	"${CMAKE_BINARY_DIR}")
 
 if(BUILD_TESTING)

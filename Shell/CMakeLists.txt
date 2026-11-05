@@ -141,7 +141,7 @@ if(WIN32 AND WINDEPLOYQT_EXECUTABLE)
 		COMMAND ${CMAKE_COMMAND} -E make_directory
 			"${SHELL_PUBLISH_DIR}/plugins"
 		COMMAND ${CMAKE_COMMAND} -E copy_if_different
-			"${CMAKE_SOURCE_DIR}/Runtime/plugins/plugins.json"
+			"${CMAKE_SOURCE_DIR}/Runtime/plugins/backend/plugins.json"
 			"${SHELL_PUBLISH_DIR}/plugins/plugins.json"
 		COMMAND ${CMAKE_COMMAND} -E copy_directory
 			"${SHELL_PRODUCTS_DIR}" "${SHELL_PUBLISH_DIR}/products"
@@ -184,7 +184,7 @@ else()
 		COMMAND ${CMAKE_COMMAND} -E make_directory
 			"${SHELL_PUBLISH_DIR}/plugins"
 		COMMAND ${CMAKE_COMMAND} -E copy_if_different
-			"${CMAKE_SOURCE_DIR}/Runtime/plugins/plugins.json"
+			"${CMAKE_SOURCE_DIR}/Runtime/plugins/backend/plugins.json"
 			"${SHELL_PUBLISH_DIR}/plugins/plugins.json"
 	)
 endif()

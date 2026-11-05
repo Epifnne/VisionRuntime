@@ -1,7 +1,10 @@
 #pragma once
 
+#include "preprocess/nodeTiming.hpp"
+
 #include <chrono>
 #include <cstddef>
+#include <vector>
 
 namespace visionRuntime::benchmark {
 
@@ -14,6 +17,7 @@ struct PipelineDurations {
 	double stageMilliseconds = 0.0;
 	double waitMilliseconds = 0.0;
 	double latencyMilliseconds = 0.0;
+	std::vector<preprocess::NodeTiming> nodeTimings;
 };
 
 struct BatchPerformance {

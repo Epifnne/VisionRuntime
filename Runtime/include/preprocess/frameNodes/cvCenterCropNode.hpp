@@ -25,6 +25,7 @@ private:
 class CvCenterCropNode final : public IPreprocessNode {
 public:
 	explicit CvCenterCropNode(ImageSize size) : size_(size) {}
+	[[nodiscard]] std::string_view name() const noexcept override { return "CvCenterCropNode"; }
 	[[nodiscard]] core::Result<void> process(PreprocessContext& context) override;
 
 private:

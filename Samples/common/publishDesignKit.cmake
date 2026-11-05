@@ -30,7 +30,7 @@ endif()
 
 get_filename_component(binaryDir "${SHELL_EXE}" DIRECTORY)
 if(NOT BACKEND STREQUAL "")
-	file(READ "${QML_DIR}/../Runtime/plugins/plugins.json" catalog)
+	file(READ "${QML_DIR}/../Runtime/plugins/backend/plugins.json" catalog)
 	string(JSON count LENGTH "${catalog}" backends)
 	set(selected "")
 	if(count GREATER 0)
