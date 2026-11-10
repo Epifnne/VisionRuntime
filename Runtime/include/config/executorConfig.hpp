@@ -8,7 +8,8 @@ namespace visionRuntime::config {
 
 enum class PerformancePolicy {
 	Serial,
-	PipelineParallel
+	PipelineParallel,
+	TaskParallel
 };
 
 enum class QueueFullPolicy {
@@ -22,6 +23,8 @@ struct ExecutorConfig {
 	std::size_t queueCapacity = 16;
 	std::size_t stageQueueCapacity = 1;
 	std::optional<std::chrono::milliseconds> taskTimeout{};
+	std::size_t workerCount = 1;
+	std::size_t maxInFlight = 16;
 };
 
 } // namespace visionRuntime::config

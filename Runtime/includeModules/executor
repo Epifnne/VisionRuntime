@@ -7,4 +7,5 @@
 #include "executor/iPipelineExecutor.hpp"
 #include "executor/parallelPipelineExecutor.hpp"
 #include "executor/serialPipelineExecutor.hpp"
+#include "executor/taskParallelPipelineExecutor.hpp"
 #include "executor/taskHandle.hpp"

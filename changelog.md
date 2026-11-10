@@ -17,6 +17,10 @@
 
 ### Added
 
+- Bounded whole-image `taskParallel` execution with independent factory-built
+  Pipelines, configurable worker/max-in-flight limits, preallocated FIFO completion
+  slots, task deadlines/cancellation and additive RuntimeFactory session overloads.
+  Existing serial, stage-parallel and batch execution paths remain unchanged.
 - Native builds automatically generate product endpoint manifests from a separate declaration library, without constructing the business runtime. One-click product kits bundle/discover manifests, optional starter assets and a shared-core CLI; Service checks runtime bindings against the declared contract.
 - Declarative `ProductApplication` / `BusinessExports` for shared CLI and product-Shell business libraries, including typed scalar parameters, commands, schema-described state publication and owned image streams.
 - Result-independent product runtime adoption, model-free custom profiles, manifest 1.1 state-field metadata and Designer field selection/validation. `Samples/businessExports` demonstrates an OpenCV-only product with a common CLI/GUI core.

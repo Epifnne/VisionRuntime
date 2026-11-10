@@ -7,12 +7,14 @@
 #include "executor/iPipelineExecutor.hpp"
 #include "executor/parallelPipelineExecutor.hpp"
 #include "executor/serialPipelineExecutor.hpp"
+#include "executor/taskParallelPipelineExecutor.hpp"
 #include "logs/logger.hpp"
 #include "pipeline/iStagedVisionPipeline.hpp"
 #include "pipeline/iVisionPipeline.hpp"
 #include "runtime/runtimeSession.hpp"
 
 #include <memory>
+#include <concepts>
 #include <utility>
 
 namespace visionRuntime::runtime {
@@ -48,6 +50,54 @@ public:
 				std::move(options)));
 	}
 
+	template<typename ResultType, typename Factory>
+		requires std::invocable<Factory&> &&
+			std::convertible_to<const Factory&, executor::PipelineFactory<ResultType>>
+	[[nodiscard]] static core::Result<std::unique_ptr<RuntimeSession<ResultType>>>
+	createRuntime(
+		std::unique_ptr<camera::IFrameSource> source,
+		const Factory& factory,
+		const config::DeploymentConfig& config,
+		executor::FrameExecutionOptions<ResultType> options = {}) {
+		if (!source) {
+			return runtimeFailure<ResultType>(core::StatusCode::InvalidArgument,
+				"runtime factory requires a frame source");
+		}
+		auto built = createExecutor<ResultType>(factory, config);
+		if (!built) {
+			return core::Result<std::unique_ptr<RuntimeSession<ResultType>>>::failure(built.status());
+		}
+		return core::Result<std::unique_ptr<RuntimeSession<ResultType>>>::success(
+			std::make_unique<RuntimeSession<ResultType>>(
+				std::move(source), std::move(built).value(), std::move(options)));
+	}
+
+	template<typename ResultType, typename Factory>
+		requires std::invocable<Factory&> &&
+			std::convertible_to<const Factory&, executor::PipelineFactory<ResultType>>
+	[[nodiscard]] static core::Result<std::unique_ptr<executor::IPipelineExecutor<ResultType>>>
+	createExecutor(
+		const Factory& factory,
+		const config::DeploymentConfig& config) {
+		if (config.executor.performancePolicy != config::PerformancePolicy::TaskParallel) {
+			return executorFailure<ResultType>(core::StatusCode::InvalidArgument,
+				"pipeline factory overload requires taskParallel policy");
+		}
+		executor::ExecutorOptions options;
+		options.queueCapacity = config.executor.queueCapacity;
+		options.queueFullPolicy = config.executor.queueFullPolicy == config::QueueFullPolicy::Block
+			? executor::QueueFullPolicy::Block : executor::QueueFullPolicy::Drop;
+		options.taskTimeout = config.executor.taskTimeout;
+		auto built = executor::TaskParallelPipelineExecutor<ResultType>::create(
+			factory, options, {config.executor.workerCount, config.executor.maxInFlight});
+		if (!built) {
+			return core::Result<std::unique_ptr<executor::IPipelineExecutor<ResultType>>>::failure(
+				built.status());
+		}
+		return core::Result<std::unique_ptr<executor::IPipelineExecutor<ResultType>>>::success(
+			std::move(built).value());
+	}
+
 	template<typename ResultType>
 	[[nodiscard]] static core::Result<std::unique_ptr<
 		executor::IPipelineExecutor<ResultType>>> createExecutor(
@@ -56,6 +106,10 @@ public:
 		if (!pipeline) {
 			return executorFailure<ResultType>(core::StatusCode::InvalidArgument,
 				"runtime factory requires a pipeline");
+		}
+		if (config.executor.performancePolicy == config::PerformancePolicy::TaskParallel) {
+			return executorFailure<ResultType>(core::StatusCode::InvalidArgument,
+				"taskParallel requires a pipeline factory, not a single pipeline");
 		}
 		if (config.executor.queueCapacity == 0 ||
 			config.executor.stageQueueCapacity == 0 ||
@@ -101,7 +155,11 @@ public:
 		std::unique_ptr<pipeline::IStagedVisionPipeline<ResultType>> pipeline,
 		const config::DeploymentConfig& config,
 		executor::BatchInferenceOptions batchOptions) {
-		if (!pipeline) {
+			if (config.executor.performancePolicy == config::PerformancePolicy::TaskParallel) {
+				return executorFailure<ResultType>(core::StatusCode::InvalidArgument,
+					"taskParallel cannot be combined with batch execution");
+			}
+			if (!pipeline) {
 			return executorFailure<ResultType>(core::StatusCode::InvalidArgument,
 				"runtime factory requires a pipeline");
 		}

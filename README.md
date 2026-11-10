@@ -380,7 +380,49 @@ The framework provides cooperative stopping only. It does not impose a join time
 
 The standalone consumer `anomalyDirectorySample` has been validated end-to-end from its release directory with the TensorRT plugin on the 80 images in `Samples/anomalyDirectory/image` (28 NG and 52 OK; one borderline flip versus the earlier OpenVINO CPU reference of 27 NG and 53 OK). Runtime gracefully drains accepted tasks after the finite `FileSource` ends, and joins the Source, three-stage Executor, and result callback thread before `wait()` returns. All 122 automated tests pass on the MSVC build.
 
-The model Pipeline exposes three stages through `IStagedVisionPipeline`; the OpenCV single-stage Pipeline still supports serial execution only. `RuntimeFactory` selects an executor from the deployment configuration's `performancePolicy`, `queueFullPolicy`, ingress capacity, and stage capacities, then assembles it with the frame source into a `RuntimeSession`. Advanced callers can still use `createExecutor()` to obtain the submission interface directly. See [Docs/architecture.md](Docs/architecture.md#37-executor) for detailed boundaries.
+The model Pipeline exposes three stages through `IStagedVisionPipeline`; a monolithic OpenCV Pipeline cannot use stage-parallel execution. Both support whole-pipeline task parallelism with independent instances. `RuntimeFactory` selects an executor from the deployment configuration's `performancePolicy`, `queueFullPolicy`, ingress capacity, and stage capacities, then assembles it with the frame source into a `RuntimeSession`. Advanced callers can still use `createExecutor()` to obtain the submission interface directly. See [Docs/architecture.md](Docs/architecture.md#37-executor) for detailed boundaries.
+
+### Bounded whole-image task parallelism
+
+`performancePolicy: "taskParallel"` runs different images concurrently on a fixed
+worker pool. It does not parallelize nodes inside an image or nest stage executors.
+Each worker owns a separate Pipeline, so callers must supply a
+`executor::PipelineFactory<ResultType>` returning
+`Result<unique_ptr<IVisionPipeline<ResultType>>>` to
+`RuntimeFactory::createExecutor<ResultType>(factory, deployment)` or the corresponding
+`createRuntime<ResultType>(source, factory, deployment, options)` overload.
+The single-Pipeline overload rejects this policy rather than sharing mutable state.
+The factory overload is specifically for `taskParallel`; other policies retain
+their existing single-Pipeline entry point.
+
+```json
+"executor": {
+    "performancePolicy": "taskParallel",
+    "queueFullPolicy": "block",
+    "queueCapacity": 8,
+    "workerCount": 4,
+    "maxInFlight": 16
+}
+```
+
+`workerCount` defaults to 1; `maxInFlight` defaults to 16 and must be at least
+`workerCount`. Both must be positive integers. `queueCapacity` bounds waiting tasks;
+`maxInFlight` bounds all accepted tasks through callback return, including running
+tasks and out-of-order results. Completed slots are preallocated, and one delivery
+thread fulfills futures and calls callbacks in submission order. A slow earlier
+image or callback therefore applies backpressure. Caller-retained futures/results
+and each Pipeline's working memory are outside this task-count bound.
+
+All Pipeline instances are built before threads start; construction failure releases
+partial resources. Models/device buffers are not implicitly shared: account for
+per-worker RAM/VRAM before increasing concurrency. Existing task cancellation,
+capture-to-delivery deadlines and graceful/immediate stop semantics apply.
+Futures become ready before their callbacks return. A callback must not wait on
+tasks from the same executor or call `wait()`; blocking reentrant submission when
+capacity is exhausted returns `InvalidState` instead of deadlocking.
+Only external control threads call `wait()`, after stopping/joining submitters.
+The factory is an SDK C++ boundary; existing single-instance presets and Service
+profile assembly do not automatically replicate their Pipelines.
 
 ## Build Environment
 

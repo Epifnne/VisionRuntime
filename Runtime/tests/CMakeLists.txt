@@ -239,6 +239,12 @@ target_include_directories(pipelineExecutorTest PRIVATE ${PROJECT_SOURCE_DIR}/Ru
 target_link_libraries(pipelineExecutorTest PRIVATE visionRuntime GTest::gtest_main)
 gtest_discover_tests(pipelineExecutorTest)
 
+add_executable(taskParallelPipelineExecutorTest
+	executor/taskParallelPipelineExecutorTest.cpp
+)
+target_link_libraries(taskParallelPipelineExecutorTest PRIVATE visionRuntime GTest::gtest_main)
+gtest_discover_tests(taskParallelPipelineExecutorTest)
+
 add_executable(batchPipelineExecutorTest
 	executor/batchPipelineExecutorTest.cpp
 )

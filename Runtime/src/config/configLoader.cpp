@@ -63,9 +63,11 @@ core::Result<DeploymentConfig> ConfigLoader::loadDeployment(
 			config.executor.performancePolicy = PerformancePolicy::Serial;
 		} else if (performancePolicy == "pipelineParallel") {
 			config.executor.performancePolicy = PerformancePolicy::PipelineParallel;
+		} else if (performancePolicy == "taskParallel") {
+			config.executor.performancePolicy = PerformancePolicy::TaskParallel;
 		} else {
 			return invalidConfig(core::StatusCode::InvalidArgument,
-				"executor.performancePolicy must be serial or pipelineParallel");
+				"executor.performancePolicy must be serial, pipelineParallel or taskParallel");
 		}
 
 		const auto queueFullPolicy = executor.at("queueFullPolicy").get<std::string>();
@@ -87,6 +89,16 @@ core::Result<DeploymentConfig> ConfigLoader::loadDeployment(
 		}
 		config.executor.queueCapacity = queueCapacity.get<std::size_t>();
 		config.executor.stageQueueCapacity = stageQueueCapacity.get<std::size_t>();
+		const auto workerCount = executor.value("workerCount", nlohmann::json(1));
+		const auto maxInFlight = executor.value("maxInFlight", nlohmann::json(16));
+		if (!workerCount.is_number_integer() || !maxInFlight.is_number_integer() ||
+			workerCount.get<std::int64_t>() <= 0 || maxInFlight.get<std::int64_t>() <= 0 ||
+			maxInFlight.get<std::int64_t>() < workerCount.get<std::int64_t>()) {
+			return invalidConfig(core::StatusCode::InvalidArgument,
+				"executor requires positive workerCount and maxInFlight >= workerCount");
+		}
+		config.executor.workerCount = workerCount.get<std::size_t>();
+		config.executor.maxInFlight = maxInFlight.get<std::size_t>();
 		if (executor.contains("taskTimeoutMilliseconds")) {
 			const auto& timeout = executor.at("taskTimeoutMilliseconds");
 			if (!timeout.is_number_integer() ||

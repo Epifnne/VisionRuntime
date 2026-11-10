@@ -228,6 +228,7 @@ Executor 在 Pipeline 之上提供在线调度：
 - `FrameExecutor<ResultType>` 只拥有 `IFrameSource` 和注入的 `IPipelineExecutor<ResultType>`，负责帧数/时长停止条件、源错误策略与运行统计，不包含 Pipeline 构造和队列配置。
 - `IPipelineExecutor<ResultType>` 统一 `submit()`、`requestStop()` 与 `wait()`；`SerialPipelineExecutor` 使用单执行线程按 FIFO 调用整体 `run()`。
 - `ParallelPipelineExecutor` 依赖 `IStagedVisionPipeline<ResultType>`，preprocess、inference 和 postprocess 各由一个专属线程执行，不同任务可以在不同阶段重叠。
+- `TaskParallelPipelineExecutor` 是独立的整图并发策略：固定 W 个 worker，各自独占由 `PipelineFactory<ResultType>` 创建的 Pipeline，按整体 `run()` 处理不同图像；不要求 staged contract，也不自动叠加阶段并行。
 - `ExecutorTask<ResultType>` 集中管理 task ID、PipelinePacket、取消状态、future 和 callback；串行与并行执行器不重复实现任务状态机。
 - `submit()` 支持多业务线程并发调用；固定容量入口队列满时返回 `QueueFull`。
 - `TaskHandle` 提供 task ID、任务状态、shared future 和取消请求。
@@ -246,7 +247,26 @@ Executor 在 Pipeline 之上提供在线调度：
 - 所有工作线程和用户 callback 只能请求停止；只有外部控制线程调用 `wait()` 并按 Source、Executor 内部阶段、CompletionDispatcher、Timer 的所有权层级回收线程。
 - 框架不提供 shutdown timeout、线程强杀或进程终止。不可取消的第三方调用或永久阻塞 callback 会使 `wait()` 与析构持续阻塞，最终强制退出由应用或操作系统负责。
 
-`IVisionPipeline` 保留整体 `run()` contract；可阶段化的模型 Pipeline 额外实现 `IStagedVisionPipeline`。`RuntimeFactory` 在选择并行策略时验证该 contract，不识别具体 Pipeline 类型；OpenCV 单阶段 Pipeline 配置并行策略时返回配置错误。工厂通过 `createRuntime()` 组合 source、pipeline、部署策略和帧执行选项，通过 `createExecutor()` 保留只构造调度层的高级入口，通过 `createBatchExecutor()` 构造批量推理执行器。
+`IVisionPipeline` 保留整体 `run()` contract；可阶段化的模型 Pipeline 额外实现 `IStagedVisionPipeline`。`RuntimeFactory` 在选择阶段并行策略时验证该 contract，不识别具体 Pipeline 类型；OpenCV 单阶段 Pipeline 配置阶段并行策略时返回配置错误。工厂通过 `createRuntime()` 组合 source、pipeline、部署策略和帧执行选项，通过 `createExecutor()` 保留只构造调度层的高级入口，通过 `createBatchExecutor()` 构造批量推理执行器。
+
+`taskParallel` 使用工厂重载 `createExecutor<ResultType>(factory, config)` /
+`createRuntime<ResultType>(source, factory, config, options)`，其中 factory 返回
+`Result<unique_ptr<IVisionPipeline<ResultType>>>`；传入单实例时明确拒绝，不隐式共享。
+现有单实例入口继续处理 `serial` / `pipelineParallel`。所有 W 个实例在启动线程前完成构造，
+任一失败均释放已构建实例并返回错误；模型、设备缓冲和算法工作区默认不共享。
+
+整图并发有两个边界：`queueCapacity` 限制等待 worker 的任务，
+`maxInFlight` 限制从接受到 callback 返回的全部任务；`workerCount` 默认 1，
+`maxInFlight` 默认 16，要求正数且 `maxInFlight >= workerCount`。
+执行器预分配 `maxInFlight` 个稳定槽位，多 worker 在互斥保护下发布完成结果，
+单交付线程按提交顺序设置 future 并调用 callback。后完成任务不会因重排缓存而无限增长，
+慢首帧和慢 callback 都会产生背压；外部长期持有的 future/result 与实例工作内存不在任务数边界内。
+已有 SPSC CompletionDispatcher 不变，不被多 worker 并发写入。
+立即停止标记等待、运行和待交付任务取消；不抢占第三方调用。
+平滑停止排空已接受任务，每个 Pipeline 的 `finishBatch()` 在交付线程退出后只调用一次。
+future 在 callback 前就绪，但容量在 callback 返回后归还；callback 不得等待同执行器任务或调用
+`wait()`，满载时从 callback 重入阻塞提交会明确返回 InvalidState。
+工件头/中/尾关联和完整性聚合仍属于业务层，不作为 Runtime 图像执行器的内置语义。
 
 ### 3.7.1 多相机批量推理
 

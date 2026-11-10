@@ -5,6 +5,43 @@
 #include <filesystem>
 #include <fstream>
 
+TEST(ConfigLoaderTest, LoadsAndValidatesTaskParallelOptions) {
+	const auto path = std::filesystem::temp_directory_path() / "vision-runtime-task-parallel.json";
+	for (const auto value : {"0", "-1", "1.5", "\"2\"", "2", "5"}) {
+		std::ofstream stream(path);
+		stream << R"({"schemaVersion":{"major":1},
+			"backend":{"pluginDirectory":"plugins","id":"fake","device":"CPU"},
+			"executor":{"performancePolicy":"taskParallel","queueFullPolicy":"block",
+			"queueCapacity":4,"maxInFlight":4,"workerCount":)" << value << "}}";
+		stream.close();
+		auto loaded = visionRuntime::config::ConfigLoader::loadDeployment(path);
+		if (std::string_view(value) == "2") {
+			ASSERT_TRUE(loaded);
+			EXPECT_EQ(loaded->executor.performancePolicy,
+				visionRuntime::config::PerformancePolicy::TaskParallel);
+			EXPECT_EQ(loaded->executor.workerCount, 2U);
+			EXPECT_EQ(loaded->executor.maxInFlight, 4U);
+		} else {
+			EXPECT_FALSE(loaded) << value;
+		}
+	}
+	std::filesystem::remove(path);
+}
+
+TEST(ConfigLoaderTest, RejectsInvalidMaxInFlight) {
+	const auto path = std::filesystem::temp_directory_path() / "vision-runtime-in-flight.json";
+	for (const auto value : {"0", "-1", "1.5", "\"4\"", "1"}) {
+		std::ofstream stream(path);
+		stream << R"({"schemaVersion":{"major":1},
+			"backend":{"pluginDirectory":"plugins","id":"fake","device":"CPU"},
+			"executor":{"performancePolicy":"taskParallel","queueFullPolicy":"block",
+			"queueCapacity":4,"workerCount":2,"maxInFlight":)" << value << "}}";
+		stream.close();
+		EXPECT_FALSE(visionRuntime::config::ConfigLoader::loadDeployment(path)) << value;
+	}
+	std::filesystem::remove(path);
+}
+
 TEST(ConfigLoaderTest, RejectsNegativeAndFractionalQueueCapacities) {
 	const auto path = std::filesystem::temp_directory_path() / "vision-runtime-negative-queue.json";
 	for (const auto capacity : {"-1", "1.5"}) {
