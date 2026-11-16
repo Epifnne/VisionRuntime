@@ -9,6 +9,9 @@
 #include <QImage>
 #include <QDebug>
 #include <QMutex>
+#include <QFileInfo>
+#include <QUrl>
+#include <QMetaObject>
 #include <variant>
 #include <algorithm>
 
@@ -75,7 +78,16 @@ public:
 	QString lastError;
 	QHash<quint32, QImage> latestFrames;
 	QMutex framesMutex;
+	bool frameDispatchScheduled = false;
+	std::uint64_t frameGeneration = 0;
 	std::vector<std::uint64_t> subscriptions;
+
+	void invalidateFrames() {
+		QMutexLocker lock(&framesMutex);
+		++frameGeneration;
+		latestFrames.clear();
+		frameDispatchScheduled = false;
+	}
 };
 
 ServiceClient::ServiceClient(QObject* parent)
@@ -168,12 +180,17 @@ QString ServiceClient::uiJson() const {
 
 bool ServiceClient::loadProfile(const QString& path) {
 	impl_->service.shutdown();
+	impl_->invalidateFrames();
 	for (const auto id : impl_->subscriptions) {
 		impl_->service.endpoints().unsubscribe(id);
 	}
 	impl_->subscriptions.clear();
 
-	auto result = impl_->service.loadProfile(path.toStdString());
+	const QUrl url(path);
+	const auto localPath = url.isLocalFile() ? url.toLocalFile() : path;
+	const auto utf8 = QFileInfo(localPath).absoluteFilePath().toUtf8();
+	auto result = impl_->service.loadProfile(std::filesystem::path(std::u8string(
+		reinterpret_cast<const char8_t*>(utf8.constData()), static_cast<std::size_t>(utf8.size()))));
 	if (!result) {
 		impl_->lastError = QString::fromStdString(result.status().toString());
 		emit lastErrorChanged();
@@ -187,6 +204,8 @@ bool ServiceClient::loadProfile(const QString& path) {
 
 bool ServiceClient::subscribeEndpoints() {
 	impl_->subscriptions.clear();
+	impl_->invalidateFrames();
+	const auto generation = impl_->frameGeneration;
 	auto& registry = impl_->service.endpoints();
 	auto failed = [this, &registry](const visionRuntime::core::Status& status) {
 		for (const auto token : impl_->subscriptions) {
@@ -200,9 +219,16 @@ bool ServiceClient::subscribeEndpoints() {
 	};
 	for (const auto& descriptor : registry.states()) {
 		auto name = QString::fromStdString(descriptor.name);
-		auto callback = [this, name](
+		auto callback = [this, name, generation](
 			const visionService::endpoints::StateSnapshot& snapshot) {
-			emit stateChanged(name, QString::fromStdString(snapshot.payload));
+			const auto payload = QString::fromStdString(snapshot.payload);
+			QMetaObject::invokeMethod(this, [this, name, payload, generation] {
+				{
+					QMutexLocker lock(&impl_->framesMutex);
+					if (generation != impl_->frameGeneration) return;
+				}
+				emit stateChanged(name, payload);
+			}, Qt::QueuedConnection);
 		};
 		auto subscribed = registry.subscribeState(descriptor.name, callback);
 		if (!subscribed) {
@@ -211,12 +237,29 @@ bool ServiceClient::subscribeEndpoints() {
 		impl_->subscriptions.push_back(subscribed.value());
 	}
 	for (const auto& descriptor : registry.streams()) {
-		auto callback = [this](
+		auto callback = [this, generation](
 			std::uint32_t sid, const visionRuntime::vision::Frame& frame) {
 			QImage image = convertFrame(frame);
-			if (!image.isNull()) {
-				emit frameReceived(sid, image);
+			if (image.isNull()) return;
+			{
+				QMutexLocker lock(&impl_->framesMutex);
+				if (generation != impl_->frameGeneration) return;
+				impl_->latestFrames.insert(sid, std::move(image));
+				if (impl_->frameDispatchScheduled) return;
+				impl_->frameDispatchScheduled = true;
 			}
+			// Keep only the latest image per stream while the GUI is busy.
+			QMetaObject::invokeMethod(this, [this, generation] {
+				QHash<quint32, QImage> frames;
+				{
+					QMutexLocker lock(&impl_->framesMutex);
+					if (generation != impl_->frameGeneration) return;
+					frames.swap(impl_->latestFrames);
+					impl_->frameDispatchScheduled = false;
+				}
+				for (auto it = frames.constBegin(); it != frames.constEnd(); ++it)
+					emit frameReceived(it.key(), it.value());
+			}, Qt::QueuedConnection);
 		};
 		auto subscribed = registry.subscribeStream(descriptor.name, callback);
 		if (!subscribed) {
@@ -260,6 +303,8 @@ bool ServiceClient::writeParameter(const QString& name, const QVariant& value) {
 		emit lastErrorChanged();
 		return false;
 	}
+	impl_->lastError.clear();
+	emit lastErrorChanged();
 	return true;
 }
 

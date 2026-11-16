@@ -23,6 +23,7 @@ namespace visionRuntime::executor {
 struct TaskParallelOptions {
 	std::size_t workerCount = 1;
 	std::size_t maxInFlight = 16;
+	bool preserveSubmissionOrder = true;
 };
 
 template<typename ResultType>
@@ -118,12 +119,13 @@ public:
 			return failure<TaskHandle<ResultType>>(core::StatusCode::QueueFull,
 				"executor queue or maxInFlight reached its capacity");
 		}
-		const auto index = nextAdmission_;
+		const auto index = free_.front();
 		Task task(nextTaskId_, std::move(packet), std::move(callback), deadline);
 		auto handle = task.handle();
 		pending_.push_back(index);
+		if (preserveSubmissionOrder_) deliveryOrder_.push_back(index);
 		slots_[index].task.emplace(std::move(task));
-		nextAdmission_ = (index + 1) % slots_.size();
+		free_.pop_front();
 		++nextTaskId_;
 		++inFlight_;
 		workReady_.notify_one();
@@ -168,7 +170,9 @@ private:
 	TaskParallelPipelineExecutor(
 		std::vector<std::unique_ptr<pipeline::IVisionPipeline<ResultType>>> pipelines,
 		ExecutorOptions options, TaskParallelOptions parallel)
-		: options_(options), pipelines_(std::move(pipelines)), slots_(parallel.maxInFlight) {
+		: options_(options), pipelines_(std::move(pipelines)), slots_(parallel.maxInFlight),
+		  preserveSubmissionOrder_(parallel.preserveSubmissionOrder) {
+		for (std::size_t i = 0; i < slots_.size(); ++i) free_.push_back(i);
 		try {
 			workers_.reserve(pipelines_.size());
 			for (std::size_t i = 0; i < pipelines_.size(); ++i) {
@@ -226,19 +230,22 @@ private:
 			{
 				std::lock_guard lock(mutex_);
 				slots_[index].result.emplace(std::move(result));
+				if (!preserveSubmissionOrder_) deliveryOrder_.push_back(index);
 			}
 			completionReady_.notify_one();
 		}
 	}
 
 	void runDelivery() noexcept {
-		std::size_t next = 0;
 		for (;;) {
 			std::unique_lock lock(mutex_);
 			completionReady_.wait(lock, [&] {
-				return (!accepting_ && inFlight_ == 0) || slots_[next].result.has_value();
+				return (!accepting_ && inFlight_ == 0) ||
+				    (!deliveryOrder_.empty() && slots_[deliveryOrder_.front()].result.has_value());
 			});
 			if (inFlight_ == 0) return;
+			const auto next = deliveryOrder_.front();
+			deliveryOrder_.pop_front();
 			auto task = std::move(*slots_[next].task);
 			auto result = std::move(*slots_[next].result);
 			slots_[next].task.reset();
@@ -253,7 +260,7 @@ private:
 			lock.lock();
 			delivering_ = nullptr;
 			--inFlight_;
-			next = (next + 1) % slots_.size();
+			free_.push_back(next);
 			lock.unlock();
 			spaceReady_.notify_all();
 		}
@@ -264,9 +271,10 @@ private:
 	// Slots stay reserved through callback completion, bounding out-of-order results too.
 	std::vector<Slot> slots_;
 	std::deque<std::size_t> pending_;
+	std::deque<std::size_t> free_, deliveryOrder_;
+	const bool preserveSubmissionOrder_;
 	std::mutex mutex_;
 	std::condition_variable workReady_, completionReady_, spaceReady_;
-	std::size_t nextAdmission_ = 0;
 	TaskId nextTaskId_ = 1;
 	std::size_t inFlight_ = 0;
 	Task* delivering_ = nullptr;

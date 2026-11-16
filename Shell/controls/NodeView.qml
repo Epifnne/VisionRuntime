@@ -11,6 +11,7 @@ Loader {
 	property var node: ({})
 
 	Layout.fillWidth: node.fillWidth === true
+	Layout.minimumWidth: node.fillWidth === true ? 0 : -1
 	Layout.fillHeight: node.fillHeight === true
 	Layout.preferredWidth: node.width ? node.width : implicitWidth
 	Layout.preferredHeight: node.height ? node.height : implicitHeight
@@ -26,6 +27,7 @@ Loader {
 		case "stateCard": return stateCardComponent;
 		case "commandButton": return commandButtonComponent;
 		case "parameterForm": return parameterFormComponent;
+		case "parameterSwitch": return parameterSwitchComponent;
 		case "statNumber": return statNumberComponent;
 		case "resultTable": return resultTableComponent;
 		default: return unknownComponent;
@@ -59,6 +61,7 @@ Loader {
 	component NodeChild: Loader {
 		property var node: ({})
 		Layout.fillWidth: node.fillWidth === true
+		Layout.minimumWidth: node.fillWidth === true ? 0 : -1
 		Layout.fillHeight: node.fillHeight === true
 		Layout.preferredWidth: node.width ? node.width : (item ? item.implicitWidth : 0)
 		Layout.preferredHeight: node.height ? node.height : (item ? item.implicitHeight : 0)
@@ -77,6 +80,7 @@ Loader {
 		id: stateCardComponent
 		StateCard {
 			endpoint: root.node.endpoint || ""
+			compact: root.node.compact === true
 			title: root.node.title || root.node.endpoint || ""
 		}
 	}
@@ -98,10 +102,44 @@ Loader {
 	}
 
 	Component {
+		id: parameterSwitchComponent
+		Switch {
+			id: parameterSwitch
+			property string sessionState: ""
+			function refreshSessionState() {
+				if (root.node.beforeStartOnly === true) {
+					var snapshot = serviceClient.stateSnapshot("session.state");
+					sessionState = snapshot ? JSON.parse(snapshot).state : "";
+				}
+			}
+			text: root.node.label || root.node.endpoint || ""
+			enabled: root.node.beforeStartOnly !== true || sessionState === "idle"
+			checked: serviceClient.readParameter(root.node.endpoint) === true
+			Component.onCompleted: refreshSessionState()
+			onToggled: {
+				if (!serviceClient.writeParameter(root.node.endpoint, checked))
+					checked = serviceClient.readParameter(root.node.endpoint) === true;
+			}
+			Connections {
+				target: serviceClient
+				function onRegistryChanged() {
+					parameterSwitch.checked = serviceClient.readParameter(root.node.endpoint) === true;
+					parameterSwitch.refreshSessionState();
+				}
+				function onStateChanged(name, payload) {
+					if (name === "session.state" && root.node.beforeStartOnly === true)
+						parameterSwitch.sessionState = JSON.parse(payload).state;
+				}
+			}
+		}
+	}
+
+	Component {
 		id: statNumberComponent
 		StatNumber {
 			endpoint: root.node.endpoint || ""
 			field: root.node.field || ""
+			valueLabels: root.node.valueLabels || ({})
 			title: root.node.title || root.node.endpoint || ""
 		}
 	}

@@ -155,9 +155,11 @@ core::Result<ProductProfile> ProfileLoader::load(
 	}
 
 	try {
+		const auto resolvedPath = std::filesystem::canonical(path);
 		const auto document = nlohmann::json::parse(stream);
 		const auto& schemaVersion = document.at("schemaVersion");
 		ProductProfile profile;
+		profile.profileDirectory = resolvedPath.parent_path();
 		profile.schemaMajor = schemaVersion.at("major").get<std::uint32_t>();
 		profile.schemaMinor =
 			schemaVersion.value("minor", std::uint32_t{0});
@@ -179,7 +181,7 @@ core::Result<ProductProfile> ProfileLoader::load(
 		std::unordered_set<std::string> sourceIds;
 		for (const auto& sourceDocument : sources) {
 			SourceProfile source;
-			parseSource(sourceDocument, path, source);
+			parseSource(sourceDocument, resolvedPath, source);
 			if (!sourceIds.insert(source.id).second) {
 				return invalid(core::StatusCode::InvalidArgument,
 					"source ids must be unique");
@@ -197,11 +199,11 @@ core::Result<ProductProfile> ProfileLoader::load(
 		if (document.contains("model")) {
 			const auto& model = document.at("model");
 			profile.model.packagePath =
-				profileRelativePath(path, model.at("packagePath"));
+				profileRelativePath(resolvedPath, model.at("packagePath"));
 			profile.model.backendId = model.at("backendId").get<std::string>();
 			profile.model.device = model.at("device").get<std::string>();
 			profile.model.pluginDirectory =
-				profileRelativePath(path, model.at("pluginDirectory"));
+				profileRelativePath(resolvedPath, model.at("pluginDirectory"));
 		} else if (profile.runtimeProduct.empty()) {
 			return invalid(core::StatusCode::InvalidArgument,
 				"model is required unless runtimeProduct selects a custom product");

@@ -92,6 +92,8 @@ struct ProductProfile {
 	std::string uiJson;
 	/// Original JSON for product-specific configuration not interpreted by Service.
 	std::string documentJson;
+	/// Base for product-specific asset paths in documentJson.
+	std::filesystem::path profileDirectory;
 	std::string runtimeProduct;
 };
 

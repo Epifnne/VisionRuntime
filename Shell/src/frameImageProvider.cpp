@@ -8,7 +8,11 @@ FrameImageProvider::FrameImageProvider()
 QImage FrameImageProvider::requestImage(
 	const QString& id, QSize* size, const QSize& requestedSize) {
 	QMutexLocker locker(&mutex_);
-	const auto sourceId = static_cast<quint32>(id.toUInt());
+	bool valid = false;
+	const auto sourceId = id.section('?', 0, 0).toUInt(&valid);
+	if (!valid) {
+		return {};
+	}
 	const auto it = frames_.constFind(sourceId);
 	if (it == frames_.constEnd()) {
 		return {};

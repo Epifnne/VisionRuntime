@@ -21,6 +21,19 @@ GroupBox {
 
 	function resolveSource() {
 		root.sourceId = serviceClient.streamSourceId(root.endpoint);
+		root.frameCount = 0;
+		root.lastSecondCount = 0;
+		root.fps = 0;
+		frameImage.source = "";
+		frameImage.retries = 0;
+		retryTimer.stop();
+	}
+
+	function refreshImage() {
+		if (root.sourceId >= 0 && root.frameCount > 0) {
+			frameImage.source = "image://frames/" + root.sourceId
+				+ "?n=" + root.frameCount;
+		}
 	}
 
 	Component.onCompleted: resolveSource()
@@ -31,8 +44,7 @@ GroupBox {
 		function onFrameReceived(sourceId, image) {
 			if (sourceId === root.sourceId && root.sourceId >= 0) {
 				root.frameCount += 1;
-				frameImage.source = "image://frames/" + sourceId
-					+ "?n=" + root.frameCount;
+				Qt.callLater(root.refreshImage);
 			}
 		}
 	}

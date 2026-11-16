@@ -48,6 +48,13 @@ Runtime 核心仍然不依赖 Qt，不接受任何来自 Shell/Service/Designer 
 
 订阅回调统一在 service 专用分发线程串行投递，UI 侧经 `Qt::QueuedConnection` 回 GUI 线程；UI 线程不直接调用任何 Runtime API。
 
+Shell 绑定层将状态通知送回 GUI 线程；图像通知在 GUI 忙时按 sourceId 合并为每流最新一帧，
+避免排队保留全部 QImage。配置重载/恢复会使旧通知失效并重置图像控件。
+图像提供器解析 ID 时忽略用于刷新/重试的查询串，不将非法 ID 映射到流 0。
+ImageView 在帧信号处理完成后的下一次 GUI 调度中请求图像，确保宿主已先更新图像提供器，
+避免首次帧的 QML 处理器早于 C++ 提供器槽而请求空图。
+会话状态卡同时展示 `error` 与 `lastError`，包括异步启动失败。
+
 ## 4. 产品 profile
 
 产品差异全部收敛到一个 profile JSON（带 `schemaVersion`，格式约定仿 `deployment.json`），内容包括：
@@ -67,6 +74,11 @@ Runtime 核心仍然不依赖 Qt，不接受任何来自 Shell/Service/Designer 
 ```
 
 Service 层按 profile 完成组装并注册端点；manifest 导出接口把注册表序列化为 JSON，供 Designer 拉取端点清单。
+
+自定义产品通过 `ProductApplicationFactory` / `BusinessExports` 注册业务端点；
+工厂读取 `ProductProfile.documentJson` 中的自定义配置时，使用加载器提供的
+`ProductProfile.profileDirectory` 解析相对资产路径，不能依赖进程工作目录。
+Shell 的配置加载接受本地文件 URL，并用 UTF-8 文件系统路径保持非 ASCII 路径。
 
 ## 5. 实施阶段与验收标准
 
