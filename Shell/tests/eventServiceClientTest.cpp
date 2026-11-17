@@ -45,10 +45,12 @@ TEST(EventServiceClientTest, TwoViewsSummaryStopAndRecoveryUseTheSameBusinessSes
 	EXPECT_FALSE(client.invokeCommand("camera.top.softwareTrigger"));
 	ASSERT_TRUE(client.invokeCommand("session.start"));
 	ASSERT_TRUE(await([&] {
-		return results.size() == 4 && client.stateSnapshot("session.state").contains("\"idle\"");
+		return results.size() == 4 && frames[0] > 0 && frames[1] > 0 &&
+			client.stateSnapshot("session.state").contains("\"idle\"");
 	}));
-	EXPECT_EQ(frames[0], 4U);
-	EXPECT_EQ(frames[1], 4U);
+	// Preview streams may coalesce frames; business counters must still be exact.
+	EXPECT_LE(frames[0], 4U);
+	EXPECT_LE(frames[1], 4U);
 	EXPECT_EQ(results.back()["okCount"], 2);
 	EXPECT_EQ(results.back()["ngCount"], 2);
 	EXPECT_EQ(results.back()["faultCount"], 0);
@@ -65,15 +67,21 @@ TEST(EventServiceClientTest, TwoViewsSummaryStopAndRecoveryUseTheSameBusinessSes
 	const auto reset = nlohmann::json::parse(client.stateSnapshot("workpiece.result").toStdString());
 	EXPECT_EQ(reset["okCount"], 0);
 	EXPECT_EQ(reset["ngCount"], 0);
+	frames[0] = frames[1] = 0;
 	ASSERT_TRUE(client.invokeCommand("session.start"));
 	ASSERT_TRUE(await([&] {
-		return results.size() == 8 && client.stateSnapshot("session.state").contains("\"idle\"");
+		return results.size() == 8 && frames[0] > 0 && frames[1] > 0 &&
+			client.stateSnapshot("session.state").contains("\"idle\"");
 	}));
 	EXPECT_GT(results.back()["inspectionId"].get<std::uint64_t>(), oldInspection);
 	EXPECT_EQ(results.back()["okCount"], 2);
 	EXPECT_EQ(results.back()["ngCount"], 2);
-	EXPECT_EQ(frames[0], 8U);
-	EXPECT_EQ(frames[1], 8U);
+	EXPECT_LE(frames[0], 4U);
+	EXPECT_LE(frames[1], 4U);
+	counts = nlohmann::json::parse(client.stateSnapshot("session.summary").toStdString());
+	EXPECT_EQ(counts["completed"], 8);
+	EXPECT_EQ(counts["receivedPerSource"], nlohmann::json::array({4, 4}));
+	EXPECT_EQ(counts["failed"], 0);
 }
 
 TEST(EventServiceClientTest, StopCancelsPendingBusinessTimersAndRecoveryHasNoOldRequests) {
@@ -87,16 +95,21 @@ TEST(EventServiceClientTest, StopCancelsPendingBusinessTimersAndRecoveryHasNoOld
 	std::ofstream(path.toStdString()) << profile.dump();
 	visionShell::ServiceClient client(visionProduct::createApplication);
 	ASSERT_TRUE(client.loadProfile(path));
-	std::size_t frames = 0;
+	std::size_t frames[2]{};
 	QObject::connect(&client, &visionShell::ServiceClient::frameReceived, &client,
-		[&](auto, const QImage&) { ++frames; });
+		[&](auto index, const QImage& image) {
+			ASSERT_LT(index, 2U);
+			EXPECT_FALSE(image.isNull());
+			++frames[index];
+		});
 	ASSERT_TRUE(client.invokeCommand("session.start"));
 	ASSERT_TRUE(await([&] { return client.stateSnapshot("session.state").contains("\"running\""); }));
 	ASSERT_TRUE(client.invokeCommand("session.stop"));
 	ASSERT_TRUE(await([&] { return client.stateSnapshot("session.state").contains("\"idle\""); }));
 	std::this_thread::sleep_for(500ms);
 	QCoreApplication::processEvents();
-	EXPECT_EQ(frames, 0U);
+	EXPECT_EQ(frames[0], 0U);
+	EXPECT_EQ(frames[1], 0U);
 	ASSERT_TRUE(client.invokeCommand("session.recover"));
 	profile["simulation"]["topDelayMilliseconds"] = 10;
 	profile["simulation"]["sideDelayMilliseconds"] = 70;
@@ -104,8 +117,15 @@ TEST(EventServiceClientTest, StopCancelsPendingBusinessTimersAndRecoveryHasNoOld
 	ASSERT_TRUE(client.invokeCommand("session.recover"));
 	ASSERT_TRUE(client.invokeCommand("session.start"));
 	ASSERT_TRUE(await([&] {
-		return frames == 8 && client.stateSnapshot("session.state").contains("\"idle\"");
+		return frames[0] > 0 && frames[1] > 0 &&
+			client.stateSnapshot("session.state").contains("\"idle\"");
 	}));
+	EXPECT_LE(frames[0], 4U);
+	EXPECT_LE(frames[1], 4U);
+	auto counts = nlohmann::json::parse(client.stateSnapshot("session.summary").toStdString());
+	EXPECT_EQ(counts["completed"], 8);
+	EXPECT_EQ(counts["receivedPerSource"], nlohmann::json::array({4, 4}));
+	EXPECT_EQ(counts["failed"], 0);
 	auto result = nlohmann::json::parse(client.stateSnapshot("workpiece.result").toStdString());
 	EXPECT_EQ(result["okCount"], 2);
 	EXPECT_EQ(result["ngCount"], 2);

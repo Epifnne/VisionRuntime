@@ -38,6 +38,8 @@
 
 - Made CI profile path assertions canonical-path aware on Windows and stream
   coalescing tests deterministic without over-decrementing a one-shot latch.
+- Removed cancellation-test scheduling races and checked exact event business
+  counters independently of coalesced GUI preview frame delivery.
 - Non-finite anomaly scores can no longer be classified as OK.
 - Batch failures are routed through one completion producer, preserve submission order alongside successful members, and validate per-member output cardinality.
 - Serial immediate-stop no longer accesses a moved-from running task during completion handoff.

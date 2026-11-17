@@ -388,8 +388,8 @@ TEST(PipelineExecutorTest, ImmediateStopCancelsAcceptedTasks) {
 		visionRuntime::pipeline::PipelinePacket({}), callback);
 	ASSERT_TRUE(queued);
 
-	pipelinePointer->release();
 	executor.requestStop(visionRuntime::executor::StopMode::Immediate);
+	pipelinePointer->release();
 	executor.wait();
 	EXPECT_EQ(running->future().get().status().code(),
 		visionRuntime::core::StatusCode::Cancelled);
