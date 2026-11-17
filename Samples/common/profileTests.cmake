@@ -1,4 +1,4 @@
-foreach(sample IN ITEMS anomalyDirectory anomalyHikMvs anomalyHikMvsMulti anomalyTensorRtMulti
+foreach(sample IN ITEMS anomalyDirectory anomalyTensorRtMulti
 	businessExports eventInspection yoloRouting openCvCuda)
 	if(TARGET ${sample}Sample)
 		add_test(NAME profile.${sample}

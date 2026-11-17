@@ -5,8 +5,6 @@ Every business sample has a `profile.json` shared by its CLI and product Shell:
 | Sample | C++ pipeline | Product-specific profile fields |
 | --- | --- | --- |
 | anomalyDirectory | Single-source preprocess / backend / anomaly threshold | `model`, `pipeline` |
-| anomalyHikMvs | Single-source anomaly pipeline | `model`, `pipeline` |
-| anomalyHikMvsMulti | Multi-source shared batch pipeline | `model`, `pipeline`, `durationMilliseconds` |
 | anomalyTensorRtMulti | Multi-source batch pipeline, TensorRT tuning | `model`, `pipeline`, `backend`, `durationMilliseconds` |
 | businessExports | OpenCV mean brightness | `measurement.minimumBrightness` |
 | eventInspection | Event-driven top brightness and side edge routes | `inspection`, `simulation` (business sensor schedule) |
@@ -27,7 +25,7 @@ Service), build `<sample>Sample`, then run:
 .\Build\YourBuild\bin\yoloRoutingSample.exe .\Samples\yoloRouting\profile.json
 ```
 
-All eight business CLIs accept `<profile.json>`, not positional camera IPs,
+All six business CLIs accept `<profile.json>`, not positional camera IPs,
 input directories, model packages or deployment files. The explicit CUDA
 `--self-test [device-index]` and event simulation acceptance options remain.
 `eventInspectionSample --verify` checks the original synthetic 2 OK / 2 NG
@@ -81,6 +79,11 @@ the two route decisions. Edge measurement compares the first two image columns.
 Declaration-based products generate their custom endpoint manifests offline.
 Anomaly templates expose the shared Service endpoints.
 
+The duplicate `anomalyHikMvs` and `anomalyHikMvsMulti` products have been removed.
+Use `anomalyDirectory` for single-source anomaly inference and
+`anomalyTensorRtMulti` for multi-source batch inference; both accept camera or
+directory sources and select their backend through the profile.
+
 ## Hardware and tests
 
 Vendor anomaly inference requires the selected backend plugin and a compatible
@@ -88,7 +91,7 @@ model. CUDA additionally requires matching contrib sources, Toolkit, driver and
 `VISION_WITH_OPENCV_CUDA=ON` with `VISION_OPENCV_CUDA_ARCH_BIN` explicitly set.
 See the [CUDA guide](openCvCuda/README.md). CUDA is not silently tested on CPU.
 
-CTest `profile.*` tests replay all seven CPU-capable products from profile-relative
+CTest `profile.*` tests replay all five CPU-capable products from profile-relative
 temporary directories, exercise configured algorithms and missing-input errors,
 and use the existing fake backend only in anomaly tests. CI also builds/publishes
 the YOLO product Shell. Real camera and GPU validation remain hardware-specific.

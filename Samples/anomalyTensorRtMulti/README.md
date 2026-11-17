@@ -1,6 +1,6 @@
 # anomalyTensorRtMulti — TensorRT 动态 batch + 多流并行的多源检测示例
 
-以 `anomalyHikMvsSample` 的方式手工组装完整流水线（FrameSourceFactory +
+手工组装完整流水线（FrameSourceFactory +
 PreprocessBuilder + PluginInferenceBackend + AnomalyThresholdPostprocessor +
 `RuntimeFactory::createBatchExecutor` + `MultiCameraSession`），参数由
 完整产品 `profile.json` 驱动，CLI 与 Shell 共享同一管线，演示 TensorRT 插件的两个可选能力：

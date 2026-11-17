@@ -1,5 +1,4 @@
-// Multi-camera anomaly inspection on TensorRT, in the spirit of
-// anomalyHikMvsSample: the pipeline is assembled by hand (source factory +
+// Multi-camera anomaly inspection on TensorRT, assembled by hand (source factory +
 // preprocess chain + plugin backend + threshold postprocess +
 // createBatchExecutor + MultiCameraSession). The shared product profile
 // selects sources, model/backend parameters and UI for both CLI and Shell.

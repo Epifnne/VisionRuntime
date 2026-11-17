@@ -47,6 +47,12 @@
 - Worker/observer exceptions are logged. Monitoring dispatch is bounded, JSON error payloads are escaped, and summaries no longer use a fixed-size per-source buffer.
 - Designer publication checks file-copy/script-write failures and conflicting runtime files. Release assembly no longer hardcodes the checkout path or deletes an existing output.
 
+### Removed
+
+- Duplicate `anomalyHikMvs` and `anomalyHikMvsMulti` samples and their dedicated
+  build helper. Single-source and batch camera usage remain available through
+  `anomalyDirectory` and `anomalyTensorRtMulti` profiles.
+
 ### Release status
 
 - Candidate version is 1.0.0. Hardware soak, real-model accuracy and clean-target deployment remain explicit release approval gates documented in README; they are not implied by software test success.

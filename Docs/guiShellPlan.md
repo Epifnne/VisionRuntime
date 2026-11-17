@@ -33,7 +33,7 @@ Runtime 核心仍然不依赖 Qt，不接受任何来自 Shell/Service/Designer 
 - 组件位置：本仓库新顶层目录 `Service/` 与 `Shell/`，作为 Runtime 的消费者，复用现有 preset 与 `vision_target_runtime()`。
 - 相机运行时参数：在核心 `ICameraDevice` 层补运行时 setter，不做"停 session 重建"的绕行方案。
 - 同进程部署；不为跨进程传输预留序列化层，但端点抽象（命令/状态/图像分离）天然兼容未来的远程壳。
-- Service 层自行组装 source/pipeline/executor/session（参照 `Samples/anomalyHikMvsMulti`），不使用 `AnomalyPreset` 门面，以换取帧分流与端点控制的自由度。
+- Service 层自行组装 source/pipeline/executor/session（参照 `Samples/anomalyTensorRtMulti`），不使用 `AnomalyPreset` 门面，以换取帧分流与端点控制的自由度。
 
 ## 3. 端点抽象
 

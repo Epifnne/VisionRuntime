@@ -305,7 +305,7 @@ file directories, algorithm parameters remain separate from the C++ pipeline
 implementation, and `ui` defines the product Shell. Asset paths resolve relative
 to the profile, never the process working directory. Legacy positional camera,
 directory, model and deployment arguments have been replaced by this entry.
-See [the sample guide](Samples/README.md) for all eight products and hardware requirements.
+See [the sample guide](Samples/README.md) for all six products and hardware requirements.
 `VISION_BUILD_SAMPLES=ON` also enables Service, which supplies the shared profile loader.
 
 Build a CLI/Shell/Designer kit with the common publisher:
@@ -445,21 +445,24 @@ ctest --preset mingw-debug
 
 All build artifacts are written to `Build`.
 
-The Hikrobot anomaly detection sample has been validated end-to-end with MSVC x64 Debug and camera `169.254.239.231`. First load the development environment in `cmd.exe`, then configure and build the standalone project:
+Single-source camera acquisition uses the same profile-driven anomaly sample as
+directory replay. First load the development environment in `cmd.exe`, then
+configure and build the standalone project with Hikrobot SDK support:
 
 ```bat
 call "D:\Visual Studio\Common7\Tools\VsDevCmd.bat" -arch=amd64 -host_arch=amd64
-"D:\Qt\Tools\CMake_64\bin\cmake.exe" -S "Samples\anomalyHikMvs" -B "Build\MSVC-HikMvs" -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_MAKE_PROGRAM="D:\Qt\Tools\Ninja\ninja.exe" -DVISION_RUNTIME_ROOT="E:\Work\VisionRuntime" -DVISION_CAMERA_SDK=HIK_MVS -DVISION_BUILD_OPENVINO_PLUGIN=ON
-"D:\Qt\Tools\CMake_64\bin\cmake.exe" --build "Build\MSVC-HikMvs" --target anomalyHikMvsSample
+"D:\Qt\Tools\CMake_64\bin\cmake.exe" -S "Samples\anomalyDirectory" -B "Build\MSVC-HikMvs" -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_MAKE_PROGRAM="D:\Qt\Tools\Ninja\ninja.exe" -DVISION_RUNTIME_ROOT="E:\Work\VisionRuntime" -DVISION_CAMERA_SDK=HIK_MVS -DVISION_BUILD_OPENVINO_PLUGIN=ON
+"D:\Qt\Tools\CMake_64\bin\cmake.exe" --build "Build\MSVC-HikMvs" --target anomalyDirectorySample
 ```
 
-Configure the camera IP and model/plugin paths in the product profile:
+In the product profile, change the source to a camera while keeping its `files`
+ID, configure the IP, and select the model/plugin paths and `openvino` backend:
 
 ```powershell
-Build\MSVC-HikMvs\bin\anomalyHikMvsSample.exe Samples\anomalyHikMvs\profile.json
+Build\MSVC-HikMvs\bin\anomalyDirectorySample.exe Samples\anomalyDirectory\profile.json
 ```
 
-The MVS client must be closed first because Runtime opens the camera exclusively. The first-frame hardware validation output was `score=5.45422, threshold=2, decision=NG`.
+The MVS client must be closed first because Runtime opens the camera exclusively.
 
 CTest covers camera build profiles, core result types, Tensor views, buffer pools, SPSC queues, serial/parallel/batch executors, backpressure and cancellation, Pipeline lifetimes, directory image decoding, preprocessing, anomaly postprocessing, backend plugin loading, model package loading, deployment configuration, and v1 release contracts. Test counts depend on enabled service, GUI, and vendor targets; use `ctest -N` in the selected build rather than a historical count.
 
@@ -533,9 +536,9 @@ selected inference/camera SDK development files must be installed.
 
 ```bat
 Samples\buildShell.cmd
-Samples\buildShell.cmd anomalyHikMvs
-Samples\buildShell.cmd anomalyHikMvsMulti
 Samples\buildShell.cmd anomalyTensorRtMulti
+Samples\buildShell.cmd eventInspection
+Samples\buildShell.cmd yoloRouting
 ```
 
 Linux:

@@ -6,7 +6,7 @@ case "$sample" in
 	-h|--help)
 		printf '%s\n' 'Usage: sh buildShell.sh [sample] [CMake configure options]' \
 			'Default: anomalyDirectory; requires Ninja and Qt6 Quick development files.' \
-			'Samples: anomalyDirectory, anomalyHikMvs, anomalyHikMvsMulti, anomalyTensorRtMulti, businessExports, eventInspection, yoloRouting, openCvCuda.' \
+			'Samples: anomalyDirectory, anomalyTensorRtMulti, businessExports, eventInspection, yoloRouting, openCvCuda.' \
 			'Output: Publish/release; replaces the previous design kit after successful deployment.' \
 			'Models/images and final GUI packaging are selected in the bundled Designer.' \
 			'Declarative products such as businessExports bundle build-time manifests automatically.' \
