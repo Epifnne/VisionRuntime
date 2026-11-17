@@ -297,27 +297,24 @@ cmake -S Samples/anomalyDirectory -B Build/SampleConsumer -G Ninja `
 cmake --build Build/SampleConsumer --target anomalyDirectorySample
 
 Build/SampleConsumer/bin/anomalyDirectorySample.exe `
-	<benchmark.csv> <model-package> <deployment.json>
+	Samples/anomalyDirectory/profile.json
 ```
 
-`cmake --build Build/SampleConsumer --target publish` assembles a self-contained release directory whose root doubles as the model package (override the location with `-DANOMALY_DIRECTORY_PUBLISH_DIR=<path>`):
+All business samples now take a product profile: `sources` selects camera IPs or
+file directories, algorithm parameters remain separate from the C++ pipeline
+implementation, and `ui` defines the product Shell. Asset paths resolve relative
+to the profile, never the process working directory. Legacy positional camera,
+directory, model and deployment arguments have been replaced by this entry.
+See [the sample guide](Samples/README.md) for all eight products and hardware requirements.
+`VISION_BUILD_SAMPLES=ON` also enables Service, which supplies the shared profile loader.
 
-```text
-release/
-├─ anomalyDirectorySample.exe
-├─ plugins/tensorrt/   # plugin DLL plus nvinfer, plugin and CUDA runtime DLLs
-├─ manifest.json       # model package manifest
-├─ artifacts/          # model-fp32.engine
-├─ image/              # sample input images
-└─ deployment.json
-```
-
-Run it from the release root, where the hardcoded `image/` directory, the model package (`.`), and the relative `pluginDirectory` resolve:
-
+Build a CLI/Shell/Designer kit with the common publisher:
 ```powershell
-cd Publish/release
-./anomalyDirectorySample.exe benchmark.csv . deployment.json
+Samples\buildShell.cmd anomalyDirectory
+Publish\release\run-cli.cmd
 ```
+Configure the model, images and plugin directory in the profile before running;
+the design kit does not bundle vendor models. Designer publishes the final product.
 
 A deployment selects one delivered backend explicitly. A relative
 `pluginDirectory` is resolved against the deployment file, not the process
@@ -452,14 +449,14 @@ The Hikrobot anomaly detection sample has been validated end-to-end with MSVC x6
 
 ```bat
 call "D:\Visual Studio\Common7\Tools\VsDevCmd.bat" -arch=amd64 -host_arch=amd64
-"D:\Qt\Tools\CMake_64\bin\cmake.exe" -S "Samples\anomalyHikMvs" -B "Build\MSVC-HikMvs" -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_MAKE_PROGRAM="D:\Qt\Tools\Ninja\ninja.exe" -DVISION_RUNTIME_ROOT="E:\Work\VisionRuntime"
+"D:\Qt\Tools\CMake_64\bin\cmake.exe" -S "Samples\anomalyHikMvs" -B "Build\MSVC-HikMvs" -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_MAKE_PROGRAM="D:\Qt\Tools\Ninja\ninja.exe" -DVISION_RUNTIME_ROOT="E:\Work\VisionRuntime" -DVISION_CAMERA_SDK=HIK_MVS -DVISION_BUILD_OPENVINO_PLUGIN=ON
 "D:\Qt\Tools\CMake_64\bin\cmake.exe" --build "Build\MSVC-HikMvs" --target anomalyHikMvsSample
 ```
 
-The sample takes the model package directory and the deployment file as arguments; a relative `pluginDirectory` in the deployment resolves against the deployment file, not the process working directory:
+Configure the camera IP and model/plugin paths in the product profile:
 
 ```powershell
-Build\MSVC-HikMvs\bin\anomalyHikMvsSample.exe <model-package> <deployment.json>
+Build\MSVC-HikMvs\bin\anomalyHikMvsSample.exe Samples\anomalyHikMvs\profile.json
 ```
 
 The MVS client must be closed first because Runtime opens the camera exclusively. The first-frame hardware validation output was `score=5.45422, threshold=2, decision=NG`.

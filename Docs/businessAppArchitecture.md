@@ -161,7 +161,7 @@ cmake --preset mingw-debug -DVISION_BUILD_TENSORRT_PLUGIN=ON -DVISION_BUILD_SAMP
 cmake --build --preset mingw-debug --target yourApp
 ```
 
-先用 `--dirs` 目录回放做无相机验证，再接相机 IP 实机验证，最后接机械臂（先打日志观察
+先在 `profile.json` 的 `sources` 中选择目录回放做无相机验证，再切换为相机 IP 实机验证，最后接机械臂（先打日志观察
 投递时序，再开真实动作）。
 
 ### 步骤 5：业务发行包
@@ -173,7 +173,8 @@ cmake --build --preset mingw-debug --target yourApp
 ### 步骤 6：产品专属 Shell（业务与 GUI 共同发布）
 
 1. 将业务组装与回调放到 sample 原源码中的 `visionSample::createSampleRuntime`。
-   `main()` 只保留 CLI 参数解析和启停；`VISION_SAMPLE_SHELL` 编译时不包含 `main()`。
+   CLI 通过 `Samples/common/anomalyMain.cpp` 与 Shell 共用 profile 适配器，
+   sample 的管线实现不再包含另一套命令行采集源配置。
    新 sample 需提供 `sampleRuntime.hpp` 和 `shell.cmake`。
 2. 配置 `Samples/buildShell.cmd` 顶部的 Qt6 MSVC kit 路径；自定义 VS 安装填写
    `vcvars64.bat` 路径。Windows 脚本明确使用 MSVC x64、Ninja、Release，不依赖 preset。

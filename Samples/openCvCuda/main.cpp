@@ -3,6 +3,8 @@
 #include "camera/fileSource.hpp"
 #include "pipeline/openCvPipelineBuilder.hpp"
 #include "runtime/runtimeFactory.hpp"
+#include "exports/productEntry.hpp"
+#include "../common/profileCli.hpp"
 
 #include <opencv2/imgproc.hpp>
 
@@ -52,7 +54,7 @@ int selfTest(pipeline::OpenCvPipeline<InspectionResult>& pipeline) {
 	return 0;
 }
 
-int run(std::string_view input, int device) {
+int runSelfTest(int device) {
 	auto algorithm = CudaThresholdAlgorithm::create(device);
 	if (!algorithm) {
 		std::cerr << algorithm.status().toString() << '\n';
@@ -66,57 +68,20 @@ int run(std::string_view input, int device) {
 		std::cerr << built.status().toString() << '\n';
 		return 1;
 	}
-	if (input == "--self-test") {
-		return selfTest(built.value());
-	}
-	auto source = camera::FileSource::create({.directory = std::filesystem::path(input)});
-	if (!source) {
-		std::cerr << source.status().toString() << '\n';
-		return 1;
-	}
-	executor::FrameExecutionOptions<InspectionResult> options;
-	options.sourceFailurePolicy = executor::SourceFailurePolicy::Stop;
-	options.sourceFailureCallback = [](const core::Status& status) {
-		std::cerr << "source: " << status.toString() << '\n';
-	};
-	options.completionCallback = [](executor::TaskId taskId,
-		const core::Result<InspectionResult>& result) {
-		if (!result) {
-			std::cerr << "task=" << taskId << ": " << result.status().toString() << '\n';
-			return;
-		}
-		std::cout << "sequence=" << result->sequence
-			<< " brightFraction=" << result->brightFraction
-			<< " accepted=" << result->accepted << '\n';
-	};
-	config::DeploymentConfig deployment;
-	deployment.executor.performancePolicy = config::PerformancePolicy::Serial;
-	deployment.executor.queueFullPolicy = config::QueueFullPolicy::Block;
-	auto created = runtime::RuntimeFactory::createRuntime<InspectionResult>(
-		std::move(source).value(),
-		std::make_unique<pipeline::OpenCvPipeline<InspectionResult>>(std::move(built).value()),
-		deployment, std::move(options));
-	if (!created) {
-		std::cerr << created.status().toString() << '\n';
-		return 1;
-	}
-	auto session = std::move(created).value();
-	auto started = session->start();
-	if (!started) {
-		std::cerr << started.status().toString() << '\n';
-		return 1;
-	}
-	const auto summary = session->wait();
-	std::cout << "completed=" << summary.completed << " failed=" << summary.failed
-		<< " dropped=" << summary.dropped << " sourceFailures=" << summary.sourceFailures << '\n';
-	return summary.completed == 0 || summary.failed != 0 ||
-		summary.dropped != 0 || summary.sourceFailures != 0 ? 1 : 0;
+	return selfTest(built.value());
 }
 } // namespace
 
 int main(int argc, char* argv[]) {
+	if (argc == 2 && std::string_view(argv[1]) != "--self-test") {
+		return visionSample::runProfileCli(argc, argv, visionProduct::createApplication, "cuda.result");
+	}
 	if (argc < 2 || argc > 3) {
-		std::cerr << "usage: openCvCudaSample <Gray8-image-directory|--self-test> [device-index]\n";
+		std::cerr << "usage: openCvCudaSample <profile.json> | --self-test [device-index]\n";
+		return 1;
+	}
+	if (std::string_view(argv[1]) != "--self-test") {
+		std::cerr << "device-index is only accepted with --self-test; use cuda.device in the profile\n";
 		return 1;
 	}
 	int device = 0;
@@ -129,7 +94,7 @@ int main(int argc, char* argv[]) {
 		}
 	}
 	try {
-		return run(argv[1], device);
+		return runSelfTest(device);
 	} catch (const std::exception& exception) {
 		std::cerr << "CUDA sample failed: " << exception.what() << '\n';
 		return 1;

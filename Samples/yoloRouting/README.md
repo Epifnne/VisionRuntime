@@ -30,7 +30,7 @@ cmake -S Samples\yoloRouting -B Build\YoloRouting -G Ninja `
 cmake --build Build\YoloRouting --target yoloRoutingSample yoloRoutingTest --parallel 4
 ctest --test-dir Build\YoloRouting -R "^yoloRouting\." --output-on-failure
 & .\Build\YoloRouting\bin\yoloRoutingSample.exe `
-  .\Samples\anomalyDirectory\image .\Build\YoloRouting\annotations
+  .\Samples\yoloRouting\profile.json
 ```
 
 Alternatively, enable `VISION_BUILD_SAMPLES=ON` in a root build and build the
@@ -39,11 +39,18 @@ TensorRT is only needed for the separate TensorRT sample.
 For multi-configuration generators, add `--config Release` to the build,
 `-C Release` to CTest, and use the executable under `Release`.
 
-Arguments are the input image directory and output annotation directory.
-Every input image produces `frame-<taskId>.png`. Green boxes indicate objects,
+The CLI takes one product profile, shared with the product Shell. Configure
+`sources` for a file directory or camera, `routing.annotationDirectory` for
+output, `routing.minimumConfidence` for filtering, and `ui` for the GUI.
+All relative paths resolve against the profile. Build the GUI kit with
+`Samples\buildShell.cmd yoloRouting`; cameras additionally require
+`-DVISION_CAMERA_SDK=HIK_MVS`. See [the common guide](../README.md).
+The Shell displays the owned `routing.annotated` stream and `routing.result`
+summary; the original camera/file stream remains available as `stream.<id>`.
+Every input image produces `frame-<sequence>.png`. Green boxes indicate objects,
 red boxes defects, and blue boxes text regions. The console prints object
 classification callbacks, defect coordinates and OCR placeholder statuses.
-PNG files are replaced if the same task IDs already exist in the output directory.
+PNG files are replaced if the same sequence numbers already exist in the output directory.
 Keep input and output directories separate.
 
 The process exits nonzero on source/pipeline/output errors or if no frames
@@ -64,7 +71,7 @@ not make the whole sample fail.
   if the OCR implementation needs contiguous storage or asynchronous ownership.
   Its result remains associated with the box in original-image coordinates.
 - Extend the object branch with a classification model if finer classification
-  is required; the current [onClassification](yoloRoutingSample.cpp) only
+  is required; the current [business callback](businessApplication.cpp) only
   delivers the detector's object labels from the completion thread.
 - [RoutingAlgorithm](routingAlgorithm.hpp) implements `IOpenCvAlgorithm` and
   is registered by `OpenCvPipelineBuilder`. This uses the existing single-stage

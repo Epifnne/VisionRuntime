@@ -4,10 +4,12 @@
 #include "camera/fileSource.hpp"
 #include "pipeline/openCvPipelineBuilder.hpp"
 #include "runtime/runtimeFactory.hpp"
+#include "../common/profileSupport.hpp"
 
 #include <opencv2/core.hpp>
 
 #include <atomic>
+#include <cmath>
 #include <limits>
 
 namespace visionProduct {
@@ -53,7 +55,18 @@ core::Result<visionService::ProductApplication> createApplication(
 		return core::Result<Application>::failure(manifest.status());
 	}
 	application.expectedManifest = std::move(manifest).value();
-	auto minimum = std::make_shared<std::atomic<double>>(100.0);
+	double configuredMinimum = 100;
+	try {
+		const auto document = nlohmann::json::parse(profile.documentJson);
+		configuredMinimum = document.value("measurement", nlohmann::json::object())
+			.value("minimumBrightness", 100.0);
+		if (!std::isfinite(configuredMinimum) || configuredMinimum < 0 || configuredMinimum > 255) {
+			return visionSample::profileError<Application>("measurement.minimumBrightness must be in [0, 255]");
+		}
+	} catch (const nlohmann::json::exception& exception) {
+		return visionSample::profileError<Application>(std::string("measurement configuration: ") + exception.what());
+	}
+	auto minimum = std::make_shared<std::atomic<double>>(configuredMinimum);
 	auto parameter = contract.minimum.bind(application.exports,
 		[minimum] {
 			return core::Result<double>::success(minimum->load());
@@ -75,11 +88,7 @@ core::Result<visionService::ProductApplication> createApplication(
 		return core::Result<Application>::failure(command.status());
 	}
 
-	const auto& directory = profile.sources.front().directory;
-	auto source = camera::FileSource::create({
-		.directory = directory.directory, .extensions = directory.extensions,
-		.frameInterval = directory.frameInterval, .recursive = directory.recursive,
-		.loop = directory.loop});
+	auto source = visionSample::createSource(profile.sources.front());
 	if (!source) {
 		return core::Result<Application>::failure(source.status());
 	}
@@ -89,6 +98,8 @@ core::Result<visionService::ProductApplication> createApplication(
 		return core::Result<Application>::failure(pipeline.status());
 	}
 	executor::FrameExecutionOptions<Measurement> execution;
+	execution.faultPolicy = profile.pipeline.faultPolicy == "stopSession"
+		? executor::FaultPolicy::StopSession : executor::FaultPolicy::ReportAndContinue;
 	execution.resultObserver = [state = state.value()](
 		auto, const auto& identity, auto, const core::Result<Measurement>& result) {
 		auto published = state->set(result ? result.value() : Measurement{
@@ -97,12 +108,7 @@ core::Result<visionService::ProductApplication> createApplication(
 			logs::report(published.status());
 		}
 	};
-	config::DeploymentConfig deployment;
-	deployment.executor.performancePolicy = config::PerformancePolicy::Serial;
-	deployment.executor.queueCapacity = profile.pipeline.queueCapacity;
-	deployment.executor.taskTimeout = profile.pipeline.taskTimeout;
-	deployment.executor.queueFullPolicy = profile.pipeline.queueFullPolicy == "block"
-		? config::QueueFullPolicy::Block : config::QueueFullPolicy::Drop;
+	auto deployment = visionSample::deploymentOptions(profile);
 	auto runtime = runtime::RuntimeFactory::createRuntime<Measurement>(
 		std::move(source).value(),
 		std::make_unique<pipeline::OpenCvPipeline<Measurement>>(std::move(pipeline).value()),

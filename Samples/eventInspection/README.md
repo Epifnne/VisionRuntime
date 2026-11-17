@@ -5,6 +5,15 @@ positions on a conveyor. Sensor input, edge filtering, workpiece ID assignment,
 and conveyor scheduling belong to **this sample/business project**, not Runtime.
 No camera SDK, PLC, model, or image files are needed.
 
+The starter profile explicitly selects `vendor:"simulated"`. Each `top`/`side`
+source can instead select a real camera IP (`mode:"eventTrigger"`, remove the
+simulated vendor, build with `VISION_CAMERA_SDK=HIK_MVS`) or a directory replay
+(`type:"directory"`, `directory`, `extensions`, `loop`). Each capture consumes one
+replay frame; exhaustion faults rather than inventing an image.
+The sensor schedule is still simulated business input, not a PLC integration.
+`inspection.minimumBrightness` and `inspection.expectedTransitions` configure
+the route decisions; Gray8 images need not be 2x2 (side requires width >= 2).
+
 ## Run
 
 Double-click `Samples/eventInspection/build.cmd`, or run:
@@ -31,7 +40,8 @@ whole-inspection deadline. Multiple workpieces are in flight at once.
 Normal output: four `workpiece.result` JSON snapshots, with final counts
 **2 OK, 2 NG, 0 FAULT**. `--missing-view` deliberately omits the final side
 capture; final counts become **1 OK, 2 NG, 1 FAULT**. Both are acceptance scenarios
-and exit zero when the exact expected counts are observed.
+and can be checked with `--verify`. Normal execution respects configured
+algorithms rather than requiring those synthetic decisions.
 
 To reuse an existing build tree instead of creating another:
 

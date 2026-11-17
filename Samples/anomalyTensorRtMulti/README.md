@@ -3,7 +3,7 @@
 以 `anomalyHikMvsSample` 的方式手工组装完整流水线（FrameSourceFactory +
 PreprocessBuilder + PluginInferenceBackend + AnomalyThresholdPostprocessor +
 `RuntimeFactory::createBatchExecutor` + `MultiCameraSession`），参数由
-`profile.json` / `deployment.json` 驱动，演示 TensorRT 插件的两个可选能力：
+完整产品 `profile.json` 驱动，CLI 与 Shell 共享同一管线，演示 TensorRT 插件的两个可选能力：
 
 - **动态 batch**：engine 以 `min/opt/max = 1/4/8` 的 batch profile 构建，
   `BatchPipelineExecutor` 按 `maxBatchSize`/`flushTimeout` 聚合成任意 N≤8 的
@@ -15,18 +15,14 @@ PreprocessBuilder + PluginInferenceBackend + AnomalyThresholdPostprocessor +
 
 ## 运行
 
-样例为自包含运行目录（构建后 exe 旁已有 model/ image/ profile.json
-deployment.json plugins/）。
+在 `profile.json` 中配置 `sources` 的相机 IP 或文件目录、`model` 的模型和插件路径、
+`pipeline` 的算法参数，以及 `ui` 的界面。所有相对路径基于 profile 所在目录。
 
 ```bat
-rem 相机源（每台相机一个 IP，对应一路 stream）：
-anomalyTensorRtMultiSample.exe model deployment.json profile.json 169.254.1.10 169.254.1.11
-
-rem 无相机验证：--dirs 后接逗号分隔的回放目录（每目录一路源，循环回放）：
-anomalyTensorRtMultiSample.exe model deployment.json profile.json --dirs image,image,image,image
+anomalyTensorRtMultiSample.exe Samples\anomalyTensorRtMulti\profile.json
 ```
 
-`--dirs` 模式跑 20 秒后输出首帧 score/decision 与全局/per-source
+默认 `durationMilliseconds:20000`，运行 20 秒后输出首帧 score/decision 与全局
 received/dropped 统计；image/ 复用 `anomalyDirectory/image` 的灰度 BMP
 （224×224 模型对 2048×2448 原图先 resize 到短边 224 再中心裁剪），可对照
 score 检查阈值判定。单通道 `toTensor` 只接受 Gray8 帧，目录源必须用灰度
@@ -47,7 +43,7 @@ TensorRT/CUDA/Qt 依赖；`profiles/anomalyTensorRtMulti.json` 是起始配置�
 
 构建本身不复制模型和图片。构建完成后，将本示例的 `model/` 复制到
 `Publish/release/profiles/model/`，将 `image/` 中的 BMP 分配到
-`profiles/camera1/`、`profiles/camera2/`（本地各 40 张），作为两路独立
+`profiles/image/camera1/`、`profiles/image/camera2/`，作为两路独立
 模拟相机。起始配置中的模型和目录路径都相对于 profile，插件指向
 `../runtimeTemplates/windows/plugins`。每次替换设计工具包后需重新补齐资源。
 
@@ -67,10 +63,9 @@ cd Publish\release
 
 ## 文件
 
-- `profile.json`：产品参数（preprocess 形状/归一化、阈值、`maxBatchSize`、
-  `flushTimeout`，以及插件的 `backend.streams` / `backend.dynamicBatch`）。
-- `deployment.json`：backend 插件目录与 executor 策略（`pipelineParallel`
-  + `block` 回压）。
+- `profile.json`：采集源、模型/插件路径、preprocess 形状/归一化、阈值、
+  `maxBatchSize`、`flushTimeout`、`backend.streams` / `backend.dynamicBatch` 和 UI。
+- `deployment.json`：保留的旧配置示例，不再由本 sample CLI 读取。
 - `model/`：PatchCore 动态 batch 模型包。`manifest.json` 声明
   `[4,1,224,224]` 基准形状与 `maxBatchSize: 8`；`artifacts/patchcore-dynbatch.engine`
   由 trtexec 构建：

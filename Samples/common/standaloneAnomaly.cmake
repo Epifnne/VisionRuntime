@@ -1,0 +1,10 @@
+if(NOT TARGET visionRuntime)
+	set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+	project(AnomalySample LANGUAGES CXX)
+	include(CTest)
+	set(VISION_RUNTIME_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.."
+		CACHE PATH "Path to VisionRuntime")
+	set(VISION_BUILD_SERVICE ON CACHE BOOL "" FORCE)
+	add_subdirectory("${VISION_RUNTIME_ROOT}" "${CMAKE_CURRENT_BINARY_DIR}/VisionRuntime")
+endif()
+include("${CMAKE_CURRENT_LIST_DIR}/anomalySample.cmake")

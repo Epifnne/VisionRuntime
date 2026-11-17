@@ -33,12 +33,13 @@ visionRuntime::core::Result<std::string> describeApplication(
 	const visionService::profile::ProductProfile& profile) {
 	if (profile.runtimeProduct != "eventInspection" || profile.sources.size() != 2 ||
 		profile.sources[0].id != "top" || profile.sources[1].id != "side" ||
-		profile.sources[0].type != "camera" || profile.sources[1].type != "camera" ||
-		profile.sources[0].camera.mode != "eventTrigger" ||
-		profile.sources[1].camera.mode != "eventTrigger") {
+		(profile.sources[0].type != "directory" &&
+			profile.sources[0].camera.mode != "eventTrigger") ||
+		(profile.sources[1].type != "directory" &&
+			profile.sources[1].camera.mode != "eventTrigger")) {
 		return visionRuntime::core::Result<std::string>::failure(visionRuntime::core::Status::error(
 			visionRuntime::core::StatusCode::InvalidArgument,
-			"eventInspection requires top and side event-trigger camera slots"));
+			"eventInspection requires top and side event-trigger camera or directory slots"));
 	}
 	return businessContract().exports.describe(profile);
 }

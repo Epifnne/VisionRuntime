@@ -4,6 +4,11 @@ This model-free example uses OpenCV to measure mean brightness. Its CLI and
 product Shell link the **same** `visionProductApplication` business library.
 There is no IPC, source-code scanning, second runtime, or second camera owner.
 
+`profile.json` configures `sources` (directory or camera IP),
+`measurement.minimumBrightness`, pipeline queue/fault settings and `ui`.
+Camera input requires `-DVISION_CAMERA_SDK=HIK_MVS`; no SDK is required for the
+bundled replay. Relative paths resolve against the profile, not the working directory.
+
 ## One-click workflow (recommended)
 
 Double-click `build.cmd` in this directory, or run:

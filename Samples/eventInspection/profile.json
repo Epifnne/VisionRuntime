@@ -4,9 +4,10 @@
   "name": "Event-driven Multi-view Inspection",
   "runtimeProduct": "eventInspection",
   "sources": [
-    {"id": "top", "type": "camera", "role": "Top brightness", "mode": "eventTrigger"},
-    {"id": "side", "type": "camera", "role": "Side edges", "mode": "eventTrigger"}
+    {"id": "top", "type": "camera", "role": "Top brightness", "vendor": "simulated", "mode": "eventTrigger"},
+    {"id": "side", "type": "camera", "role": "Side edges", "vendor": "simulated", "mode": "eventTrigger"}
   ],
+  "inspection": {"minimumBrightness": 100, "expectedTransitions": 2},
   "simulation": {"topDelayMilliseconds": 10, "sideDelayMilliseconds": 70},
   "ui": {
     "pages": [{

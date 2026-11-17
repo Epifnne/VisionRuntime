@@ -1,5 +1,6 @@
 #include "productShell.hpp"
 #include "sampleRuntime.hpp"
+#include "profileSupport.hpp"
 
 namespace visionSample {
 using namespace visionRuntime;
@@ -14,15 +15,7 @@ createProductRuntime(const visionService::profile::ProductProfile& profile,
 	RuntimeOptions options;
 	options.productDocumentJson = profile.documentJson;
 	options.modelPackage = profile.model.packagePath;
-	options.deployment.backend = {
-		.pluginDirectory = profile.model.pluginDirectory,
-		.id = profile.model.backendId, .device = profile.model.device};
-	options.deployment.executor.queueCapacity = profile.pipeline.queueCapacity;
-	options.deployment.executor.stageQueueCapacity = profile.pipeline.stageQueueCapacity;
-	options.deployment.executor.taskTimeout = profile.pipeline.taskTimeout;
-	options.deployment.executor.queueFullPolicy = profile.pipeline.queueFullPolicy == "block"
-		? config::QueueFullPolicy::Block : config::QueueFullPolicy::Drop;
-	options.deployment.executor.performancePolicy = config::PerformancePolicy::Serial;
+	options.deployment = deploymentOptions(profile);
 	options.faultPolicy = profile.pipeline.faultPolicy == "stopSession"
 		? executor::FaultPolicy::StopSession : executor::FaultPolicy::ReportAndContinue;
 	options.pipeline.threshold = profile.pipeline.threshold;
@@ -37,6 +30,13 @@ createProductRuntime(const visionService::profile::ProductProfile& profile,
 	options.pipeline.flushTimeout = profile.pipeline.flushTimeout;
 	try {
 		const auto document = nlohmann::json::parse(profile.documentJson);
+		const auto duration = document.value("durationMilliseconds", nlohmann::json(0));
+		if (!duration.is_number_integer() || duration.get<std::int64_t>() < 0) {
+			return fail<Session>("durationMilliseconds must be a nonnegative integer");
+		}
+		if (duration.get<std::int64_t>() > 0) {
+			options.duration = std::chrono::milliseconds(duration.get<std::int64_t>());
+		}
 		if (document.contains("backend")) {
 			options.pipeline.backendStreams = document.at("backend").value("streams", 1);
 			options.pipeline.dynamicBatch = document.at("backend").value("dynamicBatch", false);
@@ -45,39 +45,12 @@ createProductRuntime(const visionService::profile::ProductProfile& profile,
 		return fail<Session>(std::string("sample backend configuration: ") + exception.what());
 	}
 	for (const auto& source : profile.sources) {
-		if (source.type == "directory") {
-			camera::FileSourceOptions files;
-			files.directory = source.directory.directory;
-			files.extensions = source.directory.extensions;
-			files.frameInterval = source.directory.frameInterval;
-			files.loop = source.directory.loop;
-			files.recursive = source.directory.recursive;
-			options.sources.push_back(camera::FileFrameSourceConfig{std::move(files)});
-			continue;
-		}
-		// These samples assemble single-channel anomaly pipelines.
-		if (source.camera.pixelFormat != "gray8") {
+		if (source.type == "camera" && source.camera.pixelFormat != "gray8") {
 			return fail<Session>("sample camera input requires pixelFormat gray8");
 		}
-		camera::CameraDeviceOptions device;
-		device.serialNumber = source.camera.serialNumber;
-		device.ipAddress = source.camera.ipAddress;
-		device.vendor = source.camera.vendor;
-		device.pixelFormat = vision::PixelFormat::Gray8;
-		device.exposureMicroseconds = source.camera.exposureMicroseconds;
-		device.gain = source.camera.gain;
-		device.maxFramesInFlight = source.camera.maxFramesInFlight;
-		if (source.camera.mode == "timedTrigger") {
-			options.sources.push_back(camera::TimedCameraSourceConfig{
-				.device = std::move(device),
-				.source = {.triggerInterval = source.camera.triggerInterval,
-					.responseTimeout = source.camera.responseTimeout}});
-		} else {
-			options.sources.push_back(camera::ContinuousCameraSourceConfig{
-				.device = std::move(device),
-				.source = {.frameRate = source.camera.frameRate,
-					.noFrameTimeout = source.camera.noFrameTimeout}});
-		}
+		auto config = sourceConfig(source);
+		if (!config) { return core::Result<Session>::failure(config.status()); }
+		options.sources.push_back(std::move(config).value());
 	}
 	auto built = createSampleRuntime(std::move(options));
 	if (!built) {

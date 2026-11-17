@@ -2,6 +2,13 @@
   "schemaVersion": {"major": 1, "minor": 0},
   "id": "anomaly-tensorrt-multi",
   "name": "Anomaly TensorRT Multi-Camera Batch Sample",
+  "runtimeProduct": "anomalyTensorRtMulti",
+  "durationMilliseconds": 20000,
+  "sources": [
+    {"id": "files0", "type": "directory", "directory": "image/camera1", "extensions": [".bmp"], "loop": true},
+    {"id": "files1", "type": "directory", "directory": "image/camera2", "extensions": [".bmp"], "loop": true}
+  ],
+  "model": {"packagePath": "model", "backendId": "tensorrt", "device": "0", "pluginDirectory": "plugins"},
   "channels": 1,
   "backend": {
     "streams": 2,
@@ -15,6 +22,20 @@
     "standardDeviation": [0.226],
     "threshold": 2.0,
     "maxBatchSize": 4,
-    "flushTimeoutMilliseconds": 10
-  }
+    "flushTimeoutMilliseconds": 10,
+    "queueFullPolicy": "block", "faultPolicy": "stopSession"
+  },
+  "ui": {"pages": [{"id": "monitor", "title": "TensorRT Batch Inspection", "layout": "column", "children": [
+    {"type": "row", "fillWidth": true, "fillHeight": true, "children": [
+      {"type": "imageView", "endpoint": "stream.files0", "fillWidth": true, "fillHeight": true},
+      {"type": "imageView", "endpoint": "stream.files1", "fillWidth": true, "fillHeight": true}
+    ]},
+    {"type": "stateCard", "endpoint": "inspection.result", "title": "Result"},
+    {"type": "stateCard", "endpoint": "session.summary", "title": "Summary"},
+    {"type": "row", "children": [
+      {"type": "commandButton", "endpoint": "session.start", "label": "Start"},
+      {"type": "commandButton", "endpoint": "session.stop", "label": "Stop"},
+      {"type": "commandButton", "endpoint": "session.recover", "label": "Recover"}
+    ]}
+  ]}]}
 }

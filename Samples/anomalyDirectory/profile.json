@@ -1,0 +1,24 @@
+{
+  "schemaVersion": {"major": 1, "minor": 0},
+  "id": "anomalyDirectory", "name": "Directory Anomaly Inspection",
+  "runtimeProduct": "anomalyDirectory",
+  "sources": [
+    {"id": "files", "type": "directory", "directory": "image", "extensions": [".bmp", ".png", ".jpg", ".tif"], "loop": false}
+  ],
+  "model": {"packagePath": "model", "backendId": "tensorrt", "device": "0", "pluginDirectory": "plugins"},
+  "pipeline": {
+    "resizeShortSide": 256, "cropWidth": 224, "cropHeight": 224,
+    "mean": [0.449], "standardDeviation": [0.226], "threshold": 2.0,
+    "queueFullPolicy": "block", "faultPolicy": "stopSession"
+  },
+  "ui": {"pages": [{"id": "monitor", "title": "Anomaly Inspection", "layout": "column", "children": [
+    {"type": "imageView", "endpoint": "stream.files", "fillWidth": true, "fillHeight": true},
+    {"type": "stateCard", "endpoint": "inspection.result", "title": "Result"},
+    {"type": "stateCard", "endpoint": "session.summary", "title": "Summary"},
+    {"type": "row", "children": [
+      {"type": "commandButton", "endpoint": "session.start", "label": "Start"},
+      {"type": "commandButton", "endpoint": "session.stop", "label": "Stop"},
+      {"type": "commandButton", "endpoint": "session.recover", "label": "Recover"}
+    ]}
+  ]}]}
+}

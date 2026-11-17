@@ -50,7 +50,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        product: [generic, businessExports, eventInspection]
+        product: [generic, businessExports, eventInspection, yoloRouting]
     steps:
       - uses: actions/checkout@v4
       - uses: seanmiddleditch/gha-setup-ninja@v5

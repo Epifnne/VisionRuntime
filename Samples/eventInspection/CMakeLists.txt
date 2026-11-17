@@ -25,8 +25,8 @@ target_include_directories(eventInspectionSample SYSTEM PRIVATE
 	"${CMAKE_BINARY_DIR}")
 
 if(BUILD_TESTING)
-	add_test(NAME eventInspectionSample COMMAND eventInspectionSample)
-	add_test(NAME eventInspectionMissingView COMMAND eventInspectionSample --missing-view)
+	add_test(NAME eventInspectionSample COMMAND eventInspectionSample --verify)
+	add_test(NAME eventInspectionMissingView COMMAND eventInspectionSample --missing-view --verify)
 endif()
 
 set(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_SKIP TRUE)

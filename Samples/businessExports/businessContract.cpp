@@ -34,11 +34,10 @@ const BusinessContract& businessContract() {
 
 visionRuntime::core::Result<std::string> describeApplication(
 	const visionService::profile::ProductProfile& profile) {
-	if (profile.runtimeProduct != "businessExports" || profile.sources.size() != 1 ||
-		profile.sources.front().type != "directory") {
+	if (profile.runtimeProduct != "businessExports" || profile.sources.size() != 1) {
 		return visionRuntime::core::Result<std::string>::failure(
 			visionRuntime::core::Status::error(visionRuntime::core::StatusCode::InvalidArgument,
-				"businessExports requires its product profile and one directory source"));
+				"businessExports requires its product profile and one source"));
 	}
 	return businessContract().exports.describe(profile);
 }

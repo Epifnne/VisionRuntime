@@ -62,7 +62,7 @@ CUDA's runtime DLL directory must be on PATH. Recent Toolkits can place DLLs in
 ```powershell
 $env:PATH = "D:\cuda\bin\x64;D:\cuda\bin;$env:PATH"
 .\Build\OpenCvCuda\bin\openCvCudaSample.exe --self-test
-.\Build\OpenCvCuda\bin\openCvCudaSample.exe E:\images\gray8 0
+.\Build\OpenCvCuda\bin\openCvCudaSample.exe .\Samples\openCvCuda\profile.json
 ctest --test-dir Build\OpenCvCuda -L opencv-cuda --output-on-failure
 ```
 
@@ -73,6 +73,13 @@ multiple host threads. Hardware tests require a usable GPU and fail, not skip,
 when it is unavailable. The directory command runs the normal asynchronous
 Runtime and returns a nonzero exit code for source/processing failures or no
 completed frames. Directory images must be 8-bit grayscale, not BGR or Gray16.
+
+CLI and product Shell share the profile-driven business library. Configure the
+directory or camera IP in `sources`, the device/threshold/acceptance fraction in
+`cuda`, and the GUI in `ui`; relative paths resolve against the profile.
+`Samples\buildShell.cmd openCvCuda -DVISION_OPENCV_CUDA_ARCH_BIN=8.6 -DCUDAToolkit_ROOT=D:\cuda`
+builds the dedicated GUI kit. Add `-DVISION_CAMERA_SDK=HIK_MVS` for real cameras.
+See [the common profile guide](../README.md). There is still no CPU fallback.
 
 For a standalone sample build, use `-S Samples\openCvCuda` with the same CUDA
 options. Executable output follows the selected OpenCV/CMake generator layout;

@@ -1,5 +1,8 @@
 #include "businessContract.hpp"
 #include "simulatedCamera.hpp"
+#include "replayCamera.hpp"
+#include "camera/hikrobotMvsCameraDevice.hpp"
+#include "config/buildProfile.hpp"
 #include "exports/productEntry.hpp"
 #include "pipeline/openCvPipelineBuilder.hpp"
 #include "runtime/eventInspectionSession.hpp"
@@ -10,6 +13,8 @@
 #include <condition_variable>
 #include <queue>
 #include <thread>
+#include <cmath>
+#include <limits>
 
 namespace visionProduct {
 namespace {
@@ -19,37 +24,45 @@ using Clock = std::chrono::steady_clock;
 
 class BrightnessAlgorithm final : public pipeline::IOpenCvAlgorithm<Brightness> {
 public:
+	explicit BrightnessAlgorithm(double minimum) : minimum_(minimum) {}
 	core::Result<Brightness> process(const pipeline::PipelinePacket& packet) override {
 		const auto* frame = packet.cameraFrame();
-		if (!frame || frame->width() != 2 || frame->height() != 2 ||
+		if (!frame || frame->width() > static_cast<std::size_t>(std::numeric_limits<int>::max()) ||
+			frame->height() > static_cast<std::size_t>(std::numeric_limits<int>::max()) ||
 			frame->pixelFormat() != vision::PixelFormat::Gray8) {
 			return core::Result<Brightness>::failure(core::Status::error(
-				core::StatusCode::InvalidArgument, "brightness sample requires a 2x2 Gray8 image"));
+				core::StatusCode::InvalidArgument, "brightness sample requires a Gray8 image"));
 		}
-		const cv::Mat image(2, 2, CV_8UC1, const_cast<void*>(frame->data()), frame->rowStride());
+		const cv::Mat image(static_cast<int>(frame->height()), static_cast<int>(frame->width()),
+			CV_8UC1, const_cast<void*>(frame->data()), frame->rowStride());
 		const auto value = cv::mean(image)[0];
-		return core::Result<Brightness>::success(Brightness{value, value >= 100});
+		return core::Result<Brightness>::success(Brightness{value, value >= minimum_});
 	}
+private:
+	double minimum_;
 };
 class EdgeAlgorithm final : public pipeline::IOpenCvAlgorithm<Edges> {
 public:
 	core::Result<Edges> process(const pipeline::PipelinePacket& packet) override {
 		const auto* frame = packet.cameraFrame();
-		if (!frame || frame->width() != 2 || frame->height() != 2 ||
+		if (!frame || frame->width() < 2 ||
+			frame->width() > static_cast<std::size_t>(std::numeric_limits<int>::max()) ||
+			frame->height() > static_cast<std::size_t>(std::numeric_limits<int>::max()) ||
 			frame->pixelFormat() != vision::PixelFormat::Gray8) {
 			return core::Result<Edges>::failure(core::Status::error(
-				core::StatusCode::InvalidArgument, "edge sample requires a 2x2 Gray8 image"));
+				core::StatusCode::InvalidArgument, "edge sample requires a Gray8 image at least two pixels wide"));
 		}
-		const cv::Mat image(2, 2, CV_8UC1, const_cast<void*>(frame->data()), frame->rowStride());
+		const cv::Mat image(static_cast<int>(frame->height()), static_cast<int>(frame->width()),
+			CV_8UC1, const_cast<void*>(frame->data()), frame->rowStride());
 		cv::Mat difference;
 		cv::absdiff(image.col(0), image.col(1), difference);
 		return core::Result<Edges>::success(Edges{cv::countNonZero(difference)});
 	}
 };
-template<typename T, typename Algorithm>
-core::Result<std::unique_ptr<pipeline::IVisionPipeline<T>>> makePipeline() {
+template<typename T, typename Algorithm, typename... Args>
+core::Result<std::unique_ptr<pipeline::IVisionPipeline<T>>> makePipeline(Args&&... args) {
 	pipeline::OpenCvPipelineBuilder<T> builder;
-	auto built = builder.setAlgorithm(std::make_unique<Algorithm>()).build();
+	auto built = builder.setAlgorithm(std::make_unique<Algorithm>(std::forward<Args>(args)...)).build();
 	if (!built) {
 		return core::Result<std::unique_ptr<pipeline::IVisionPipeline<T>>>::failure(built.status());
 	}
@@ -69,6 +82,38 @@ struct SimulationOptions {
 	bool missingView = false;
 	std::array<std::chrono::milliseconds, 2> delays{10ms, 70ms};
 };
+
+core::Result<std::unique_ptr<camera::EventTriggerSource>> createEventSource(
+	const visionService::profile::SourceProfile& source, bool side) {
+	using Device = std::unique_ptr<camera::ICameraDevice>;
+	Device device;
+	if (source.type == "directory") {
+		auto replay = visionSample::createSource(source);
+		if (!replay) {
+			return core::Result<std::unique_ptr<camera::EventTriggerSource>>::failure(replay.status());
+		}
+		device = std::make_unique<eventInspectionSample::ReplayCamera>(std::move(replay).value());
+	} else if (source.camera.vendor == "simulated") {
+		device = std::make_unique<eventInspectionSample::SimulatedCamera>(side);
+	} else {
+		auto options = visionSample::cameraOptions(source);
+		if (!options) {
+			return core::Result<std::unique_ptr<camera::EventTriggerSource>>::failure(options.status());
+		}
+		if constexpr (config::BuildProfile::cameraSdk == config::CameraSdk::HikMvs) {
+			auto real = camera::HikrobotMvsCameraDevice::create(std::move(options).value());
+			if (!real) {
+				return core::Result<std::unique_ptr<camera::EventTriggerSource>>::failure(real.status());
+			}
+			device = std::move(real).value();
+		} else {
+			return visionSample::profileError<std::unique_ptr<camera::EventTriggerSource>>(
+				"real cameras require VISION_CAMERA_SDK=HIK_MVS; no simulated fallback is used");
+		}
+	}
+	return camera::EventTriggerSource::create(std::move(device),
+		{.responseTimeout = source.camera.responseTimeout});
+}
 
 // The business owns sensor input and delayed scheduling; Service only manages
 // this object's lifecycle, and the framework owns acquisition/routing.
@@ -222,9 +267,18 @@ core::Result<visionService::ProductApplication> createApplication(
 	auto manifest = describeApplication(profile);
 	if (!manifest) { return core::Result<Application>::failure(manifest.status()); }
 	SimulationOptions options;
+	double minimumBrightness = 100;
+	int expectedTransitions = 2;
 	try {
 		const auto document = nlohmann::json::parse(profile.documentJson);
 		const auto simulation = document.value("simulation", nlohmann::json::object());
+		const auto inspection = document.value("inspection", nlohmann::json::object());
+		minimumBrightness = inspection.value("minimumBrightness", 100.0);
+		expectedTransitions = inspection.value("expectedTransitions", 2);
+		if (!std::isfinite(minimumBrightness) || minimumBrightness < 0 ||
+			minimumBrightness > 255 || expectedTransitions < 0) {
+			return visionSample::profileError<Application>("invalid inspection brightness or transition count");
+		}
 		options.missingView = simulation.value("missingView", false);
 		for (std::size_t index = 0; index < 2; ++index) {
 			const auto key = index == 0 ? "topDelayMilliseconds" : "sideDelayMilliseconds";
@@ -275,11 +329,9 @@ core::Result<visionService::ProductApplication> createApplication(
 			++shared->completed;
 			shared->ready.notify_all();
 		});
-	auto topSource = camera::EventTriggerSource::create(
-		std::make_unique<eventInspectionSample::SimulatedCamera>(false));
-	auto sideSource = camera::EventTriggerSource::create(
-		std::make_unique<eventInspectionSample::SimulatedCamera>(true));
-	auto topPipeline = makePipeline<Brightness, BrightnessAlgorithm>();
+	auto topSource = createEventSource(profile.sources[0], false);
+	auto sideSource = createEventSource(profile.sources[1], true);
+	auto topPipeline = makePipeline<Brightness, BrightnessAlgorithm>(minimumBrightness);
 	auto sidePipeline = makePipeline<Edges, EdgeAlgorithm>();
 	if (!topSource || !sideSource || !topPipeline || !sidePipeline) {
 		return core::Result<Application>::failure(!topSource ? topSource.status() :
@@ -290,8 +342,8 @@ core::Result<visionService::ProductApplication> createApplication(
 			value.accepted ? runtime::ViewDecision::Ok : runtime::ViewDecision::Ng); },
 		typedObserver(topState.value(), shared));
 	auto side = runtime->addRoute<Edges>(1, std::move(sideSource).value(), std::move(sidePipeline).value(),
-		[](const Edges& value) { return core::Result<runtime::ViewDecision>::success(
-			value.transitions == 2 ? runtime::ViewDecision::Ok : runtime::ViewDecision::Ng); },
+		[expectedTransitions](const Edges& value) { return core::Result<runtime::ViewDecision>::success(
+			value.transitions == expectedTransitions ? runtime::ViewDecision::Ok : runtime::ViewDecision::Ng); },
 		typedObserver(sideState.value(), shared));
 	if (!top || !side) { return core::Result<Application>::failure(!top ? top.status() : side.status()); }
 	application.session = std::make_unique<BusinessSession>(std::move(runtime), shared, options);

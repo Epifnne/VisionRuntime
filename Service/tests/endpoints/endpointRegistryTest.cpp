@@ -214,7 +214,6 @@ TEST_F(RegistryFixture, StreamsCoalescePendingFramesToLatest) {
 		.sourceId = 0,
 	}));
 
-	std::latch delivered(1);
 	std::atomic<std::uint64_t> lastSequence{0};
 	std::atomic<std::size_t> callbacks{0};
 	auto subscription = registry.subscribeStream(
@@ -223,34 +222,27 @@ TEST_F(RegistryFixture, StreamsCoalescePendingFramesToLatest) {
 			EXPECT_EQ(sourceId, 0U);
 			lastSequence.store(frame.metadata().sequenceNumber);
 			callbacks.fetch_add(1);
-			// Slow subscriber: blocks the dispatch thread so that further
-			// publishFrame calls only replace the pending frame.
-			std::this_thread::sleep_for(std::chrono::milliseconds(30));
-			delivered.count_down();
 		});
 	ASSERT_TRUE(subscription) << subscription.status().toString();
 
-	for (std::uint64_t sequence = 1; sequence <= 8; ++sequence) {
-		auto buffer = visionRuntime::memory::CpuAllocator{}.allocate(1);
-		ASSERT_TRUE(buffer);
-		visionRuntime::vision::FrameMetadata metadata;
-		metadata.sequenceNumber = sequence;
-		auto frame = visionRuntime::vision::Frame::create(
-			std::move(buffer).value(), 1, 1,
-			visionRuntime::vision::PixelFormat::Gray8, 0, metadata);
-		ASSERT_TRUE(frame);
-		registry.publishFrame("stream.cam0", 0, std::move(frame).value());
-	}
-
-	// Wait until all 8 frames have been observed or dropped, then read the
-	// last delivered sequence.
-	const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-	while (std::chrono::steady_clock::now() < deadline &&
-		callbacks.load() + registry.droppedFrames("stream.cam0") < 8U) {
-		std::this_thread::sleep_for(std::chrono::milliseconds(5));
-	}
+	// Publish on the dispatcher so delivery cannot run until the burst is complete.
+	ASSERT_TRUE(dispatcher.post([this] {
+		for (std::uint64_t sequence = 1; sequence <= 8; ++sequence) {
+			auto buffer = visionRuntime::memory::CpuAllocator{}.allocate(1);
+			ASSERT_TRUE(buffer);
+			visionRuntime::vision::FrameMetadata metadata;
+			metadata.sequenceNumber = sequence;
+			auto frame = visionRuntime::vision::Frame::create(
+				std::move(buffer).value(), 1, 1,
+				visionRuntime::vision::PixelFormat::Gray8, 0, metadata);
+			ASSERT_TRUE(frame);
+			registry.publishFrame("stream.cam0", 0, std::move(frame).value());
+		}
+	}));
+	dispatcher.drain();
 	EXPECT_EQ(lastSequence.load(), 8U);
-	EXPECT_LE(callbacks.load(), 8U);
+	EXPECT_EQ(callbacks.load(), 1U);
+	EXPECT_EQ(registry.droppedFrames("stream.cam0"), 7U);
 }
 
 TEST_F(RegistryFixture, ListsDescriptorsForManifest) {

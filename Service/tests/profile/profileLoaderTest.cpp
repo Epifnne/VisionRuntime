@@ -147,13 +147,17 @@ TEST(ProfileLoaderTest, ParsesDirectoryAndCameraSources) {
 
 	const auto& directory = profile->sources[1];
 	EXPECT_EQ(directory.type, "directory");
+	const auto profileDirectory = std::filesystem::canonical(path).parent_path();
+	EXPECT_EQ(profile->profileDirectory, profileDirectory);
 	EXPECT_EQ(directory.directory.directory,
-		(fixture.root() / "images").lexically_normal());
+		profileDirectory / "images");
 	EXPECT_EQ(directory.directory.extensions.size(), 1U);
 	EXPECT_FALSE(directory.directory.loop);
 	EXPECT_EQ(directory.directory.frameInterval, std::chrono::milliseconds(40));
 
 	EXPECT_EQ(profile->model.backendId, "fake");
+	EXPECT_EQ(profile->model.packagePath, profileDirectory / "package");
+	EXPECT_EQ(profile->model.pluginDirectory, profileDirectory / "plugins");
 	EXPECT_EQ(profile->pipeline.maxBatchSize, 4U);
 	EXPECT_DOUBLE_EQ(profile->pipeline.threshold, 2.0);
 	EXPECT_EQ(profile->pipeline.queueCapacity, 32U);

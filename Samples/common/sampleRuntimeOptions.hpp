@@ -29,6 +29,7 @@ struct RuntimeOptions {
 	visionRuntime::executor::FaultPolicy faultPolicy =
 		visionRuntime::executor::FaultPolicy::ReportAndContinue;
 	std::string productDocumentJson;
+	std::optional<std::chrono::milliseconds> duration;
 };
 
 inline visionRuntime::core::Result<void> validateAnomalyPreset(const RuntimeOptions& options) {

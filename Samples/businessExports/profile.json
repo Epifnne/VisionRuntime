@@ -3,6 +3,8 @@
   "id": "businessExports",
   "name": "OpenCV Business Exports",
   "runtimeProduct": "businessExports",
+  "measurement": {"minimumBrightness": 100},
+  "pipeline": {"queueFullPolicy": "block", "faultPolicy": "stopSession"},
   "sources": [
     {
       "id": "side",

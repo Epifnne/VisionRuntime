@@ -8,15 +8,17 @@
 int main(int argc, char* argv[]) {
 	std::filesystem::path profilePath = VISION_EVENT_SAMPLE_PROFILE;
 	bool missing = false;
+	bool verify = false;
 	std::filesystem::path manifestPath;
 	for (int index = 1; index < argc; ++index) {
 		const std::string_view argument(argv[index]);
 		if (argument == "--missing-view") { missing = true; }
+		else if (argument == "--verify") { verify = true; }
 		else if (argument == "--export-manifest" && index + 1 < argc) { manifestPath = argv[++index]; }
 		else if (!argument.starts_with("--")) { profilePath = argv[index]; }
 		else {
 			std::cerr << "usage: eventInspectionSample [profile.json] [--missing-view] "
-				"[--export-manifest output.json]\n";
+				"[--verify] [--export-manifest output.json]\n";
 			return 1;
 		}
 	}
@@ -63,12 +65,14 @@ int main(int argc, char* argv[]) {
 	service.sessionController().waitForIdle();
 	service.shutdown();
 	const auto counts = service.sessionController().counters();
-	if (results != 4 || last.value("okCount", 0) != (missing ? 1 : 2) ||
+	if (verify && (results != 4 || last.value("okCount", 0) != (missing ? 1 : 2) ||
 		last.value("ngCount", 0) != 2 || last.value("faultCount", 0) != (missing ? 1 : 0) ||
 		counts.received != (missing ? 7 : 8) || counts.completed != (missing ? 7 : 8) ||
-		counts.failed || counts.sourceFailures || !service.sessionController().lastError().empty()) {
+		counts.failed || counts.sourceFailures || !service.sessionController().lastError().empty())) {
 		std::cerr << "unexpected event product results or frame counters\n";
 		return 2;
 	}
-	return 0;
+	return counts.failed || counts.sourceFailures ||
+		(!missing && last.value("faultCount", 0) != 0) ||
+		!service.sessionController().lastError().empty() || results == 0 ? 2 : 0;
 }

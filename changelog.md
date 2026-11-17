@@ -17,6 +17,10 @@
 
 ### Added
 
+- Unified all eight business samples around shared CLI/Shell product profiles:
+  configurable camera IPs or replay directories, C++ algorithm parameters and UI.
+  Added YOLO/CUDA product applications, explicit event camera/replay selection,
+  CPU profile integration tests and a YOLO desktop CI job.
 - Bounded whole-image `taskParallel` execution with independent factory-built
   Pipelines, configurable worker/max-in-flight limits, preallocated FIFO completion
   slots, task deadlines/cancellation and additive RuntimeFactory session overloads.
@@ -32,6 +36,8 @@
 
 ### Fixed
 
+- Made CI profile path assertions canonical-path aware on Windows and stream
+  coalescing tests deterministic without over-decrementing a one-shot latch.
 - Non-finite anomaly scores can no longer be classified as OK.
 - Batch failures are routed through one completion producer, preserve submission order alongside successful members, and validate per-member output cardinality.
 - Serial immediate-stop no longer accesses a moved-from running task during completion handoff.

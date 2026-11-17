@@ -1,0 +1,20 @@
+{
+  "schemaVersion": {"major": 1, "minor": 0},
+  "id": "yoloRouting", "name": "Simulated YOLO Routing", "runtimeProduct": "yoloRouting",
+  "sources": [
+    {"id": "files", "type": "directory", "directory": "../businessExports/images",
+     "extensions": [".pgm"], "loop": false}
+  ],
+  "routing": {"annotationDirectory": "annotations", "minimumConfidence": 0.0},
+  "pipeline": {"queueFullPolicy": "block", "faultPolicy": "stopSession"},
+  "ui": {"pages": [{"id": "monitor", "title": "Simulated YOLO Routing", "layout": "column", "children": [
+    {"type": "imageView", "endpoint": "routing.annotated", "fillWidth": true, "fillHeight": true},
+    {"type": "stateCard", "endpoint": "routing.result", "title": "Simulated Detection / Placeholder OCR"},
+    {"type": "stateCard", "endpoint": "session.summary", "title": "Summary"},
+    {"type": "row", "children": [
+      {"type": "commandButton", "endpoint": "session.start", "label": "Start"},
+      {"type": "commandButton", "endpoint": "session.stop", "label": "Stop"},
+      {"type": "commandButton", "endpoint": "session.recover", "label": "Recover"}
+    ]}
+  ]}]}
+}
