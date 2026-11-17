@@ -52,6 +52,10 @@
 - Duplicate `anomalyHikMvs` and `anomalyHikMvsMulti` samples and their dedicated
   build helper. Single-source and batch camera usage remain available through
   `anomalyDirectory` and `anomalyTensorRtMulti` profiles.
+- Consolidated the remaining six products into four sample families:
+  anomalyDirectory now includes serial/batch profiles; businessExports includes
+  CPU/CUDA profiles and mode-specific contracts. Removed the local A77 sample
+  without changing the independent DAG implementation or topology tests.
 
 ### Release status
 

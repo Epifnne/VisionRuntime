@@ -58,7 +58,7 @@ The command also generates `model.bin` and `model.build.json`. FP32 weights are 
 
 ## Optional OpenCV CUDA (No Model)
 
-[openCvCuda](Samples/openCvCuda/README.md) runs model-free threshold inspection
+[The CUDA measurement mode](Samples/businessExports/CUDA.md) runs model-free threshold inspection
 through the existing OpenCV pipeline and Runtime on an NVIDIA GPU. Enable
 `VISION_WITH_OPENCV_CUDA`, install matching OpenCV contrib 4.14.0 with
 `bootstrapOpenCvCudaDependencies`, and explicitly set
@@ -305,7 +305,7 @@ file directories, algorithm parameters remain separate from the C++ pipeline
 implementation, and `ui` defines the product Shell. Asset paths resolve relative
 to the profile, never the process working directory. Legacy positional camera,
 directory, model and deployment arguments have been replaced by this entry.
-See [the sample guide](Samples/README.md) for all six products and hardware requirements.
+See [the sample guide](Samples/README.md) for all four products and hardware requirements.
 `VISION_BUILD_SAMPLES=ON` also enables Service, which supplies the shared profile loader.
 
 Build a CLI/Shell/Designer kit with the common publisher:
@@ -536,7 +536,7 @@ selected inference/camera SDK development files must be installed.
 
 ```bat
 Samples\buildShell.cmd
-Samples\buildShell.cmd anomalyTensorRtMulti
+Samples\buildShell.cmd businessExports
 Samples\buildShell.cmd eventInspection
 Samples\buildShell.cmd yoloRouting
 ```

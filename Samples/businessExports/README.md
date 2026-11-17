@@ -1,6 +1,7 @@
 # Declarative business exports (CLI + product Shell)
 
-This model-free example uses OpenCV to measure mean brightness. Its CLI and
+This model-free example uses OpenCV to measure CPU mean brightness or, when
+explicitly selected, CUDA bright-pixel fraction. Its CLI and
 product Shell link the **same** `visionProductApplication` business library.
 There is no IPC, source-code scanning, second runtime, or second camera owner.
 
@@ -8,6 +9,12 @@ There is no IPC, source-code scanning, second runtime, or second camera owner.
 `measurement.minimumBrightness`, pipeline queue/fault settings and `ui`.
 Camera input requires `-DVISION_CAMERA_SDK=HIK_MVS`; no SDK is required for the
 bundled replay. Relative paths resolve against the profile, not the working directory.
+
+`profile-cuda.json` selects `measurement.mode:"cuda"` and configures
+`cuda.device`, `cuda.threshold`, `cuda.minimumBrightFraction` and its own UI.
+Both modes publish `measure.result`, with `brightness` for CPU or `brightFraction`
+for CUDA; their acceptance parameters are mode-specific. CUDA support is opt-in
+at build time and never falls back to CPU. See [the GPU guide](CUDA.md).
 
 ## One-click workflow (recommended)
 
@@ -37,6 +44,8 @@ Publish\release\
   run-cli.cmd                             Run the same business from a console
   profiles\businessExports.json            Starter UI/configuration
   profiles\businessExports.manifest.json   Automatically generated bindings
+  profiles\businessExports-cuda.json       Optional GPU UI/configuration
+  profiles\businessExports-cuda.manifest.json GPU-specific bindings (offline)
   profiles\images\                        Bundled synthetic replay images
   runtimeTemplates\windows\                Product Shell, CLI and dependencies
   visionDesigner\                         Designer and dependencies
@@ -84,7 +93,7 @@ In Designer, open the profile. The build-directory Designer discovers the
 manifest next to its executable; packaged profiles discover their sibling
 manifest. Bind a
 `statNumber` to `measure.result`; the field selector offers `brightness`,
-`accepted`, `sequence`, `valid`, and `error`. Unknown declared-schema fields
+`brightFraction`, `accepted`, `sequence`, `valid`, and `error`. Unknown declared-schema fields
 fail validation. `resultTable` displays the complete result.
 
 Designer preview remains a simulation, not an execution of business code.

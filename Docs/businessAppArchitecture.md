@@ -137,10 +137,10 @@ GUI 与业务共享一个 Runtime；进程外监控仍需另行实现 IPC。
 
 ### 步骤 3：编写终端 exe
 
-照 `Samples/anomalyTensorRtMulti/anomalyTensorRtMultiSample.cpp` 结构，只改两处：
+照 `Samples/anomalyDirectory/anomalyDirectorySample.cpp` 的多源分支结构，只改两处：
 
 - `setPreprocessor(...)` 换成 appcore 的自定义节点；
-- `PipelineTimingObserver`（或 executor 的 `CompletionCallback`）里调用
+- executor 的 `CompletionCallback`（或 session 的结果 observer）里调用
   `resultDispatcher`，而不是打印到 stderr。
 
 CMake 要点（照 samples 惯例）：

@@ -17,7 +17,11 @@ set(productManifest "")
 set(productDependencies "")
 set(productCliFile "")
 set(productAssets "")
+set(extraProfiles "")
+set(manifestGenerator "")
 if(VISION_PRODUCT_APPLICATION)
+	file(GLOB extraProfiles CONFIGURE_DEPENDS "${VISION_PRODUCT_APPLICATION}/profile-*.json")
+	set(manifestGenerator "$<TARGET_FILE:visionProductManifestGenerator>")
 	set(VISION_PUBLISH_PRODUCT "${VISION_APPLICATION_ID}")
 	get_target_property(sampleProfile visionProductApplication VISION_PRODUCT_PROFILE)
 	get_target_property(productManifest visionProductApplication VISION_PRODUCT_MANIFEST)
@@ -46,6 +50,19 @@ else()
 		"\"../runtimeTemplates/${VISION_SAMPLE_PLATFORM}/plugins\"")
 	set(sampleProfile "${CMAKE_CURRENT_BINARY_DIR}/sample-profile.json")
 	file(WRITE "${sampleProfile}" "${sampleDocument}\n")
+	file(GLOB sourceProfiles CONFIGURE_DEPENDS "${VISION_SAMPLE_DIRECTORY}/profile-*.json")
+	foreach(sourceProfile IN LISTS sourceProfiles)
+		file(READ "${sourceProfile}" document)
+		string(JSON document SET "${document}" model backendId "\"${VISION_SAMPLE_BACKEND}\"")
+		string(JSON document SET "${document}" model device "\"${VISION_SAMPLE_DEVICE}\"")
+		string(JSON document SET "${document}" model pluginDirectory
+			"\"../runtimeTemplates/${VISION_SAMPLE_PLATFORM}/plugins\"")
+		get_filename_component(name "${sourceProfile}" NAME)
+		set(extraProfile "${CMAKE_CURRENT_BINARY_DIR}/${name}")
+		set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${sourceProfile}")
+		file(WRITE "${extraProfile}" "${document}\n")
+		list(APPEND extraProfiles "${extraProfile}")
+	endforeach()
 	include("${CMAKE_CURRENT_LIST_DIR}/anomalySample.cmake")
 	vision_add_anomaly_sample(${VISION_PRODUCT_SAMPLE})
 	list(APPEND productDependencies ${VISION_PRODUCT_SAMPLE}Sample)
@@ -59,6 +76,8 @@ add_custom_target(publishSampleShell
 		"-DSHELL_EXE=$<TARGET_FILE:visionShell>"
 		"-DDESIGNER_EXE=$<TARGET_FILE:visionDesigner>"
 		"-DPROFILE=${sampleProfile}"
+		"-DEXTRA_PROFILES=${extraProfiles}"
+		"-DMANIFEST_GENERATOR=${manifestGenerator}"
 		"-DMANIFEST=${productManifest}"
 		"-DCLI_EXE=${productCliFile}"
 		"-DPROFILE_ASSETS=${productAssets}"

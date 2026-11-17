@@ -1,6 +1,6 @@
 # OpenCV CUDA inspection (no model)
 
-This optional NVIDIA GPU sample replaces model inference with an
+This optional mode of `businessExports` replaces model inference with an
 `IOpenCvAlgorithm<InspectionResult>` in the existing `OpenCvPipeline` and Runtime.
 It uploads Gray8 frames, thresholds pixels strictly above 127 on the GPU, counts
 nonzero pixels on the GPU, and accepts frames whose bright fraction is at least
@@ -35,7 +35,7 @@ cmake -S . -B Build\OpenCvCuda -G Ninja `
   -DVISION_OPENCV_CUDA_ARCH_BIN=8.6 `
   -DCUDAToolkit_ROOT=D:\cuda `
   -DVISION_BUILD_SAMPLES=ON
-cmake --build Build\OpenCvCuda --target openCvCudaSample openCvCudaTest --parallel 4
+cmake --build Build\OpenCvCuda --target businessExportsSample openCvCudaTest --parallel 4
 ```
 
 For multiple deployed architectures, quote the list:
@@ -61,8 +61,8 @@ CUDA's runtime DLL directory must be on PATH. Recent Toolkits can place DLLs in
 
 ```powershell
 $env:PATH = "D:\cuda\bin\x64;D:\cuda\bin;$env:PATH"
-.\Build\OpenCvCuda\bin\openCvCudaSample.exe --self-test
-.\Build\OpenCvCuda\bin\openCvCudaSample.exe .\Samples\openCvCuda\profile.json
+.\Build\OpenCvCuda\bin\businessExportsSample.exe --self-test
+.\Build\OpenCvCuda\bin\businessExportsSample.exe .\Samples\businessExports\profile-cuda.json
 ctest --test-dir Build\OpenCvCuda -L opencv-cuda --output-on-failure
 ```
 
@@ -77,11 +77,13 @@ completed frames. Directory images must be 8-bit grayscale, not BGR or Gray16.
 CLI and product Shell share the profile-driven business library. Configure the
 directory or camera IP in `sources`, the device/threshold/acceptance fraction in
 `cuda`, and the GUI in `ui`; relative paths resolve against the profile.
-`Samples\buildShell.cmd openCvCuda -DVISION_OPENCV_CUDA_ARCH_BIN=8.6 -DCUDAToolkit_ROOT=D:\cuda`
-builds the dedicated GUI kit. Add `-DVISION_CAMERA_SDK=HIK_MVS` for real cameras.
+`Samples\buildShell.cmd businessExports -DVISION_WITH_OPENCV_CUDA=ON -DVISION_OPENCV_CUDA_ARCH_BIN=8.6 -DCUDAToolkit_ROOT=D:\cuda`
+builds the GUI kit with both CPU and CUDA starter profiles. Open
+`profiles/businessExports-cuda.json` for GPU measurement.
+Add `-DVISION_CAMERA_SDK=HIK_MVS` for real cameras.
 See [the common profile guide](../README.md). There is still no CPU fallback.
 
-For a standalone sample build, use `-S Samples\openCvCuda` with the same CUDA
+For a standalone sample build, use `-S Samples\businessExports` with the same CUDA
 options. Executable output follows the selected OpenCV/CMake generator layout;
 multi-config builds require `--config Release` and `ctest -C Release`.
 

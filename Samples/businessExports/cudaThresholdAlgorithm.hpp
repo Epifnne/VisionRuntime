@@ -11,6 +11,8 @@
 
 namespace visionSample::openCvCuda {
 
+int runCudaSelfTest(int device);
+
 struct InspectionResult {
 	std::uint64_t sequence = 0;
 	double brightFraction = 0;

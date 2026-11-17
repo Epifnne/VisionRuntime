@@ -2,13 +2,13 @@
   "schemaVersion": {"major": 1, "minor": 0},
   "id": "anomaly-tensorrt-multi",
   "name": "Anomaly TensorRT Multi-Camera Batch Sample",
-  "runtimeProduct": "anomalyTensorRtMulti",
+  "runtimeProduct": "anomalyDirectory",
   "durationMilliseconds": 20000,
   "sources": [
     {"id": "files0", "type": "directory", "directory": "image/camera1", "extensions": [".bmp"], "loop": true},
     {"id": "files1", "type": "directory", "directory": "image/camera2", "extensions": [".bmp"], "loop": true}
   ],
-  "model": {"packagePath": "model", "backendId": "tensorrt", "device": "0", "pluginDirectory": "plugins"},
+  "model": {"packagePath": "model-batch", "backendId": "tensorrt", "device": "0", "pluginDirectory": "plugins"},
   "channels": 1,
   "backend": {
     "streams": 2,

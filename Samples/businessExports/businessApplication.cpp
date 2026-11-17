@@ -5,6 +5,9 @@
 #include "pipeline/openCvPipelineBuilder.hpp"
 #include "runtime/runtimeFactory.hpp"
 #include "../common/profileSupport.hpp"
+#ifdef VISION_MEASUREMENT_CUDA
+#include "cudaThresholdAlgorithm.hpp"
+#endif
 
 #include <opencv2/core.hpp>
 
@@ -43,25 +46,78 @@ private:
 	std::shared_ptr<std::atomic<double>> minimum_;
 };
 
+#ifdef VISION_MEASUREMENT_CUDA
+class CudaMeasurementAlgorithm final : public pipeline::IOpenCvAlgorithm<Measurement> {
+public:
+	CudaMeasurementAlgorithm(
+		std::unique_ptr<visionSample::openCvCuda::CudaThresholdAlgorithm> algorithm,
+		std::shared_ptr<std::atomic<double>> minimum)
+		: algorithm_(std::move(algorithm)), minimum_(std::move(minimum)) {}
+
+	core::Result<Measurement> process(const pipeline::PipelinePacket& packet) override {
+		auto result = algorithm_->process(packet);
+		if (!result) {
+			return core::Result<Measurement>::failure(result.status());
+		}
+		return core::Result<Measurement>::success(Measurement{
+			.sequence = result->sequence, .brightFraction = result->brightFraction,
+			.accepted = result->brightFraction >= minimum_->load(), .valid = true});
+	}
+
+private:
+	std::unique_ptr<visionSample::openCvCuda::CudaThresholdAlgorithm> algorithm_;
+	std::shared_ptr<std::atomic<double>> minimum_;
+};
+#endif
+
 } // namespace
 
 core::Result<visionService::ProductApplication> createApplication(
 	const visionService::profile::ProductProfile& profile) {
 	using Application = visionService::ProductApplication;
 	Application application;
-	const auto& contract = businessContract();
+	auto cuda = measurementUsesCuda(profile);
+	if (!cuda) { return core::Result<Application>::failure(cuda.status()); }
+#ifndef VISION_MEASUREMENT_CUDA
+	if (cuda.value()) {
+		return visionSample::profileError<Application>(
+			"CUDA measurement requires VISION_WITH_OPENCV_CUDA=ON; CPU fallback is disabled");
+	}
+#endif
+	const auto& contract = businessContract(cuda.value());
 	auto manifest = describeApplication(profile);
 	if (!manifest) {
 		return core::Result<Application>::failure(manifest.status());
 	}
 	application.expectedManifest = std::move(manifest).value();
 	double configuredMinimum = 100;
+#ifdef VISION_MEASUREMENT_CUDA
+	int device = 0;
+	double threshold = 127;
+#endif
 	try {
 		const auto document = nlohmann::json::parse(profile.documentJson);
-		configuredMinimum = document.value("measurement", nlohmann::json::object())
-			.value("minimumBrightness", 100.0);
-		if (!std::isfinite(configuredMinimum) || configuredMinimum < 0 || configuredMinimum > 255) {
-			return visionSample::profileError<Application>("measurement.minimumBrightness must be in [0, 255]");
+		if (cuda.value()) {
+			const auto& config = document.at("cuda");
+#ifdef VISION_MEASUREMENT_CUDA
+			const auto& value = config.at("device");
+			if (!value.is_number_integer() || value.get<std::int64_t>() < 0 ||
+				value.get<std::int64_t>() > std::numeric_limits<int>::max()) {
+				return visionSample::profileError<Application>("cuda.device must be a nonnegative device index");
+			}
+			device = value.get<int>();
+			threshold = config.at("threshold").get<double>();
+#endif
+			configuredMinimum = config.at("minimumBrightFraction").get<double>();
+		} else {
+			configuredMinimum = document.value("measurement", nlohmann::json::object())
+				.value("minimumBrightness", 100.0);
+		}
+		if (!std::isfinite(configuredMinimum) || configuredMinimum < 0 ||
+			configuredMinimum > (cuda.value() ? 1 : 255)) {
+			return visionSample::profileError<Application>(cuda.value()
+				? "cuda.minimumBrightFraction must be in [0, 1]"
+				: "measurement.minimumBrightness must be in [0, 255]");
 		}
 	} catch (const nlohmann::json::exception& exception) {
 		return visionSample::profileError<Application>(std::string("measurement configuration: ") + exception.what());
@@ -93,7 +149,18 @@ core::Result<visionService::ProductApplication> createApplication(
 		return core::Result<Application>::failure(source.status());
 	}
 	pipeline::OpenCvPipelineBuilder<Measurement> builder;
-	auto pipeline = builder.setAlgorithm(std::make_unique<BrightnessAlgorithm>(minimum)).build();
+	std::unique_ptr<pipeline::IOpenCvAlgorithm<Measurement>> algorithm;
+#ifdef VISION_MEASUREMENT_CUDA
+	if (cuda.value()) {
+		auto gpu = visionSample::openCvCuda::CudaThresholdAlgorithm::create(device, threshold, configuredMinimum);
+		if (!gpu) { return core::Result<Application>::failure(gpu.status()); }
+		algorithm = std::make_unique<CudaMeasurementAlgorithm>(std::move(gpu).value(), minimum);
+	} else
+#endif
+	{
+		algorithm = std::make_unique<BrightnessAlgorithm>(minimum);
+	}
+	auto pipeline = builder.setAlgorithm(std::move(algorithm)).build();
 	if (!pipeline) {
 		return core::Result<Application>::failure(pipeline.status());
 	}

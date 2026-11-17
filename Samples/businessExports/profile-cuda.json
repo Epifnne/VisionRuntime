@@ -1,16 +1,19 @@
 {
   "schemaVersion": {"major": 1, "minor": 0},
-  "id": "openCvCuda", "name": "OpenCV CUDA Inspection", "runtimeProduct": "openCvCuda",
+  "id": "measurement-cuda", "name": "OpenCV CUDA Inspection",
+  "runtimeProduct": "businessExports",
   "sources": [
-    {"id": "files", "type": "directory", "directory": "../businessExports/images",
+    {"id": "files", "type": "directory", "directory": "images",
      "extensions": [".pgm"], "loop": false}
   ],
+  "measurement": {"mode": "cuda"},
   "cuda": {"device": 0, "threshold": 127, "minimumBrightFraction": 0.5},
   "pipeline": {"queueFullPolicy": "block", "faultPolicy": "stopSession"},
   "ui": {"pages": [{"id": "monitor", "title": "CUDA Inspection", "layout": "column", "children": [
     {"type": "imageView", "endpoint": "stream.files", "fillWidth": true, "fillHeight": true},
-    {"type": "statNumber", "endpoint": "cuda.result", "field": "brightFraction"},
-    {"type": "stateCard", "endpoint": "cuda.result", "title": "GPU Result (No CPU Fallback)"},
+    {"type": "statNumber", "endpoint": "measure.result", "field": "brightFraction"},
+    {"type": "parameterForm", "endpoint": "measure.minimumBrightFraction"},
+    {"type": "stateCard", "endpoint": "measure.result", "title": "GPU Result (No CPU Fallback)"},
     {"type": "row", "children": [
       {"type": "commandButton", "endpoint": "session.start", "label": "Start"},
       {"type": "commandButton", "endpoint": "session.stop", "label": "Stop"},

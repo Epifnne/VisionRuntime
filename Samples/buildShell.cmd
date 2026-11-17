@@ -128,7 +128,7 @@ exit /b 1
 :help
 echo Usage: buildShell.cmd [sample] [CMake configure options]
 echo Default sample: anomalyDirectory
-echo Samples: eventInspection, businessExports, yoloRouting, openCvCuda, anomalyDirectory, anomalyTensorRtMulti
+echo Samples: anomalyDirectory, businessExports, eventInspection, yoloRouting
 echo Qt is detected from QTDIR or common Qt install directories.
 echo Override QT_DIR and optional VCVARS64 at the top of this script if needed.
 echo Environment overrides: VISION_SHELL_QT_DIR, VISION_SHELL_VCVARS64,

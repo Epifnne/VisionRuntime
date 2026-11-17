@@ -52,12 +52,7 @@ createProductRuntime(const visionService::profile::ProductProfile& profile,
 		if (!config) { return core::Result<Session>::failure(config.status()); }
 		options.sources.push_back(std::move(config).value());
 	}
-	auto built = createSampleRuntime(std::move(options));
-	if (!built) {
-		return core::Result<Session>::failure(built.status());
-	}
-	return core::Result<Session>::success(
-		visionService::session::adoptRuntime(std::move(built).value()));
+	return createSampleRuntime(std::move(options));
 }
 
 } // namespace visionSample

@@ -68,7 +68,7 @@
 16. 回归：vendorPluginTest.cpp TensorRT 用例。
 
 ### Phase 7 — Sample 与端到端（依赖 2、3、5/6 至少其一）
-17. 多源示例现统一为 `Samples/anomalyTensorRtMulti/`：profile 的 sources 配置相机 IP 或目录，构建 MultiCameraSession + BatchPipelineExecutor；completion 回调打印 (cameraId, score)。
+17. 多源示例现统一为 `Samples/anomalyDirectory/profile-batch.json`：profile 的 sources 配置相机 IP 或目录，构建 MultiCameraSession + BatchPipelineExecutor；结果 observer 接收 (cameraId, score)。
 18. Runtime/CMakeLists 与 Samples 的 CMake 显式登记全部新文件；测试在 Runtime/tests/CMakeLists.txt:182 之后登记。
 
 ### Phase 8 — 文档收尾
@@ -81,14 +81,14 @@
 - Phase 8 文档收尾完成：`Docs/architecture.md` 多通道章节与 `Docs/backendPlugins.md` 动态 batch 契约已更新；changelog 已记录。
 - 后续重构（2026-09-16）：拼接/单次推理/切片从执行器收编进 `Pipeline::inferBatch`（共享 helpers 在 `pipeline/batchTensors.hpp`），执行器只负责凑批与超时 flush 调度，不再直调后端，`backend()` 访问器已移除——Phase 3 中"推理 worker 直调 `IInferenceBackend`"的描述以重构后结构为准。
 - 基准结论（MinGW Debug + OpenVINO CPU）：4 源不限流时 batch=4 与 batch=1 均约 300 fps（预处理单线程饱和），batch 吞吐收益 <3%，收益场景在 GPU/TensorRT 等高 per-call 开销后端。
-- 示例精简后，早期 `anomalyHikMvsMulti` 已删除；其多源用法由 `anomalyTensorRtMulti` 的 profile 覆盖，后端仍可配置。
+- 示例精简后，早期独立的 HikMvs/TensorRT 多源产品已合并到 `anomalyDirectory` 的 batch profile，后端仍可配置。
 
 ## 验证
 
 1. Windows MSVC（Ninja）configure + build + ctest 全绿，含新增单测（batchPipelineExecutorTest、packet/preset/vendor 扩展用例）。
 2. WSL GNU 全量构建 + ctest 无回归。
 3. 构建 `anomalyDirectorySample` 并在 profile 中配置单相机，确认单源用法不回归。
-4. 手动：两台（或一真一目录源模拟）相机跑 anomalyTensorRtMulti，验证吞吐提升与 (cameraId, 结果) 对应正确；观察 flushTimeout 下延迟上界。
+4. 手动：两台（或一真一目录源模拟）相机配置到 anomalyDirectory 的 batch profile，验证吞吐提升与 (cameraId, 结果) 对应正确；观察 flushTimeout 下延迟上界。
 
 ## 明确排除
 

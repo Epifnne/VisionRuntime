@@ -1,6 +1,9 @@
 #include "cudaThresholdAlgorithm.hpp"
 
 #include "pipeline/openCvPipelineBuilder.hpp"
+#include "exports/productEntry.hpp"
+#include "service/visionService.hpp"
+#include <nlohmann/json.hpp>
 
 #include <opencv2/imgproc.hpp>
 #include <gtest/gtest.h>
@@ -15,6 +18,27 @@
 namespace visionSample::openCvCuda {
 namespace {
 using namespace visionRuntime;
+
+TEST(CudaMeasurementProfile, AppliesLiveAcceptanceParameterToGpuResults) {
+	visionService::VisionService service(visionProduct::createApplication);
+	ASSERT_TRUE(service.loadProfile(VISION_CUDA_TEST_PROFILE));
+	std::vector<nlohmann::json> results;
+	auto subscribed = service.endpoints().subscribeState("measure.result", [&](const auto& snapshot) {
+		auto result = nlohmann::json::parse(snapshot.payload);
+		if (result.value("valid", false)) { results.push_back(std::move(result)); }
+	});
+	ASSERT_TRUE(subscribed);
+	ASSERT_TRUE(service.endpoints().writeParameter("measure.minimumBrightFraction", 0.0));
+	ASSERT_TRUE(service.endpoints().invokeCommand("session.start"));
+	service.sessionController().waitForIdle();
+	service.shutdown();
+	ASSERT_EQ(results.size(), 2U);
+	EXPECT_EQ(results[0]["brightFraction"], 0);
+	EXPECT_EQ(results[1]["brightFraction"], 1);
+	EXPECT_EQ(results[0]["accepted"], true);
+	EXPECT_EQ(results[1]["accepted"], true);
+	EXPECT_EQ(service.sessionController().counters().completed, 2U);
+}
 
 vision::Frame makeFrame(const cv::Mat& image,
 	vision::PixelFormat format = vision::PixelFormat::Gray8,

@@ -4,16 +4,13 @@ Every business sample has a `profile.json` shared by its CLI and product Shell:
 
 | Sample | C++ pipeline | Product-specific profile fields |
 | --- | --- | --- |
-| anomalyDirectory | Single-source preprocess / backend / anomaly threshold | `model`, `pipeline` |
-| anomalyTensorRtMulti | Multi-source batch pipeline, TensorRT tuning | `model`, `pipeline`, `backend`, `durationMilliseconds` |
-| businessExports | OpenCV mean brightness | `measurement.minimumBrightness` |
+| anomalyDirectory | Single-source serial or multi-source batch anomaly inference | `sources`, `model`, `pipeline`, `backend`, `durationMilliseconds` |
+| businessExports | CPU mean brightness or optional CUDA threshold measurement | `measurement.mode`, `measurement.minimumBrightness`, `cuda` |
 | eventInspection | Event-driven top brightness and side edge routes | `inspection`, `simulation` (business sensor schedule) |
 | yoloRouting | Synthetic detections / object-defect-text routing / placeholder OCR | `routing.minimumConfidence`, `routing.annotationDirectory` |
-| openCvCuda | GPU threshold and bright-fraction measurement | `cuda.device`, `cuda.threshold`, `cuda.minimumBrightFraction` |
 
 Pipeline operators and connections remain C++; profiles do not load arbitrary
-code or dynamically define a graph. The local experimental A77 DAG acceptance
-tool is not part of this business-product interface.
+code or dynamically define a graph.
 
 ## CLI and GUI
 
@@ -25,9 +22,9 @@ Service), build `<sample>Sample`, then run:
 .\Build\YourBuild\bin\yoloRoutingSample.exe .\Samples\yoloRouting\profile.json
 ```
 
-All six business CLIs accept `<profile.json>`, not positional camera IPs,
-input directories, model packages or deployment files. The explicit CUDA
-`--self-test [device-index]` and event simulation acceptance options remain.
+All four business CLIs accept `<profile.json>`, not positional camera IPs,
+input directories, model packages or deployment files. The measurement CLI's
+`--self-test [device-index]` checks CUDA; event simulation acceptance options remain.
 `eventInspectionSample --verify` checks the original synthetic 2 OK / 2 NG
 scenario; normal execution accepts profile-defined algorithm decisions.
 
@@ -57,6 +54,21 @@ the existing Service profile schema. Single-source products require exactly one
 entry; batch products accept multiple entries. Anomaly, brightness, event and
 CUDA pipelines require Gray8; YOLO also supports BGR8/BGRA8.
 
+`anomalyDirectory/profile.json` is the single-source starter.
+`anomalyDirectory/profile-batch.json` uses the same executable for multiple
+sources and TensorRT batch/stream tuning. One source with `maxBatchSize` omitted
+or 1 uses the serial runtime; multiple sources or `maxBatchSize > 1` select the
+batch runtime. A compatible dynamic-batch model is required for batches above 1.
+The backend is selected by `model.backendId`, not by the sample name.
+
+`businessExports/profile.json` defaults to `measurement.mode:"cpu"`.
+`businessExports/profile-cuda.json` selects `"cuda"` explicitly, with GPU
+device/pixel threshold/minimum fraction under `cuda`. Both use `measure.result`;
+CPU publishes `brightness`, CUDA publishes `brightFraction`. Their writable
+acceptance parameters are `measure.minimumBrightness` and
+`measure.minimumBrightFraction`, respectively. Missing CUDA support fails;
+there is no CPU fallback or claim that the two algorithms are equivalent.
+
 Relative directories, model/plugin locations and annotation outputs resolve
 against the profile's directory, including when launched from another working
 directory. Set paths for the actual deployment; no installed model or backend
@@ -79,19 +91,22 @@ the two route decisions. Edge measurement compares the first two image columns.
 Declaration-based products generate their custom endpoint manifests offline.
 Anomaly templates expose the shared Service endpoints.
 
-The duplicate `anomalyHikMvs` and `anomalyHikMvsMulti` products have been removed.
-Use `anomalyDirectory` for single-source anomaly inference and
-`anomalyTensorRtMulti` for multi-source batch inference; both accept camera or
-directory sources and select their backend through the profile.
+The old HikMvs and TensorRT multi-source products are folded into
+`anomalyDirectory`; `openCvCuda` is folded into `businessExports`. Select the
+corresponding starter profile rather than a separate executable. Published kits
+include `<sample>-batch.json` or `<sample>-cuda.json`; the CUDA profile has its
+own offline-generated endpoint manifest.
 
 ## Hardware and tests
 
 Vendor anomaly inference requires the selected backend plugin and a compatible
 model. CUDA additionally requires matching contrib sources, Toolkit, driver and
 `VISION_WITH_OPENCV_CUDA=ON` with `VISION_OPENCV_CUDA_ARCH_BIN` explicitly set.
-See the [CUDA guide](openCvCuda/README.md). CUDA is not silently tested on CPU.
+See the [CUDA guide](businessExports/CUDA.md). CUDA is not silently tested on CPU.
 
-CTest `profile.*` tests replay all five CPU-capable products from profile-relative
-temporary directories, exercise configured algorithms and missing-input errors,
-and use the existing fake backend only in anomaly tests. CI also builds/publishes
-the YOLO product Shell. Real camera and GPU validation remain hardware-specific.
+CTest `profile.*` tests replay all four products plus the anomaly batch profile
+from profile-relative temporary directories. They exercise configured algorithms,
+missing-input errors and invalid mode rejection, using the existing fake backend
+only in anomaly tests. CPU builds also verify explicit CUDA rejection; CUDA builds
+add the hardware-labelled measurement profile test. CI builds/publishes the
+product Shells. Real camera and GPU validation remain hardware-specific.
